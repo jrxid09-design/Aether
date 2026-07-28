@@ -1,4 +1,4 @@
-const repository = require("../repositories/sqliteMemoryRepository");
+const repository = require("../repositories/memoryRepository");
 const { MAX_HISTORY_MESSAGES } = require("../config/constants");
 
 class MemoryManager {

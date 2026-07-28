@@ -1,17 +1,20 @@
-const conversations = new Map();
+const memoryConfig = require("../config/memory");
 
-class MemoryRepository {
-  get(sessionId) {
-    return conversations.get(sessionId) || [];
-  }
+let repository;
 
-  save(sessionId, history) {
-    conversations.set(sessionId, history);
-  }
+switch (memoryConfig.provider) {
+  case "sqlite":
+    repository = require("./sqliteMemoryRepository");
+    break;
 
-  delete(sessionId) {
-    conversations.delete(sessionId);
-  }
+  case "memory":
+    repository = require("./inMemoryRepository");
+    break;
+
+  default:
+    throw new Error(
+      `Unsupported memory provider: ${memoryConfig.provider}`
+    );
 }
 
-module.exports = new MemoryRepository();
+module.exports = repository;
