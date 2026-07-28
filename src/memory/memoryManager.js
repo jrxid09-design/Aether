@@ -1,28 +1,29 @@
-const conversations = require("./conversationStore");
+const repository = require("../repositories/memoryRepository");
 const { MAX_HISTORY_MESSAGES } = require("../config/constants");
 
 class MemoryManager {
   getHistory(sessionId) {
-    return conversations.get(sessionId) || [];
+    return repository.get(sessionId);
   }
 
   addMessage(sessionId, role, content) {
-    const history = this.getHistory(sessionId);
+    const history = repository.get(sessionId);
 
     history.push({
-  role,
-  content,
-});
+      role,
+      content,
+      timestamp: new Date().toISOString(),
+    });
 
-if (history.length > MAX_HISTORY_MESSAGES) {
-  history.shift();
-}
+    if (history.length > MAX_HISTORY_MESSAGES) {
+      history.shift();
+    }
 
-conversations.set(sessionId, history);
+    repository.save(sessionId, history);
   }
 
   clear(sessionId) {
-    conversations.delete(sessionId);
+    repository.delete(sessionId);
   }
 }
 
