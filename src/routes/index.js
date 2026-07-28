@@ -4,6 +4,12 @@ const systemController = require("../controllers/systemController");
 
 const router = express.Router();
 
+const AppError = require("../errors/AppError");
+
+router.get("/error", (req, res, next) => {
+  next(new AppError("Testing Global Error Handler", 500));
+});
+
 router.get("/", systemController.home);
 
 router.get("/health", systemController.health);
