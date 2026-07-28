@@ -3,26 +3,16 @@ const { MAX_HISTORY_MESSAGES } = require("../config/constants");
 
 class MemoryManager {
   async getHistory(sessionId) {
-    return await repository.get(sessionId);
+    return repository.get(sessionId);
   }
 
   async addMessage(sessionId, role, content) {
-    const history = await repository.get(sessionId);
-
-    if (history.length >= MAX_HISTORY_MESSAGES) {
-      await repository.clear(sessionId);
-
-      const trimmed = history.slice(-(MAX_HISTORY_MESSAGES - 1));
-
-      for (const message of trimmed) {
-        await repository.save(sessionId, message);
-      }
-    }
-
     await repository.save(sessionId, {
       role,
       content,
     });
+
+    await repository.trim(sessionId, MAX_HISTORY_MESSAGES);
   }
 
   async clear(sessionId) {

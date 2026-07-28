@@ -73,6 +73,43 @@ class SQLiteMemoryRepository {
       );
     });
   }
+
+  trim(sessionId, limit) {
+    return new Promise((resolve, reject) => {
+      db.run(
+        `
+        DELETE FROM messages
+        WHERE id IN (
+          SELECT id
+          FROM messages
+          WHERE session_id = ?
+          ORDER BY id ASC
+          LIMIT (
+            SELECT CASE
+              WHEN COUNT(*) > ? THEN COUNT(*) - ?
+              ELSE 0
+            END
+            FROM messages
+            WHERE session_id = ?
+          )
+        )
+        `,
+        [
+          sessionId,
+          limit,
+          limit,
+          sessionId,
+        ],
+        (err) => {
+          if (err) {
+            return reject(err);
+          }
+
+          resolve();
+        }
+      );
+    });
+  }
 }
 
 module.exports = new SQLiteMemoryRepository();
