@@ -1,29 +1,32 @@
-const repository = require("../repositories/memoryRepository");
+const repository = require("../repositories/sqliteMemoryRepository");
 const { MAX_HISTORY_MESSAGES } = require("../config/constants");
 
 class MemoryManager {
-  getHistory(sessionId) {
-    return repository.get(sessionId);
+  async getHistory(sessionId) {
+    return await repository.get(sessionId);
   }
 
-  addMessage(sessionId, role, content) {
-    const history = repository.get(sessionId);
+  async addMessage(sessionId, role, content) {
+    const history = await repository.get(sessionId);
 
-    history.push({
-      role,
-      content,
-      timestamp: new Date().toISOString(),
-    });
+    if (history.length >= MAX_HISTORY_MESSAGES) {
+      await repository.clear(sessionId);
 
-    if (history.length > MAX_HISTORY_MESSAGES) {
-      history.shift();
+      const trimmed = history.slice(-(MAX_HISTORY_MESSAGES - 1));
+
+      for (const message of trimmed) {
+        await repository.save(sessionId, message);
+      }
     }
 
-    repository.save(sessionId, history);
+    await repository.save(sessionId, {
+      role,
+      content,
+    });
   }
 
-  clear(sessionId) {
-    repository.delete(sessionId);
+  async clear(sessionId) {
+    await repository.clear(sessionId);
   }
 }
 

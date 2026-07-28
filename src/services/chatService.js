@@ -3,19 +3,21 @@ const memory = require("../memory/memoryManager");
 
 class ChatService {
   async chat(sessionId, message) {
-    memory.addMessage(sessionId, "user", message);
+    await memory.addMessage(sessionId, "user", message);
 
-    const history = memory.getHistory(sessionId);
+    const history = await memory.getHistory(sessionId);
 
     console.log("===== HISTORY =====");
     console.dir(history, { depth: null });
 
     const result = await aiProvider.chat(history);
 
-    memory.addMessage(sessionId, "assistant", result.reply);
+    await memory.addMessage(sessionId, "assistant", result.reply);
 
     console.log("===== AFTER AI =====");
-    console.dir(memory.getHistory(sessionId), { depth: null });
+    console.dir(await memory.getHistory(sessionId), {
+      depth: null,
+    });
 
     return result;
   }
