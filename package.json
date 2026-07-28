@@ -1,0 +1,31 @@
+{
+  "name": "aether",
+  "version": "1.0.0",
+  "description": "Aether adalah AI Assistant lokal yang dibangun untuk berjalan di server pribadi.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jrxid09-design/Aether.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/jrxid09-design/Aether/issues"
+  },
+  "homepage": "https://github.com/jrxid09-design/Aether#readme",
+  "dependencies": {
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}
