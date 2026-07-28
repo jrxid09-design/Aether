@@ -1,11 +1,13 @@
 const express = require("express");
+const config = require("../config/env");
 
 const router = express.Router();
 
 router.get("/", (req, res) => {
   res.json({
-    name: "Aether",
-    version: "0.1.0",
+    name: config.appName,
+    version: config.version,
+    environment: config.environment,
     status: "online"
   });
 });
@@ -25,7 +27,7 @@ router.get("/api", (req, res) => {
 
 router.get("/api/version", (req, res) => {
   res.json({
-    version: "0.1.0"
+    version: config.version
   });
 });
 

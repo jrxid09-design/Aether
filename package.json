@@ -23,6 +23,7 @@
   },
   "homepage": "https://github.com/jrxid09-design/Aether#readme",
   "dependencies": {
+    "dotenv": "^17.4.2",
     "express": "^5.2.1"
   },
   "devDependencies": {

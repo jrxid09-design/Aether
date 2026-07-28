@@ -1,7 +1,11 @@
 const app = require("./app");
+const config = require("./config/env");
+const logger = require("./utils/logger");
 
-const PORT = process.env.PORT || 3000;
+app.listen(config.port, () => {
+  logger.info(
+    `${config.appName} v${config.version} is running on http://localhost:${config.port}`
+  );
 
-app.listen(PORT, () => {
-  console.log(`Aether is running on http://localhost:${PORT}`);
+  logger.info(`Environment: ${config.environment}`);
 });
