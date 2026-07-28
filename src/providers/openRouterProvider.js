@@ -1,27 +1,31 @@
 const axios = require("axios");
 
+const aiConfig = require("../config/ai");
+const systemPrompt = require("../config/systemPrompt");
+
 class OpenRouterProvider {
   async chat(messages) {
     try {
       const payload = {
-        model: process.env.OPENROUTER_MODEL,
+        model: aiConfig.model,
+
         messages: [
           {
             role: "system",
-            content:
-              "You are Aether, a helpful, intelligent, and concise AI assistant.",
+            content: systemPrompt,
           },
           ...messages,
         ],
-      };
 
-      console.log("===== PAYLOAD =====");
-      console.dir(payload, { depth: null });
+        temperature: aiConfig.temperature,
+        max_tokens: aiConfig.maxTokens,
+      };
 
       const response = await axios.post(
         "https://openrouter.ai/api/v1/chat/completions",
         payload,
         {
+          timeout: aiConfig.timeout,
           headers: {
             Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
             "Content-Type": "application/json",
@@ -29,15 +33,24 @@ class OpenRouterProvider {
         }
       );
 
-      console.log("===== RESPONSE =====");
-      console.dir(response.data, { depth: null });
+      const reply = response.data?.choices?.[0]?.message?.content;
+
+      if (!reply) {
+        console.error("Unexpected OpenRouter response:");
+        console.dir(response.data, { depth: null });
+
+        throw new Error("OpenRouter returned an empty response.");
+      }
 
       return {
-        reply: response.data.choices[0].message.content,
+        reply,
         provider: "openrouter",
       };
     } catch (error) {
-      console.error("OpenRouter Error:", error.response?.data);
+      console.error(
+        "OpenRouter Error:",
+        error.response?.data || error.message
+      );
 
       throw new Error(
         error.response?.data?.error?.message || error.message
