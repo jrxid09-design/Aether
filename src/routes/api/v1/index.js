@@ -6,15 +6,13 @@ const router = express.Router();
 const { chatValidation } = require("../../../validators/chatValidator");
 const validate = require("../../../middleware/validate");
 
+const chatController = require("../../../controllers/chatController");
+
 router.post(
   "/chat",
   chatValidation,
   validate,
-  (req, res) => {
-    response.success(res, "Validation passed", {
-      message: req.body.message,
-    });
-  }
+  chatController.chat
 );
 
 router.get("/", (req, res) => {
