@@ -1,34 +1,17 @@
 const express = require("express");
-const config = require("../config/env");
+const response = require("../utils/response");
+const systemController = require("../controllers/systemController");
 
 const router = express.Router();
 
-router.get("/", (req, res) => {
-  res.json({
-    name: config.appName,
-    version: config.version,
-    environment: config.environment,
-    status: "online"
-  });
-});
+router.get("/", systemController.home);
 
-router.get("/health", (req, res) => {
-  res.json({
-    status: "healthy",
-    uptime: process.uptime()
-  });
-});
+router.get("/health", systemController.health);
 
 router.get("/api", (req, res) => {
-  res.json({
-    message: "Aether API"
-  });
+  response.success(res, "Aether API");
 });
 
-router.get("/api/version", (req, res) => {
-  res.json({
-    version: config.version
-  });
-});
+router.get("/api/version", systemController.version);
 
 module.exports = router;
