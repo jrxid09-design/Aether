@@ -1,4 +1,5 @@
 const conversations = require("./conversationStore");
+const { MAX_HISTORY_MESSAGES } = require("../config/constants");
 
 class MemoryManager {
   getHistory(sessionId) {
@@ -9,11 +10,15 @@ class MemoryManager {
     const history = this.getHistory(sessionId);
 
     history.push({
-      role,
-      content,
-    });
+  role,
+  content,
+});
 
-    conversations.set(sessionId, history);
+if (history.length > MAX_HISTORY_MESSAGES) {
+  history.shift();
+}
+
+conversations.set(sessionId, history);
   }
 
   clear(sessionId) {
