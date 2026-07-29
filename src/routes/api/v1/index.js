@@ -7,6 +7,21 @@ const { chatValidation } = require("../../../validators/chatValidator");
 const validate = require("../../../middleware/validate");
 
 const chatController = require("../../../controllers/chatController");
+const sessionController = require("../../../controllers/sessionController");
+
+router.get("/debug/messages", sessionController.debug);
+
+router.get("/sessions", sessionController.getAll);
+
+router.get(
+  "/sessions/:sessionId",
+  sessionController.getMessages
+);
+
+router.delete(
+  "/sessions/:sessionId",
+  sessionController.delete
+);
 
 router.post(
   "/chat",

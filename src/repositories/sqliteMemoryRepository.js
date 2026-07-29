@@ -29,31 +29,31 @@ class SQLiteMemoryRepository {
   }
 
   save(sessionId, message) {
-    return new Promise((resolve, reject) => {
-      db.run(
-        `
-        INSERT INTO messages (
-          session_id,
-          role,
-          content
-        )
-        VALUES (?, ?, ?)
-        `,
-        [
-          sessionId,
-          message.role,
-          message.content,
-        ],
-        (err) => {
-          if (err) {
-            return reject(err);
-          }
-
-          resolve();
+  return new Promise((resolve, reject) => {
+    db.run(
+      `
+      INSERT INTO messages (
+        session_id,
+        role,
+        content
+      )
+      VALUES (?, ?, ?)
+      `,
+      [
+        sessionId,
+        message.role,
+        message.content,
+      ],
+      function (err) {
+        if (err) {
+          return reject(err);
         }
-      );
-    });
-  }
+
+        resolve();
+      }
+    );
+  });
+}
 
   clear(sessionId) {
     return new Promise((resolve, reject) => {

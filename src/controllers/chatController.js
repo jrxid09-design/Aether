@@ -4,12 +4,15 @@ const response = require("../utils/response");
 class ChatController {
   async chat(req, res, next) {
     try {
-      // Sementara gunakan satu session untuk testing
-      const sessionId = "default";
+      console.log("BODY:", req.body);
+
+      const { sessionId, message } = req.body;
+
+      console.log("SESSION:", sessionId);
 
       const result = await chatService.chat(
         sessionId,
-        req.body.message
+        message
       );
 
       return response.success(

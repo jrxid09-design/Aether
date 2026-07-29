@@ -1,6 +1,11 @@
 const { body } = require("express-validator");
 
 exports.chatValidation = [
+  body("sessionId")
+    .trim()
+    .notEmpty()
+    .withMessage("Session ID is required"),
+
   body("message")
     .trim()
     .notEmpty()
