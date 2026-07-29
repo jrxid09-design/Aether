@@ -1,9 +1,19 @@
+const aiProvider = require("../../providers/aiProvider");
+
 class LLMClient {
 
-    async plan() {}
+  async generate({
+    systemPrompt,
+    history,
+  }) {
 
-    async reason() {}
+    return await aiProvider.chat({
+      systemPrompt,
+      history,
+    });
 
-    async summarize() {}
+  }
 
 }
+
+module.exports = new LLMClient();
