@@ -6,14 +6,19 @@ class ChatController {
     try {
       console.log("BODY:", req.body);
 
-      const { sessionId, message } = req.body;
+      const {
+    sessionId,
+    prompt,
+    message,
+} = req.body;
 
       console.log("SESSION:", sessionId);
 
       const result = await chatService.chat(
-        sessionId,
-        message
-      );
+    sessionId,
+    message,
+    prompt
+);
 
       return response.success(
         res,

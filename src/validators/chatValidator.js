@@ -6,6 +6,12 @@ exports.chatValidation = [
     .notEmpty()
     .withMessage("Session ID is required"),
 
+  body("prompt")
+  .optional()
+  .trim()
+  .isLength({ min: 1 })
+  .withMessage("Prompt cannot be empty"),
+
   body("message")
     .trim()
     .notEmpty()

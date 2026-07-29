@@ -1,10 +1,8 @@
 const axios = require("axios");
-
 const aiConfig = require("../config/ai");
-const systemPrompt = require("../config/systemPrompt");
 
 class OpenRouterProvider {
-  async chat(messages) {
+  async chat({ systemPrompt, history }) {
     try {
       const payload = {
         model: aiConfig.model,
@@ -14,7 +12,7 @@ class OpenRouterProvider {
             role: "system",
             content: systemPrompt,
           },
-          ...messages,
+          ...history,
         ],
 
         temperature: aiConfig.temperature,
@@ -36,9 +34,6 @@ class OpenRouterProvider {
       const reply = response.data?.choices?.[0]?.message?.content;
 
       if (!reply) {
-        console.error("Unexpected OpenRouter response:");
-        console.dir(response.data, { depth: null });
-
         throw new Error("OpenRouter returned an empty response.");
       }
 
