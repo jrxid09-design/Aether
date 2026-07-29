@@ -1,20 +1,15 @@
 {
-    "id":"system.time",
-
-    "version":"1.0.0",
-
-    "name":"System Time",
-
-    "description":"Returns current server time.",
-
-    "category":"system",
-
-    "entry":"tool.js",
-
-    "permissions":[],
-
-    "tags":[
-        "time",
-        "clock"
+    "id": "filesystem",
+    "version": "1.0.0",
+    "name": "Filesystem",
+    "description": "File and directory operations.",
+    "category": "system",
+    "entry": "index.js",
+    "author": "Aether",
+    "permissions": [],
+    "tags": [
+        "filesystem",
+        "file",
+        "directory"
     ]
 }

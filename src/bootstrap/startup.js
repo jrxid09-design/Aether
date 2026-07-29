@@ -1,0 +1,36 @@
+const consoleUI = require("../utils/console");
+const pluginRegistry = require("../plugins/pluginRegistry");
+
+module.exports = (config) => {
+
+    console.clear();
+
+    console.log(`
+     █████╗ ███████╗████████╗██╗  ██╗███████╗██████╗
+    ██╔══██╗██╔════╝╚══██╔══╝██║  ██║██╔════╝██╔══██╗
+    ███████║█████╗     ██║   ███████║█████╗  ██████╔╝
+    ██╔══██║██╔══╝     ██║   ██╔══██║██╔══╝  ██╔══██╗
+    ██║  ██║███████╗   ██║   ██║  ██║███████╗██║  ██║
+    ╚═╝  ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝╚═╝  ╚═╝
+    `);
+
+    consoleUI.line();
+
+    console.log(` Version     : v${config.version}`);
+    console.log(` Environment : ${config.environment}`);
+    console.log(` URL         : http://localhost:${config.port}`);
+
+    consoleUI.section("Plugins");
+
+    for (const plugin of pluginRegistry.all()) {
+
+        consoleUI.success(plugin.manifest.name);
+
+        for (const tool of plugin.instance.tools) {
+            console.log(`    └─ ${tool.name}`);
+        }
+
+    }
+
+    consoleUI.line();
+};

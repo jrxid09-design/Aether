@@ -4,10 +4,13 @@ const app = require("./app");
 const config = require("./config/env");
 const logger = require("./utils/logger");
 
-app.listen(config.port, () => {
-  logger.info(
-    `${config.appName} v${config.version} is running on http://localhost:${config.port}`
-  );
+const startup = require("./bootstrap/startup");
 
-  logger.info(`Environment: ${config.environment}`);
+app.listen(config.port, () => {
+
+    startup(config);
+
+    logger.info("SQLite connected");
+    logger.info(`Server listening on http://localhost:${config.port}`);
+
 });

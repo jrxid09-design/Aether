@@ -1,13 +1,8 @@
-const TimeTool = require("./tool");
+const tools = require("./tool");
 
 module.exports = {
-
-    tool: new TimeTool(),
-
+    tools,
     skills: [],
-
     events: [],
-
     scheduler: []
-
 };

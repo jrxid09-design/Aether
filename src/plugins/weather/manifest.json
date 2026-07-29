@@ -1,20 +1,8 @@
 {
-    "id":"system.time",
-
-    "version":"1.0.0",
-
-    "name":"System Time",
-
-    "description":"Returns current server time.",
-
-    "category":"system",
-
-    "entry":"tool.js",
-
-    "permissions":[],
-
-    "tags":[
-        "time",
-        "clock"
-    ]
+  "id": "weather",
+  "name": "Weather",
+  "version": "1.0.0",
+  "description": "Weather information plugin",
+  "entry": "index.js",
+  "enabled": true
 }
