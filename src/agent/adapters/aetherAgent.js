@@ -1,54 +1,37 @@
-const BaseAgent = require("../baseAgent");
-const aiProvider = require("../../providers/aiProvider");
-const toolExecutor = require("../../tools/executor/toolExecutor");
+const AgentRuntime = require("../runtime/agentRuntime");
 
-class AetherAgent extends BaseAgent {
-  async run(context) {
-  console.log("[AetherAgent] Running");
-  console.log("[AetherAgent] Message:", context.message);
+const ToolPlanner = require("../planner/toolPlanner");
+const PlanExecutor = require("../executor/planExecutor");
+const Reasoner = require("../reasoning/reasoner");
+const Reflection = require("../reflection/reflectionEngine");
 
-  const history = [...context.history];
+class AetherAgent {
 
-  if (/jam|waktu|time/i.test(context.message)) {
-    console.log("[AetherAgent] Calling TimeTool");
+    constructor() {
 
-    const result = await toolExecutor.execute(
-      "getCurrentTime",
-      context
-    );
+        this.runtime = new AgentRuntime([
 
-    console.log("[AetherAgent] Tool Result:", result);
+            new ToolPlanner(),
 
-    history.push({
-      role: "system",
-      content: `The current server time is ${result.locale}. Use this value as the authoritative current time.`
-    });
-  }
+            new PlanExecutor(),
 
-  console.log("[AetherAgent] History:");
-  console.dir(history, { depth: null });
+            new Reasoner(),
 
-  return aiProvider.chat({
-    systemPrompt: context.systemPrompt,
-    history
-  });
-}
+            new Reflection()
 
-  async health() {
-    return {
-      provider: "aether",
-      status: "ready"
-    };
-  }
+        ]);
 
-  async listTools() {
-    return [
-      {
-        name: "getCurrentTime",
-        description: "Returns the current server time."
-      }
-    ];
-  }
+    }
+
+    async run(context) {
+
+        const state =
+            await this.runtime.run(context);
+
+        return state.response;
+
+    }
+
 }
 
 module.exports = new AetherAgent();

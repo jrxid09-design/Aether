@@ -6,3 +6,5 @@ build/
 logs/
 *.log
 .vscode/settings.json
+data/
+*.db
