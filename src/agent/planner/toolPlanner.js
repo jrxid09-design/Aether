@@ -1,32 +1,31 @@
 const AgentPhase = require("../runtime/agentPhase");
-const ExecutionPlan = require("../models/executionPlan");
+
+const rulePlanner = require("./rulePlanner");
+const llmPlanner = require("./llmPlanner");
 
 class ToolPlanner extends AgentPhase {
 
     async run(state) {
-        state.plan = await this.plan(state.context);
-    }
 
-    async plan(context) {
+        console.log("Planner Mode:", process.env.PLANNER_MODE);
 
-        const message = context.message.toLowerCase();
+        if (process.env.PLANNER_MODE === "llm") {
 
-        const plan = new ExecutionPlan({
-            thought: "Planning execution."
-        });
+            state.plan = await llmPlanner.plan(state);
 
-        if (
-            message.includes("jam") ||
-            message.includes("waktu")
-        ) {
-            plan.addStep({
-                tool: "getCurrentTime",
-                arguments: {}
-            });
+        } else {
+
+            state.plan = rulePlanner.plan(state.context);
+
         }
 
-        return plan;
+        console.log(
+            "Execution Plan:",
+            JSON.stringify(state.plan, null, 2)
+        );
+
     }
+
 }
 
 module.exports = ToolPlanner;

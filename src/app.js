@@ -1,5 +1,14 @@
 const express = require("express");
+const path = require("path");
 
+const pluginLoader = require("./plugins/pluginLoader");
+
+// Load semua plugin
+pluginLoader.load(
+    path.join(__dirname, "plugins")
+);
+
+// Tampilkan plugin/tool yang berhasil di-load
 require("./bootstrap/tools")();
 
 const routes = require("./routes");
@@ -15,7 +24,7 @@ app.use("/", routes);
 const response = require("./utils/response");
 
 app.use((req, res) => {
-  response.error(res, "Route not found", 404);
+    response.error(res, "Route not found", 404);
 });
 
 app.use(errorHandler);

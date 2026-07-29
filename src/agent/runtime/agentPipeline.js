@@ -27,7 +27,6 @@ class AgentPipeline {
 
     return state;
 
-
     return state;
 }
 

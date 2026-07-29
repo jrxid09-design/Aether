@@ -1,3 +1,5 @@
+require("./events/listeners/loggerListener");
+
 const app = require("./app");
 const config = require("./config/env");
 const logger = require("./utils/logger");

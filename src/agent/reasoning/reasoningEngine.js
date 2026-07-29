@@ -1,16 +1,25 @@
 const llm = require("./llmClient");
-const ReasoningContext = require("./reasoningContext");
+const promptBuilder = require("../prompts/promptBuilder");
 
 class ReasoningEngine {
 
-  async execute(state) {
+    async execute(state) {
 
-    const context =
-      new ReasoningContext(state);
+        const prompt = promptBuilder.buildReasoning(state);
 
-    return await llm.generate(context);
+        console.log("===== Reasoning Payload =====");
+        console.dir(prompt, { depth: null });
+        console.log("=============================");
 
-  }
+        const response = await llm.generate(prompt);
+
+        console.log("===== Reasoning Response =====");
+        console.dir(response, { depth: null });
+        console.log("==============================");
+
+        return response;
+
+    }
 
 }
 

@@ -1,6 +1,21 @@
-const toolRegistry = require("../tools");
+const pluginRegistry = require("../plugins/pluginRegistry");
 
 module.exports = () => {
-  console.log(`Loaded ${toolRegistry.list().length} tool(s)`);
-  console.table(toolRegistry.list());
+
+    for (const plugin of pluginRegistry.all()) {
+
+        console.log(
+            `Plugin Loaded : ${plugin.manifest.name}`
+        );
+
+        for (const tool of plugin.instance.tools) {
+
+            console.log(
+                `  └─ ${tool.name}`
+            );
+
+        }
+
+    }
+
 };
