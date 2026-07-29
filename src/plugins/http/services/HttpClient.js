@@ -1,3 +1,5 @@
+const fs = require("node:fs/promises");
+const path = require("node:path");
 class HttpClient {
 
     static async request(url, options = {}) {
@@ -40,12 +42,22 @@ class HttpClient {
 
             const contentType = response.headers.get("content-type") || "";
 
-            let data;
+            const hasBody =
+                fetchOptions.method !== "HEAD" &&
+                response.status !== 204 &&
+                response.status !== 205 &&
+                response.status !== 304;
 
-            if (contentType.includes("application/json")) {
-                data = await response.json();
-            } else {
-                data = await response.text();
+            let data = null;
+
+            if (hasBody) {
+
+                if (contentType.includes("application/json")) {
+                    data = await response.json();
+                } else {
+                    data = await response.text();
+                }
+
             }
 
             return {
@@ -122,7 +134,67 @@ class HttpClient {
         });
 
     }
+static async download(url, output, options = {}) {
 
+    const {
+        timeout = 30000,
+        headers = {}
+    } = options;
+
+    const controller = new AbortController();
+
+    const timer = setTimeout(() => {
+        controller.abort();
+    }, timeout);
+
+    try {
+
+        const response = await fetch(url, {
+            method: "GET",
+            headers,
+            signal: controller.signal
+        });
+
+        clearTimeout(timer);
+
+        if (!response.ok) {
+
+            return {
+                success: false,
+                status: response.status,
+                statusText: response.statusText
+            };
+
+        }
+
+        const buffer = Buffer.from(await response.arrayBuffer());
+
+        await fs.mkdir(path.dirname(output), {
+            recursive: true
+        });
+
+        await fs.writeFile(output, buffer);
+
+        return {
+            success: true,
+            status: response.status,
+            statusText: response.statusText,
+            path: output,
+            size: buffer.length
+        };
+
+    } catch (error) {
+
+        clearTimeout(timer);
+
+        return {
+            success: false,
+            error: error.message
+        };
+
+    }
+
+}
 }
 
 module.exports = HttpClient;
