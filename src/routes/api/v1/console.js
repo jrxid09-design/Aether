@@ -8,6 +8,7 @@ const pluginController = require("../../../controllers/pluginController");
 const memoryController = require("../../../controllers/memoryController");
 const voiceController = require("../../../controllers/voiceController");
 const forgeController = require("../../../controllers/forgeController");
+const telegramController = require("../../../controllers/telegramController");
 
 const router = express.Router();
 
@@ -42,6 +43,11 @@ router.get("/forge/:id", forgeController.read);
 router.post("/forge/:id/approve", forgeController.approve);
 router.post("/forge/:id/reject", forgeController.reject);
 router.delete("/forge/:id", forgeController.remove);
+
+// ---- Telegram --------------------------------------------------
+
+router.get("/telegram/status", telegramController.status);
+router.post("/telegram/test", telegramController.test);
 
 // ---- Integrasi eksternal ---------------------------------------
 

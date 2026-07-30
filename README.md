@@ -51,9 +51,11 @@ Aether CLI (antarmuka terminal — daemon harus jalan dulu):
 npm run cli
 ```
 
-Detail lengkap ada di [docs/console.md](docs/console.md),
-[docs/cli.md](docs/cli.md), [docs/memory.md](docs/memory.md), dan
-[docs/voice.md](docs/voice.md) (avatar + suara).
+Detail lengkap: [docs/console.md](docs/console.md),
+[docs/cli.md](docs/cli.md), [docs/memory.md](docs/memory.md),
+[docs/voice.md](docs/voice.md) (avatar + suara),
+[docs/forge.md](docs/forge.md) (Aether bikin tool sendiri), dan
+[docs/telegram.md](docs/telegram.md).
 
 ## Struktur
 

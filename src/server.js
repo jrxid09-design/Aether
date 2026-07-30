@@ -9,6 +9,7 @@ const startup = require("./bootstrap/startup");
 const telemetry = require("./services/telemetryService");
 const aiRuntime = require("./services/aiRuntimeService");
 const memory = require("./memory/services/MemoryService");
+const telegram = require("./services/telegramService");
 const { manager: integrations } = require("./integrations");
 
 const host = process.env.HOST ?? "0.0.0.0";
@@ -51,6 +52,11 @@ function bootSubsystems() {
         telemetry.error(`Integrasi gagal disiapkan: ${error.message}`);
         logger.error(`Integrasi gagal disiapkan: ${error.message}`);
     }
+
+    // Bot Telegram (nonaktif diam-diam bila token belum diset).
+    telegram.start().catch(error => {
+        telemetry.error(`Telegram gagal disiapkan: ${error.message}`);
+    });
 
     if (!process.env.AETHER_TOKEN) {
         telemetry.warn(
@@ -170,6 +176,7 @@ const shutdown = (signal) => {
 
     integrations.stopPolling();
     memory.stop();
+    telegram.stop();
 
     if (server) {
         server.close(() => process.exit(0));
