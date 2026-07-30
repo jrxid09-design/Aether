@@ -28,7 +28,12 @@ class AIRuntimeService {
             "ruangan di rumah, project yang sedang dikerjakan — dan cari dengan " +
             "memory_recall sebelum menjawab pertanyaan yang menyinggung hal yang pernah " +
             "dibicarakan. Jangan mengarang isi memori: kalau tidak menemukan, katakan " +
-            "belum tahu.";
+            "belum tahu.\n\n" +
+            "Kamu bebas merangkai beberapa tool berturut-turut untuk menuntaskan satu " +
+            "permintaan (mis. cari dulu, hitung, lalu simpan). Kalau kemampuan yang " +
+            "dibutuhkan belum ada, kamu boleh membuatnya sendiri lewat create_tool. " +
+            "Utamakan menyelesaikan tugas secara nyata dengan tool, bukan sekadar " +
+            "menjelaskan caranya.";
 
     }
 

@@ -70,7 +70,10 @@ class RuntimeOptions {
 
         };
 
-        this.maxToolIterations = 10;
+        // Beri ruang lebih agar Aether bisa merangkai beberapa tool
+        // berturut-turut dalam satu jawaban (mis. recall → hitung →
+        // simpan) tanpa cepat mentok.
+        this.maxToolIterations = 18;
 
 
     }

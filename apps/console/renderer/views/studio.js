@@ -234,21 +234,59 @@ function blankForm() {
         name: "",
         description: "",
         toolName: "",
-        params: [{ name: "", type: "string", description: "", required: true }],
+        mode: "form",
+        params: [{ name: "", type: "string", description: "", required: true, extra: "" }],
         code: "// args berisi parameter. Kembalikan objek hasil.\nreturn { ok: true };",
+        raw: RAW_TEMPLATE,
         isEdit: false
     };
 }
+
+const RAW_TEMPLATE = `// Mode kode penuh — kamu menulis seluruh tool.js.
+// Boleh lebih dari satu tool, import, dan helper.
+class MyTool {
+    constructor() {
+        this.name = "myTool";
+        this.description = "Apa yang dilakukan tool ini";
+        // Parameter bebas: string/number/boolean/array/object/enum,
+        // default, dll. Kosongkan {} untuk argumen bebas.
+        this.parameters = {
+            input: { type: "string", description: "masukan", required: true }
+        };
+    }
+    async execute(context, args = {}) {
+        return { ok: true, echo: args.input };
+    }
+}
+
+module.exports = [ new MyTool() ];
+`;
 
 function fromDetail(detail) {
 
     const spec = detail.spec ?? {};
 
+    // Tool mode kode penuh disimpan sebagai { raw }.
+    if (spec.raw) {
+        return {
+            id: detail.id,
+            name: detail.manifest?.name ?? detail.id,
+            description: detail.manifest?.description ?? "",
+            toolName: "",
+            mode: "raw",
+            params: [{ name: "", type: "string", description: "", required: true, extra: "" }],
+            code: "return { ok: true };",
+            raw: spec.raw,
+            isEdit: true
+        };
+    }
+
     const params = Object.entries(spec.parameters ?? {}).map(([name, p]) => ({
         name,
-        type: p.type ?? "string",
+        type: p.enum ? "enum" : (p.type ?? "string"),
         description: p.description ?? "",
-        required: Boolean(p.required)
+        required: Boolean(p.required),
+        extra: p.enum ? p.enum.join(", ") : (p.default !== undefined ? String(p.default) : "")
     }));
 
     return {
@@ -256,8 +294,10 @@ function fromDetail(detail) {
         name: detail.manifest?.name ?? detail.id,
         description: spec.description ?? detail.manifest?.description ?? "",
         toolName: spec.toolName ?? "",
-        params: params.length ? params : [{ name: "", type: "string", description: "", required: true }],
+        mode: "form",
+        params: params.length ? params : [{ name: "", type: "string", description: "", required: true, extra: "" }],
         code: spec.code ?? "return { ok: true };",
+        raw: RAW_TEMPLATE,
         isEdit: true
     };
 
@@ -272,7 +312,11 @@ function openEditor(root) {
     host.innerHTML = `
         <div class="panel-head">
             <h2>${editing.isEdit ? "Edit tool" : "Tool baru"}</h2>
-            <button class="btn ghost sm push" id="ed-close">${icon("x")} Tutup</button>
+            <div class="tabs push" style="padding:3px">
+                <button class="tab ${editing.mode === "form" ? "active" : ""}" data-mode="form">Formulir</button>
+                <button class="tab ${editing.mode === "raw" ? "active" : ""}" data-mode="raw">Kode penuh</button>
+            </div>
+            <button class="btn ghost sm" id="ed-close" style="margin-left:8px">${icon("x")} Tutup</button>
         </div>
 
         <div class="grid cols-3" style="gap:10px">
@@ -285,7 +329,7 @@ function openEditor(root) {
                 <label>Nama tampilan</label>
                 <input type="text" id="ed-name" value="${esc(editing.name)}" placeholder="Ping Host">
             </div>
-            <div class="field">
+            <div class="field" data-form-only>
                 <label>Nama fungsi (dipanggil model)</label>
                 <input type="text" id="ed-toolname" value="${esc(editing.toolName)}" placeholder="pingHost">
             </div>
@@ -297,18 +341,26 @@ function openEditor(root) {
                 placeholder="Apa yang dilakukan tool ini">
         </div>
 
-        <div class="field">
-            <label>Parameter</label>
-            <div id="ed-params" class="stack" style="gap:6px"></div>
-            <button class="btn ghost sm" id="ed-addparam" style="align-self:flex-start;margin-top:6px">
-                ${icon("plus")} Parameter
-            </button>
+        <div data-form-only>
+            <div class="field">
+                <label>Parameter <span class="dim">(kosongkan untuk argumen bebas)</span></label>
+                <div id="ed-params" class="stack" style="gap:6px"></div>
+                <button class="btn ghost sm" id="ed-addparam" style="align-self:flex-start;margin-top:6px">
+                    ${icon("plus")} Parameter
+                </button>
+            </div>
+
+            <div class="field">
+                <label>Kode — badan fungsi execute(context, args)</label>
+                <textarea id="ed-code" rows="8" spellcheck="false">${esc(editing.code)}</textarea>
+                <span class="help">JavaScript (Node). Boleh require bawaan & fetch. Gunakan <span class="mono">return { ... }</span>.</span>
+            </div>
         </div>
 
-        <div class="field">
-            <label>Kode — badan fungsi execute(context, args)</label>
-            <textarea id="ed-code" rows="9" spellcheck="false">${esc(editing.code)}</textarea>
-            <span class="help">JavaScript (Node). Boleh require bawaan & fetch. Gunakan <span class="mono">return { ... }</span>.</span>
+        <div class="field" data-raw-only>
+            <label>tool.js — kode penuh</label>
+            <textarea id="ed-raw" rows="16" spellcheck="false" class="mono">${esc(editing.raw)}</textarea>
+            <span class="help">Seluruh isi tool.js. Boleh banyak tool, import, helper. Harus <span class="mono">module.exports = [ ... ]</span>.</span>
         </div>
 
         <div class="row" style="margin-top:8px">
@@ -316,7 +368,27 @@ function openEditor(root) {
             <button class="btn primary" id="ed-activate">${icon("play")} Simpan &amp; aktifkan</button>
         </div>`;
 
-    drawParams(host);
+    const applyMode = () => {
+        host.querySelectorAll("[data-form-only]").forEach(el =>
+            el.style.display = editing.mode === "form" ? "" : "none");
+        host.querySelectorAll("[data-raw-only]").forEach(el =>
+            el.style.display = editing.mode === "raw" ? "" : "none");
+        host.querySelectorAll("[data-mode]").forEach(b =>
+            b.classList.toggle("active", b.dataset.mode === editing.mode));
+    };
+
+    if (editing.mode === "form") {
+        drawParams(host);
+    }
+    applyMode();
+
+    host.querySelectorAll("[data-mode]").forEach(btn => {
+        btn.addEventListener("click", () => {
+            editing.mode = btn.dataset.mode;
+            if (editing.mode === "form") drawParams(host);
+            applyMode();
+        });
+    });
 
     host.querySelector("#ed-close").addEventListener("click", () => {
         host.style.display = "none";
@@ -325,7 +397,7 @@ function openEditor(root) {
     });
 
     host.querySelector("#ed-addparam").addEventListener("click", () => {
-        editing.params.push({ name: "", type: "string", description: "", required: false });
+        editing.params.push({ name: "", type: "string", description: "", required: false, extra: "" });
         drawParams(host);
     });
 
@@ -340,24 +412,37 @@ function drawParams(host) {
 
     const list = host.querySelector("#ed-params");
 
+    const TYPES = ["string", "number", "boolean", "array", "object", "enum"];
+
     list.innerHTML = editing.params.map((p, i) => `
         <div class="row" data-param="${i}" style="gap:6px">
             <input type="text" data-p-name value="${esc(p.name)}" placeholder="nama" style="flex:1">
-            <select data-p-type style="width:110px">
-                ${["string", "number", "boolean"].map(t =>
-                    `<option value="${t}" ${t === p.type ? "selected" : ""}>${t}</option>`).join("")}
+            <select data-p-type style="width:100px">
+                ${TYPES.map(t => `<option value="${t}" ${t === p.type ? "selected" : ""}>${t}</option>`).join("")}
             </select>
             <input type="text" data-p-desc value="${esc(p.description)}" placeholder="deskripsi" style="flex:1.4">
+            <input type="text" data-p-extra value="${esc(p.extra ?? "")}"
+                placeholder="${p.type === "enum" ? "pilihan: a, b, c" : "default"}" style="flex:1"
+                title="${p.type === "enum" ? "opsi enum, pisah koma" : "nilai default (opsional)"}">
             <label class="switch" title="wajib"><input type="checkbox" data-p-req ${p.required ? "checked" : ""}><span class="track"></span></label>
             <button class="icon-btn" data-p-del>${icon("x")}</button>
         </div>`).join("");
 
     list.querySelectorAll("[data-param]").forEach(rowEl => {
         const i = Number(rowEl.dataset.param);
+        // Ubah placeholder kolom "extra" saat tipe berganti.
+        rowEl.querySelector("[data-p-type]").addEventListener("change", (e) => {
+            editing.params[i].type = e.target.value;
+            editing.params[i].name = rowEl.querySelector("[data-p-name]").value;
+            editing.params[i].description = rowEl.querySelector("[data-p-desc]").value;
+            editing.params[i].extra = rowEl.querySelector("[data-p-extra]").value;
+            editing.params[i].required = rowEl.querySelector("[data-p-req]").checked;
+            drawParams(host);
+        });
         rowEl.querySelector("[data-p-del]").addEventListener("click", () => {
             editing.params.splice(i, 1);
             if (editing.params.length === 0) {
-                editing.params.push({ name: "", type: "string", description: "", required: false });
+                editing.params.push({ name: "", type: "string", description: "", required: false, extra: "" });
             }
             drawParams(host);
         });
@@ -367,16 +452,47 @@ function drawParams(host) {
 
 function collect(host) {
 
+    // Mode kode penuh: kirim raw apa adanya.
+    if (editing.mode === "raw") {
+        return {
+            id: host.querySelector("#ed-id").value.trim(),
+            name: host.querySelector("#ed-name").value.trim(),
+            description: host.querySelector("#ed-desc").value.trim(),
+            origin: "manual",
+            raw: host.querySelector("#ed-raw").value
+        };
+    }
+
     const params = {};
 
     host.querySelectorAll("[data-param]").forEach(rowEl => {
         const name = rowEl.querySelector("[data-p-name]").value.trim();
         if (!name) return;
-        params[name] = {
-            type: rowEl.querySelector("[data-p-type]").value,
+
+        const type = rowEl.querySelector("[data-p-type]").value;
+        const extra = rowEl.querySelector("[data-p-extra]").value.trim();
+
+        const spec = {
+            type: type === "enum" ? "string" : type,
             description: rowEl.querySelector("[data-p-desc]").value.trim(),
             required: rowEl.querySelector("[data-p-req]").checked
         };
+
+        if (type === "enum" && extra) {
+            spec.enum = extra.split(",").map(s => s.trim()).filter(Boolean);
+        }
+        else if (extra) {
+            // Nilai default; angka/boolean dikonversi seperlunya.
+            spec.default = type === "number" ? Number(extra)
+                : type === "boolean" ? (extra === "true")
+                : extra;
+        }
+
+        if (type === "array") {
+            spec.items = { type: "string" };
+        }
+
+        params[name] = spec;
     });
 
     return {
@@ -400,8 +516,14 @@ async function save(root, activate) {
 
     const body = collect(host);
 
-    if (!body.id || !body.tool.name || !body.tool.code.trim()) {
-        toast("Id, nama fungsi, dan kode wajib diisi.", "warn");
+    const valid = body.raw
+        ? (body.id && body.raw.trim())
+        : (body.id && body.tool.name && body.tool.code.trim());
+
+    if (!valid) {
+        toast(body.raw
+            ? "Id dan kode wajib diisi."
+            : "Id, nama fungsi, dan kode wajib diisi.", "warn");
         return;
     }
 

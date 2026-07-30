@@ -72,6 +72,20 @@ class ToolForge {
 
         const tool = spec.tool ?? {};
 
+        // Mode KODE PENUH: pengguna/Aether menulis seluruh tool.js
+        // sendiri (boleh banyak tool, import, helper). Hanya perlu
+        // id + isi berkas; nama/parameter tidak wajib.
+        if (spec.raw || tool.raw) {
+
+            if (!String(spec.raw ?? tool.raw).trim()) {
+                throw new Error("Kode tool (mode penuh) kosong.");
+            }
+
+            return { id, tool, raw: String(spec.raw ?? tool.raw) };
+
+        }
+
+        // Mode FORMULIR:
         if (!/^[a-zA-Z][a-zA-Z0-9_]{1,40}$/.test(tool.name ?? "")) {
             throw new Error(
                 "Nama tool tidak valid. Pakai huruf/angka/underscore, diawali huruf (mis. 'pingHost')."
@@ -82,6 +96,7 @@ class ToolForge {
             throw new Error("Kode execute() tool kosong.");
         }
 
+        // parameters opsional (tool boleh tanpa skema/argumen bebas).
         if (tool.parameters && typeof tool.parameters !== "object") {
             throw new Error("parameters harus objek.");
         }
@@ -140,12 +155,16 @@ class ToolForge {
             forge: {
                 origin: spec.origin ?? "manual",
                 createdAt: new Date().toISOString(),
-                spec: {
-                    toolName: spec.tool.name,
-                    description: spec.tool.description ?? "",
-                    parameters: spec.tool.parameters ?? {},
-                    code: spec.tool.code
-                }
+                // Simpan spec asli agar bisa diedit ulang. Untuk mode
+                // kode penuh, cukup simpan flag + sumbernya.
+                spec: (spec.raw || spec.tool?.raw)
+                    ? { raw: String(spec.raw ?? spec.tool.raw) }
+                    : {
+                        toolName: spec.tool?.name,
+                        description: spec.tool?.description ?? "",
+                        parameters: spec.tool?.parameters ?? {},
+                        code: spec.tool?.code
+                    }
             }
         };
 
@@ -210,9 +229,12 @@ module.exports = [ new ${className}() ];
             "utf8"
         );
 
+        // Mode kode penuh: tulis apa adanya. Mode formulir: templat.
+        const raw = spec.raw ?? spec.tool?.raw;
+
         fs.writeFileSync(
             path.join(dir, "tool.js"),
-            this.toolSource(spec),
+            raw ? String(raw) : this.toolSource(spec),
             "utf8"
         );
 
@@ -269,7 +291,10 @@ module.exports = [ new ${className}() ];
 
         const { id } = this.validate(spec);
 
-        const risks = this.analyzeRisk(spec.tool.code);
+        // Sumber kode berbeda antara mode formulir vs kode penuh.
+        const risks = this.analyzeRisk(
+            spec.raw ?? spec.tool?.raw ?? spec.tool?.code
+        );
 
         const goLive = activate || this.autoApprove;
 
