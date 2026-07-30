@@ -3,6 +3,7 @@ import { api } from "../lib/api.js";
 import { icon } from "../lib/icons.js";
 import { esc, toast } from "../lib/ui.js";
 import { createAvatar } from "../lib/avatar.js";
+import { createAvatar3D } from "../lib/avatar3d.js";
 import { tts, MicRecorder } from "../lib/voice.js";
 
 /**
@@ -95,8 +96,14 @@ export const aether = {
                 <button class="btn primary" id="ae-send">${icon("send")} Kirim</button>
             </div>`;
 
-        // Pasang avatar.
-        avatar = createAvatar();
+        // Pasang avatar 3D; jatuh ke versi SVG bila WebGL tak ada.
+        try {
+            avatar = createAvatar3D();
+        }
+        catch (error) {
+            console.warn("Avatar 3D gagal, pakai SVG:", error.message);
+            avatar = createAvatar();
+        }
         root.querySelector("#ae-avatar").appendChild(avatar.el);
         setState(connected ? "idle" : "offline");
 
