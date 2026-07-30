@@ -207,6 +207,58 @@ class AetherApi {
         return this.request("/memory/embeddings/backfill", { method: "POST", timeout: 300000 });
     }
 
+    // ---- Multi-agent ------------------------------------------------
+
+    agents()             { return this.request("/agents", { timeout: 25000 }); }
+
+    /**
+     * Jalankan orkestrasi; panggil onEvent untuk tiap tahap
+     * (planning/plan/step:start/step:done/final). Pakai jalur SSE
+     * yang sama dengan chat.
+     */
+    async orchestrate(request, onEvent) {
+
+        const response = await fetch(`${this.root}/orchestrate`, {
+            method: "POST",
+            headers: this.headers({ "Content-Type": "application/json" }),
+            body: JSON.stringify({ request })
+        });
+
+        if (!response.ok) {
+            const detail = await response.json().catch(() => null);
+            throw new Error(detail?.message ?? `HTTP ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const frames = buffer.split(/\r?\n\r?\n/);
+            buffer = frames.pop() ?? "";
+
+            for (const frame of frames) {
+                let event = "message";
+                const dataLines = [];
+                for (const line of frame.split(/\r?\n/)) {
+                    if (line.startsWith("event:")) event = line.slice(6).trim();
+                    else if (line.startsWith("data:")) dataLines.push(line.slice(5).trim());
+                }
+                if (dataLines.length) {
+                    try { onEvent({ event, data: JSON.parse(dataLines.join("\n")) }); }
+                    catch { /* frame parsial */ }
+                }
+            }
+
+        }
+
+    }
+
     // ---- Forge (buat tool sendiri) ----------------------------------
 
     forgeList()          { return this.request("/forge"); }

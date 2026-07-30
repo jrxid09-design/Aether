@@ -624,6 +624,27 @@ input[type="range"]::-webkit-slider-thumb {
     box-shadow: inset 0 0 0 1px var(--line-strong);
 }
 
+/* ---- Orkestrasi (Agents) --------------------------------------------- */
+
+.orch-line {
+    padding: 6px 2px;
+    font-size: 13px;
+    line-height: 1.5;
+    animation: msg-in var(--base) both;
+}
+
+.orch-line .st { margin-left: 6px; }
+
+.orch-line .bubble {
+    margin-top: 4px;
+    padding: 12px 14px;
+    background: var(--bg-panel);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    white-space: pre-wrap;
+    user-select: text;
+}
+
 /* ---- Tampilan kode (Studio) ------------------------------------------ */
 
 .code-view {

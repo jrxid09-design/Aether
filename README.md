@@ -54,8 +54,9 @@ npm run cli
 Detail lengkap: [docs/console.md](docs/console.md),
 [docs/cli.md](docs/cli.md), [docs/memory.md](docs/memory.md),
 [docs/voice.md](docs/voice.md) (avatar + suara),
-[docs/forge.md](docs/forge.md) (Aether bikin tool sendiri), dan
-[docs/telegram.md](docs/telegram.md).
+[docs/forge.md](docs/forge.md) (Aether bikin tool sendiri),
+[docs/telegram.md](docs/telegram.md), dan
+[docs/agents.md](docs/agents.md) (orkestrasi multi-agent).
 
 ## Struktur
 
@@ -104,7 +105,7 @@ atau ditimpa lewat `AETHER_OPENCLAW_URL` / `AETHER_HERMES_URL`.
 | — | Console desktop + bidang kendali | ✅ |
 | 4 | Local Memory | ✅ |
 | 5 | Workflow Engine | ⬜ |
-| 6 | Multi-Agent | ⬜ |
+| 6 | Multi-Agent | ✅ |
 | 7 | Voice + Vision | ⬜ |
 | 8 | Home Automation | ⬜ |
 

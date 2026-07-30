@@ -9,6 +9,7 @@ const memoryController = require("../../../controllers/memoryController");
 const voiceController = require("../../../controllers/voiceController");
 const forgeController = require("../../../controllers/forgeController");
 const telegramController = require("../../../controllers/telegramController");
+const orchestratorController = require("../../../controllers/orchestratorController");
 
 const router = express.Router();
 
@@ -45,6 +46,11 @@ router.get("/forge/:id", forgeController.read);
 router.post("/forge/:id/approve", forgeController.approve);
 router.post("/forge/:id/reject", forgeController.reject);
 router.delete("/forge/:id", forgeController.remove);
+
+// ---- Multi-agent orkestrasi ------------------------------------
+
+router.get("/agents", orchestratorController.agents);
+router.post("/orchestrate", orchestratorController.orchestrate);
 
 // ---- Telegram --------------------------------------------------
 
