@@ -242,16 +242,19 @@ async function renderDaemonConfig(root) {
 
     try {
 
-        const [aiCfg, tg, voice] = await Promise.all([
+        const [aiCfg, tg, voice, homeCfg] = await Promise.all([
             api.request("/ai/config"),
             api.request("/telegram/status"),
-            api.voiceConfig()
+            api.voiceConfig(),
+            api.homeStatus().catch(() => null)
         ]);
 
-        host.innerHTML = aiPanel(aiCfg) + voicePanel(voice) + telegramPanel(tg);
+        host.innerHTML = aiPanel(aiCfg) + voicePanel(voice)
+            + homePanel(homeCfg) + telegramPanel(tg);
 
         wireAiPanel(root, aiCfg);
         wireVoicePanel(root);
+        wireHomePanel(root);
         wireTelegramPanel(root);
 
     }
@@ -378,6 +381,75 @@ function wireVoicePanel(root) {
         try {
             await api.saveVoiceConfig(body);
             toast("Konfigurasi suara disimpan", "ok");
+            await renderDaemonConfig(root);
+        }
+        catch (error) {
+            toast(error.message, "danger", 6000);
+        }
+
+    });
+
+}
+
+function homePanel(h) {
+
+    const online = h?.health?.online;
+
+    return `
+        <div class="panel">
+            <div class="panel-head">
+                <h2>${icon("home")} Rumah (Home Assistant)</h2>
+                <span class="push">${pill(
+                    !h?.configured ? "belum diatur" : (online ? "tersambung" : "offline"),
+                    !h?.configured ? "idle" : (online ? "ok" : "danger")
+                )}</span>
+            </div>
+
+            <div class="small muted" style="margin-bottom:10px">
+                Sambungkan ke Home Assistant untuk mengendalikan lampu, AC, saklar,
+                Sonoff, Zigbee, dll. Token = <em>long-lived access token</em> dari
+                profil HA-mu. Disimpan lokal (gitignored).
+            </div>
+
+            <div class="grid cols-2" style="gap:10px">
+                <div class="field">
+                    <label>URL Home Assistant</label>
+                    <input type="url" id="ha-url" value="${esc(h?.url ?? "")}"
+                        placeholder="http://192.168.1.10:8123">
+                </div>
+                <div class="field">
+                    <label>Token ${h?.hasToken ? `<span class="dim">(${esc(h.tokenHint)})</span>` : ""}</label>
+                    <input type="password" id="ha-token" placeholder="${h?.hasToken ? "isi untuk mengganti" : "long-lived access token"}">
+                </div>
+            </div>
+            ${h?.health?.error && h?.configured ? `<div class="small danger-text" style="margin-top:6px">${esc(h.health.error)}</div>` : ""}
+            <div class="row" style="margin-top:10px">
+                <button class="btn primary" id="ha-save">${icon("check")} Simpan &amp; sambungkan</button>
+            </div>
+        </div>`;
+
+}
+
+function wireHomePanel(root) {
+
+    const btn = root.querySelector("#ha-save");
+    if (!btn) return;
+
+    btn.addEventListener("click", async () => {
+
+        const body = { url: root.querySelector("#ha-url").value.trim() };
+        const token = root.querySelector("#ha-token").value.trim();
+        if (token) body.token = token;
+
+        try {
+            await api.saveHomeConfig(body);
+            const status = await api.homeStatus();
+            toast(
+                status.health?.online ? "Home Assistant tersambung ✅"
+                    : (status.health?.error ?? "Tersimpan"),
+                status.health?.online ? "ok" : "warn",
+                5000
+            );
             await renderDaemonConfig(root);
         }
         catch (error) {

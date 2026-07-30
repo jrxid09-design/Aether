@@ -10,6 +10,7 @@ const voiceController = require("../../../controllers/voiceController");
 const forgeController = require("../../../controllers/forgeController");
 const telegramController = require("../../../controllers/telegramController");
 const orchestratorController = require("../../../controllers/orchestratorController");
+const homeController = require("../../../controllers/homeController");
 
 const router = express.Router();
 
@@ -46,6 +47,14 @@ router.get("/forge/:id", forgeController.read);
 router.post("/forge/:id/approve", forgeController.approve);
 router.post("/forge/:id/reject", forgeController.reject);
 router.delete("/forge/:id", forgeController.remove);
+
+// ---- Home automation -------------------------------------------
+
+router.get("/home/status", homeController.status);
+router.get("/home/config", homeController.config);
+router.post("/home/config", homeController.saveConfig);
+router.get("/home/devices", homeController.devices);
+router.post("/home/control", homeController.control);
 
 // ---- Multi-agent orkestrasi ------------------------------------
 

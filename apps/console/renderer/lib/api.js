@@ -207,6 +207,14 @@ class AetherApi {
         return this.request("/memory/embeddings/backfill", { method: "POST", timeout: 300000 });
     }
 
+    // ---- Home automation --------------------------------------------
+
+    homeStatus()          { return this.request("/home/status", { timeout: 12000 }); }
+    homeConfig()          { return this.request("/home/config"); }
+    saveHomeConfig(b)     { return this.request("/home/config", { method: "POST", body: b }); }
+    homeDevices(domain)   { return this.request(`/home/devices${domain ? `?domain=${encodeURIComponent(domain)}` : ""}`, { timeout: 15000 }); }
+    homeControl(b)        { return this.request("/home/control", { method: "POST", body: b, timeout: 15000 }); }
+
     // ---- Multi-agent ------------------------------------------------
 
     agents()             { return this.request("/agents", { timeout: 25000 }); }

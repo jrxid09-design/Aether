@@ -13,18 +13,19 @@ import { devices } from "./views/devices.js";
 import { plugins } from "./views/plugins.js";
 import { studio } from "./views/studio.js";
 import { agents } from "./views/agents.js";
+import { home } from "./views/home.js";
 import { logs } from "./views/logs.js";
 import { settings } from "./views/settings.js";
 
 const VIEWS = [
     dashboard, aether, chat, memory, models,
-    integrations, devices, plugins, studio, agents, logs, settings
+    integrations, devices, plugins, studio, agents, home, logs, settings
 ];
 
 const GROUPS = [
     { label: "Pantau", ids: ["dashboard", "logs"] },
     { label: "Kerja", ids: ["aether", "chat", "memory", "models", "plugins", "studio", "agents"] },
-    { label: "Sistem", ids: ["integrations", "devices", "settings"] }
+    { label: "Sistem", ids: ["home", "integrations", "devices", "settings"] }
 ];
 
 let currentView = null;

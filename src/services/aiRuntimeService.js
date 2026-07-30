@@ -93,6 +93,9 @@ class AIRuntimeService {
         // sendiri lewat percakapan.
         builder.registerTools(require("./forgeTools").forgeTools());
 
+        // Tool kendali rumah (Home Assistant).
+        builder.registerTools(require("./homeTools").homeTools());
+
         this.engine = builder.build();
 
         this.activePlatform = resolved;
@@ -295,6 +298,10 @@ class AIRuntimeService {
         }
 
         for (const tool of require("./forgeTools").forgeTools()) {
+            registry.register(tool);
+        }
+
+        for (const tool of require("./homeTools").homeTools()) {
             registry.register(tool);
         }
 
