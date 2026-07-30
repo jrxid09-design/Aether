@@ -1,23 +1,33 @@
-class CurrentWeatherTool {
+class CurrentWeatherTool extends BaseTool {
 
     constructor() {
-        this.name = "currentWeather";
-        this.description = "Get current weather";
+
+        super({
+
+            name: "currentWeather",
+
+            description: "Current weather.",
+
+            parameters: {
+
+                city: {
+
+                    type: "string",
+
+                    required: true
+
+                }
+
+            }
+
+        });
+
     }
 
-    async execute(context, params = {}) {
+    async execute(args) {
 
-        return {
-            success: true,
-            data: {
-                city: params.city || "Unknown",
-                temperature: 30,
-                condition: "Sunny"
-            }
-        };
+        return WeatherService.current(args.city);
 
     }
 
 }
-
-module.exports = CurrentWeatherTool;

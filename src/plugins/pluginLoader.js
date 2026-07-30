@@ -3,76 +3,188 @@ const path = require("path");
 
 const pluginRegistry = require("./pluginRegistry");
 const pluginValidator = require("./pluginValidator");
-const toolIndex = require("./toolIndex");
+
+const {
+    ToolRegistry
+} = require("../core/tools");
 
 class PluginLoader {
 
     load(pluginRoot) {
 
         pluginRegistry.clear();
-        toolIndex.clear();
+        ToolRegistry.clear();
 
         const folders = fs.readdirSync(pluginRoot);
 
         for (const folder of folders) {
 
-            const pluginPath = path.join(pluginRoot, folder);
-
-            if (!fs.statSync(pluginPath).isDirectory())
-                continue;
-
-            const manifestPath = path.join(
-                pluginPath,
-                "manifest.json"
+            const pluginPath = path.join(
+                pluginRoot,
+                folder
             );
 
-            if (!fs.existsSync(manifestPath))
-                continue;
-
-            const manifest = JSON.parse(
-                fs.readFileSync(manifestPath, "utf8")
-            );
-
-            pluginValidator.validate(manifest);
-
-            const entryPath = path.join(
-                pluginPath,
-                manifest.entry
-            );
-
-            // Bersihkan cache saat development
-            delete require.cache[
-                require.resolve(entryPath)
-            ];
-
-            const instance = require(entryPath);
-
-            if (
-                !instance ||
-                !Array.isArray(instance.tools)
-            ) {
-                console.warn(
-                    `Skip Plugin : ${folder} (belum dimigrasikan)`
-                );
+            if (!this.isPluginDirectory(pluginPath)) {
                 continue;
             }
 
-            pluginRegistry.register({
-                manifest,
-                instance
-            });
+            try {
 
-            for (const tool of instance.tools) {
+                const manifest =
+                    this.loadManifest(pluginPath);
 
-                toolIndex.register(
-                    tool.name,
-                    manifest.id
+                const instance =
+                    this.loadPlugin(
+                        pluginPath,
+                        manifest
+                    );
+                const {
+                        LifecycleManager
+                    } = require("../core/lifecycle");
+
+                    await LifecycleManager.initialize(
+                                  instance
+                                );
+
+                const tools =
+                    this.loadTools(
+                        pluginPath
+                    );
+
+                this.registerPlugin(
+                    manifest,
+                    instance
+                );
+
+                this.registerTools(
+                    manifest,
+                    tools
+                );
+
+                console.log(
+                    `✓ Loaded Plugin : ${manifest.name}`
                 );
 
             }
+            catch (error) {
+
+                console.error(
+                    `✗ Failed Plugin : ${folder}`
+                );
+
+                console.error(error);
+
+            }
+
+        }
+
+    }
+
+    isPluginDirectory(pluginPath) {
+
+        return (
+            fs.existsSync(pluginPath) &&
+            fs.statSync(pluginPath).isDirectory() &&
+            fs.existsSync(
+                path.join(
+                    pluginPath,
+                    "manifest.json"
+                )
+            )
+        );
+
+    }
+
+    loadManifest(pluginPath) {
+
+        const manifest = JSON.parse(
+
+            fs.readFileSync(
+
+                path.join(
+                    pluginPath,
+                    "manifest.json"
+                ),
+
+                "utf8"
+
+            )
+
+        );
+
+        pluginValidator.validate(manifest);
+
+        return manifest;
+
+    }
+
+    loadPlugin(pluginPath, manifest) {
+
+        const entryPath = path.join(
+            pluginPath,
+            manifest.entry
+        );
+
+        if (!fs.existsSync(entryPath)) {
+            return {};
+        }
+
+        delete require.cache[
+            require.resolve(entryPath)
+        ];
+
+        return require(entryPath);
+
+    }
+
+    loadTools(pluginPath) {
+
+        const toolPath = path.join(
+            pluginPath,
+            "tool.js"
+        );
+
+        if (!fs.existsSync(toolPath)) {
+
+            return [];
+
+        }
+
+        delete require.cache[
+            require.resolve(toolPath)
+        ];
+
+        const tools = require(toolPath);
+
+        return Array.isArray(tools)
+            ? tools
+            : [];
+
+    }
+
+    registerPlugin(manifest, instance) {
+
+        pluginRegistry.register({
+
+            manifest,
+
+            instance
+
+        });
+
+    }
+
+    registerTools(manifest, tools) {
+
+        for (const tool of tools) {
+
+            ToolRegistry.register(
+                manifest.id,
+                tool
+            );
 
             console.log(
-                `Loaded Plugin : ${manifest.name}`
+                `   └── ${manifest.id}.${tool.metadata.name}`
             );
 
         }

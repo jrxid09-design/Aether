@@ -1,42 +1,17 @@
-class PluginRegistry {
+const { BaseRegistry } =
+    require("../core/registry");
 
-    constructor() {
-        this.plugins = new Map();
-    }
+class PluginRegistry extends BaseRegistry {
 
     register(plugin) {
 
-        this.plugins.set(plugin.manifest.id, plugin);
+        return super.register(
 
-    }
+            plugin.manifest.id,
 
-    get(id) {
+            plugin
 
-        return this.plugins.get(id);
-
-    }
-
-    all() {
-
-        return [...this.plugins.values()];
-
-    }
-
-    has(id) {
-
-        return this.plugins.has(id);
-
-    }
-
-    remove(id) {
-
-        this.plugins.delete(id);
-
-    }
-
-    clear() {
-
-        this.plugins.clear();
+        );
 
     }
 
