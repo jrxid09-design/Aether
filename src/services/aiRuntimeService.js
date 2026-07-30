@@ -32,44 +32,49 @@ class AIRuntimeService {
 
     }
 
-    /** Rakit engine dari environment. Aman dipanggil ulang (rebuild). */
+    /**
+     * Rakit engine dari konfigurasi provider (bukan lagi .env
+     * langsung). Aman dipanggil ulang — dipakai reconfigure()
+     * saat pengguna mengganti API key/platform dari Settings.
+     */
     initialize() {
+
+        const providerConfig = require("./providerConfigService");
+
+        const resolved = providerConfig.resolveActive();
 
         const builder = new Aether.Builder();
 
-        const ollamaUrl =
-            process.env.AETHER_OLLAMA_URL ??
-            process.env.OLLAMA_URL ??
-            "http://localhost:11434";
+        // Ollama selalu terdaftar sebagai jaring pengaman lokal.
+        const ollamaCfg = providerConfig.read().ollama ?? {};
 
         builder.ollama({
-            baseUrl: ollamaUrl,
+            baseUrl: ollamaCfg.baseUrl || "http://localhost:11434",
             timeout: 120000
         });
 
-        if (process.env.OPENROUTER_API_KEY) {
+        if (resolved.kind === "openai") {
 
-            builder.openRouter({
-                apiKey: process.env.OPENROUTER_API_KEY,
+            // Satu jalur OpenAI-compatible untuk platform apa pun.
+            builder.provider("openai", {
+                apiKey: resolved.apiKey,
+                baseUrl: resolved.baseUrl,
+                providerId: resolved.id,
                 timeout: 120000
             });
 
+            builder.use("openai");
+
+        }
+        else {
+            builder.use("ollama");
         }
 
-        const preferred =
-            (process.env.AI_PROVIDER ?? "ollama").toLowerCase();
-
-        builder.use(
-            builder.providers.has(preferred) ? preferred : "ollama"
-        );
-
-        const defaultModel =
-            preferred === "openrouter"
-                ? (process.env.OPENROUTER_MODEL ?? null)
-                : (process.env.OLLAMA_MODEL ?? "llama3.2");
-
-        if (defaultModel) {
-            builder.defaultModel(defaultModel);
+        if (resolved.model) {
+            builder.defaultModel(resolved.model);
+        }
+        else if (resolved.kind === "ollama") {
+            builder.defaultModel(ollamaCfg.model || "llama3.2");
         }
 
         builder.registerTools(this.bridgePluginTools());
@@ -85,10 +90,15 @@ class AIRuntimeService {
 
         this.engine = builder.build();
 
+        this.activePlatform = resolved;
+
         this.attachEvents();
 
         telemetry.info(
-            `AI runtime siap (provider=${this.engine.activeProviderId}, model=${defaultModel ?? "—"})`
+            `AI runtime siap (platform=${resolved.label}, model=${resolved.model ?? "default"})` +
+            (resolved.fellBackFrom
+                ? ` — key ${resolved.fellBackFrom} kosong, pakai Ollama`
+                : "")
         );
 
         return this;
@@ -199,6 +209,31 @@ class AIRuntimeService {
 
     }
 
+    /**
+     * Bangun ulang engine dari konfigurasi terkini. Dipanggil saat
+     * pengguna mengganti API key / platform lewat Settings — tanpa
+     * merestart daemon.
+     */
+    reconfigure() {
+
+        this.initialize();
+
+        const resolved = this.activePlatform;
+
+        telemetry.publish("ai:reconfigured", {
+            platform: resolved.label,
+            model: resolved.model
+        });
+
+        return {
+            platform: resolved.label,
+            kind: resolved.kind,
+            model: resolved.model,
+            fellBackFrom: resolved.fellBackFrom ?? null
+        };
+
+    }
+
     attachEvents() {
 
         const emitter = this.engine.getEventEmitter();
@@ -210,6 +245,14 @@ class AIRuntimeService {
             });
 
         }
+
+        // Langganan forge dipasang SEKALI saja pada telemetry global,
+        // supaya reconfigure() tidak menumpuk listener.
+        if (this.forgeSubscribed) {
+            return;
+        }
+
+        this.forgeSubscribed = true;
 
         // Saat forge menamb/menghapus tool, segarkan daftar tool
         // yang dilihat model — kalau tidak, tool baru buatan Aether

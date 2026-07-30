@@ -15,6 +15,24 @@ class TelegramController {
 
     }
 
+    /** Simpan token/allowlist dari Settings lalu start ulang bot. */
+    async saveConfig(req, res, next) {
+
+        try {
+
+            const { token, allowed } = req.body ?? {};
+
+            const status = await telegram.reconfigure({ token, allowed });
+
+            return response.success(res, "Telegram dikonfigurasi", status);
+
+        }
+        catch (error) {
+            return response.error(res, error.message, 400);
+        }
+
+    }
+
     /** Kirim pesan uji ke chat yang diizinkan. */
     async test(req, res, next) {
 

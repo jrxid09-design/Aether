@@ -11,13 +11,20 @@ class OpenRouterProvider extends BaseAIProvider {
 
         config,
 
-        mapper = new OpenRouterMapper()
+        mapper = new OpenRouterMapper(),
+
+        providerId = "openrouter"
 
     } = {}) {
 
         super();
 
         this.mapper = mapper;
+
+        // Platform aktual (openrouter/openai/google/groq/custom).
+        // Klien ini OpenAI-compatible, jadi satu implementasi
+        // melayani semuanya — hanya baseUrl + key yang berbeda.
+        this.providerId = providerId;
 
         this.client = new OpenRouterClient({
 
@@ -31,7 +38,7 @@ class OpenRouterProvider extends BaseAIProvider {
 
     get id() {
 
-        return "openrouter";
+        return this.providerId;
 
     }
 
@@ -74,7 +81,7 @@ class OpenRouterProvider extends BaseAIProvider {
 
             name: model.name ?? model.id,
 
-            provider: "openrouter",
+            provider: this.providerId,
 
             contextLength: model.context_length ?? null,
 

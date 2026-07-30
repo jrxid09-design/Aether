@@ -21,6 +21,13 @@ class AIProviderFactory {
             case "openrouter":
                 return this.createOpenRouter(options);
 
+            // Semua platform OpenAI-compatible (OpenAI, Google AI
+            // Studio, Groq, 9router, custom, ...) memakai jalur yang
+            // sama — hanya baseUrl + key yang berbeda.
+            case "openai":
+            case "openai-compatible":
+                return this.createOpenAICompatible(options);
+
             case "ollama":
                 return this.createOllama(options);
 
@@ -30,6 +37,33 @@ class AIProviderFactory {
                 );
 
         }
+
+    }
+
+    static createOpenAICompatible(options = {}) {
+
+        const config = new AIProviderConfig({
+
+            apiKey: options.apiKey,
+
+            baseUrl: options.baseUrl,
+
+            timeout: options.timeout,
+
+            headers: options.headers
+
+        });
+
+        return new OpenRouterProvider({
+
+            httpClient: options.httpClient,
+
+            config,
+
+            // Label/id platform untuk pelaporan (mis. "google").
+            providerId: options.providerId ?? "openai"
+
+        });
 
     }
 

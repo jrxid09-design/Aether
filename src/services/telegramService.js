@@ -1,4 +1,13 @@
+const path = require("node:path");
+
 const telemetry = require("./telemetryService");
+const JsonStore = require("../core/config/JsonStore");
+
+/** Setelan Telegram tersimpan (token via Settings, bukan hanya .env). */
+const store = new JsonStore(
+    path.join(__dirname, "..", "..", "configs", "telegram.json"),
+    { token: null, allowed: [] }
+);
 
 /**
  * Jembatan Telegram — remote control Aether dari mana saja.
@@ -16,11 +25,15 @@ class TelegramService {
 
     constructor() {
 
-        this.token = process.env.AETHER_TELEGRAM_TOKEN ?? null;
+        // Setelan tersimpan (Settings) menang atas .env, sehingga
+        // token bisa diisi lewat aplikasi tanpa menyentuh berkas.
+        const saved = store.read();
 
-        this.allowed = this.parseAllowed(
-            process.env.AETHER_TELEGRAM_ALLOWED
-        );
+        this.token = saved.token ?? process.env.AETHER_TELEGRAM_TOKEN ?? null;
+
+        this.allowed = saved.allowed?.length
+            ? new Set(saved.allowed.map(String))
+            : this.parseAllowed(process.env.AETHER_TELEGRAM_ALLOWED);
 
         this.api = this.token
             ? `https://api.telegram.org/bot${this.token}`
@@ -111,6 +124,53 @@ class TelegramService {
         this.pollController = null;
 
         return this;
+
+    }
+
+    /**
+     * Simpan token/allowlist dari Settings lalu start ulang bot
+     * dengan setelan baru — tanpa merestart daemon.
+     */
+    async reconfigure({ token, allowed } = {}) {
+
+        const current = store.read();
+
+        const next = {
+            token: token !== undefined ? (token || null) : current.token,
+            allowed: allowed !== undefined
+                ? this.parseAllowedList(allowed)
+                : current.allowed
+        };
+
+        store.write(next);
+
+        this.stop();
+
+        this.token = next.token;
+        this.allowed = new Set((next.allowed ?? []).map(String));
+        this.api = this.token ? `https://api.telegram.org/bot${this.token}` : null;
+        this.me = null;
+        this.offset = 0;
+
+        if (this.token) {
+            await this.start();
+        }
+
+        return this.status();
+
+    }
+
+    /** Terima array atau string berpisah-koma jadi array bersih. */
+    parseAllowedList(value) {
+
+        if (Array.isArray(value)) {
+            return value.map(v => String(v).trim()).filter(Boolean);
+        }
+
+        return String(value ?? "")
+            .split(",")
+            .map(s => s.trim())
+            .filter(Boolean);
 
     }
 
@@ -444,8 +504,13 @@ class TelegramService {
             configured: this.configured,
             running: this.running,
             username: this.me?.username ?? null,
+            allowed: [...this.allowed],
             allowedCount: this.allowed.size,
             openMode: this.allowed.size === 0,
+            hasToken: Boolean(this.token),
+            tokenHint: this.token
+                ? `${String(this.token).slice(0, 6)}…${String(this.token).slice(-4)}`
+                : null,
             lastError: this.lastError,
             startedAt: this.startedAt ? new Date(this.startedAt).toISOString() : null
         };

@@ -21,6 +21,8 @@ router.get("/events", telemetryController.events);
 
 // ---- AI runtime ------------------------------------------------
 
+router.get("/ai/config", aiController.config);
+router.post("/ai/config", aiController.saveConfig);
 router.get("/ai/providers", aiController.providers);
 router.post("/ai/provider", aiController.selectProvider);
 router.get("/ai/models", aiController.models);
@@ -47,6 +49,7 @@ router.delete("/forge/:id", forgeController.remove);
 // ---- Telegram --------------------------------------------------
 
 router.get("/telegram/status", telegramController.status);
+router.post("/telegram/config", telegramController.saveConfig);
 router.post("/telegram/test", telegramController.test);
 
 // ---- Integrasi eksternal ---------------------------------------

@@ -1,10 +1,64 @@
 const response = require("../utils/response");
 
 const aiRuntime = require("../services/aiRuntimeService");
+const providerConfig = require("../services/providerConfigService");
 
 const telemetry = require("../services/telemetryService");
 
 class AIController {
+
+    /** Konfigurasi provider untuk Settings (API key dimasking). */
+    config(req, res, next) {
+
+        try {
+            return response.success(res, "AI config", providerConfig.describe());
+        }
+        catch (error) {
+            next(error);
+        }
+
+    }
+
+    /**
+     * Simpan setelan provider dari Settings lalu bangun ulang engine.
+     * Body: { active?, provider?:{id,apiKey?,baseUrl?,model?}, ollama?:{baseUrl,model} }
+     */
+    async saveConfig(req, res, next) {
+
+        try {
+
+            const { active, provider, ollama } = req.body ?? {};
+
+            if (provider?.id) {
+                providerConfig.setProvider(provider.id, {
+                    apiKey: provider.apiKey,
+                    baseUrl: provider.baseUrl,
+                    model: provider.model
+                });
+            }
+
+            if (ollama) {
+                providerConfig.setOllama(ollama);
+            }
+
+            if (active) {
+                providerConfig.setActive(active);
+            }
+
+            const result = aiRuntime.reconfigure();
+
+            return response.success(res, "Konfigurasi disimpan", {
+                ...providerConfig.describe(),
+                reconfigured: result
+            });
+
+        }
+
+        catch (error) {
+            return response.error(res, error.message, 400);
+        }
+
+    }
 
     async providers(req, res, next) {
 

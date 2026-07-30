@@ -1,6 +1,7 @@
 import { store } from "../lib/store.js";
+import { api } from "../lib/api.js";
 import { icon } from "../lib/icons.js";
-import { esc, toast } from "../lib/ui.js";
+import { esc, pill, toast } from "../lib/ui.js";
 
 export const settings = {
 
@@ -119,7 +120,9 @@ export const settings = {
 
                 </div>
 
-            </div>`;
+            </div>
+
+            <div id="set-daemon-config" class="stack" style="margin-top:14px"></div>`;
 
     },
 
@@ -209,6 +212,253 @@ export const settings = {
 
         });
 
+        // Panel konfigurasi daemon (AI provider + Telegram) butuh
+        // koneksi; muat setelah panel dasar siap.
+        await renderDaemonConfig(root);
+
     }
 
 };
+
+/**
+ * Panel yang mengonfigurasi DAEMON (bukan Console): platform AI +
+ * API key, dan Telegram. Hanya bisa dimuat saat terhubung.
+ */
+async function renderDaemonConfig(root) {
+
+    const host = root.querySelector("#set-daemon-config");
+
+    if (!store.get().connected) {
+        host.innerHTML = `
+            <div class="panel"><div class="small dim">
+                ${icon("plug")} Sambungkan ke daemon dulu untuk mengatur provider AI &amp; Telegram.
+            </div></div>`;
+        return;
+    }
+
+    host.innerHTML = `<div class="panel"><div class="row">
+        <span class="spinner"></span><span class="small muted">Memuat konfigurasi…</span>
+    </div></div>`;
+
+    try {
+
+        const [aiCfg, tg] = await Promise.all([
+            api.request("/ai/config"),
+            api.request("/telegram/status")
+        ]);
+
+        host.innerHTML = aiPanel(aiCfg) + telegramPanel(tg);
+
+        wireAiPanel(root, aiCfg);
+        wireTelegramPanel(root);
+
+    }
+
+    catch (error) {
+        host.innerHTML = `<div class="panel"><div class="empty">${icon("alert")}
+            <div class="danger-text">${esc(error.message)}</div></div></div>`;
+    }
+
+}
+
+function aiPanel(cfg) {
+
+    const ids = Object.keys(cfg.providers);
+
+    const fellBack = cfg.resolved.fellBackFrom;
+
+    return `
+        <div class="panel">
+            <div class="panel-head">
+                <h2>${icon("cpu")} Provider AI</h2>
+                <span class="push">${pill(
+                    `aktif: ${cfg.resolved.label}`,
+                    cfg.resolved.kind === "ollama" ? "warn" : "ok"
+                )}</span>
+            </div>
+
+            <div class="small muted" style="margin-bottom:10px">
+                Isi API key dari platform mana pun. <strong>Key terisi → Aether pakai
+                platform itu. Key kosong → otomatis Ollama lokal.</strong>
+                ${fellBack ? `<span class="warn-text"> (key ${esc(fellBack)} kosong, sekarang pakai Ollama)</span>` : ""}
+            </div>
+
+            <div class="field">
+                <label>Platform aktif</label>
+                <select id="ai-active">
+                    ${ids.map(id => `<option value="${id}" ${cfg.active === id ? "selected" : ""}>${esc(cfg.providers[id].label)}</option>`).join("")}
+                    <option value="ollama" ${cfg.active === "ollama" ? "selected" : ""}>${esc(cfg.ollama.label)}</option>
+                </select>
+            </div>
+
+            <div id="ai-provider-fields"></div>
+
+            <div class="row" style="margin-top:10px">
+                <button class="btn primary" id="ai-save">${icon("check")} Simpan &amp; terapkan</button>
+                <span class="small dim">perubahan langsung dipakai tanpa restart</span>
+            </div>
+        </div>`;
+
+}
+
+function telegramPanel(tg) {
+
+    return `
+        <div class="panel">
+            <div class="panel-head">
+                <h2>${icon("send")} Telegram</h2>
+                <span class="push">${pill(
+                    tg.running ? `@${tg.username}` : (tg.hasToken ? "tidak aktif" : "belum diatur"),
+                    tg.running ? "ok" : (tg.hasToken ? "danger" : "idle")
+                )}</span>
+            </div>
+
+            <div class="stack">
+                <div class="field">
+                    <label>Bot token</label>
+                    <input type="password" id="tg-token" placeholder="${tg.hasToken ? esc(tg.tokenHint) + " (tersimpan — isi untuk ganti)" : "dari @BotFather"}">
+                    <span class="help">Dari @BotFather. Disimpan lokal di daemon (gitignored).</span>
+                </div>
+                <div class="field">
+                    <label>Chat id yang diizinkan</label>
+                    <input type="text" id="tg-allowed" value="${esc((tg.allowed ?? []).join(", "))}"
+                        placeholder="mis. 123456789, 987654321">
+                    <span class="help">Kirim <span class="mono">/id</span> ke bot untuk tahu chat id-mu. Pisahkan koma. Tanpa ini bot menolak semua.</span>
+                </div>
+                ${tg.lastError ? `<div class="small danger-text">${esc(tg.lastError)}</div>` : ""}
+                <div class="row">
+                    <button class="btn primary" id="tg-save">${icon("check")} Simpan &amp; jalankan</button>
+                    <button class="btn ghost" id="tg-test" ${tg.running ? "" : "disabled"}>${icon("send")} Kirim uji</button>
+                </div>
+            </div>
+        </div>`;
+
+}
+
+function providerFields(cfg, id) {
+
+    if (id === "ollama") {
+        return `
+            <div class="grid cols-2" style="gap:10px">
+                <div class="field">
+                    <label>Base URL</label>
+                    <input type="url" id="ai-baseurl" value="${esc(cfg.ollama.baseUrl)}" placeholder="http://localhost:11434">
+                </div>
+                <div class="field">
+                    <label>Model</label>
+                    <input type="text" id="ai-model" value="${esc(cfg.ollama.model ?? "")}" placeholder="${esc(cfg.ollama.modelHint)}">
+                </div>
+            </div>`;
+    }
+
+    const p = cfg.providers[id];
+
+    return `
+        <div class="field">
+            <label>API key ${p.hasKey ? `<span class="dim">(tersimpan: ${esc(p.keyHint)})</span>` : ""}</label>
+            <input type="password" id="ai-key" placeholder="${p.hasKey ? "isi untuk mengganti, kosongkan untuk pakai Ollama" : "tempel API key di sini"}">
+            <span class="help">Kosongkan &amp; simpan untuk menghapus key (Aether balik ke Ollama).</span>
+        </div>
+        <div class="grid cols-2" style="gap:10px">
+            <div class="field">
+                <label>Base URL</label>
+                <input type="url" id="ai-baseurl" value="${esc(p.baseUrl)}" placeholder="${esc(p.defaultBaseUrl)}">
+            </div>
+            <div class="field">
+                <label>Model</label>
+                <input type="text" id="ai-model" value="${esc(p.model ?? "")}" placeholder="${esc(p.modelHint)}">
+            </div>
+        </div>`;
+
+}
+
+function wireAiPanel(root, cfg) {
+
+    const select = root.querySelector("#ai-active");
+    const fields = root.querySelector("#ai-provider-fields");
+
+    const draw = () => { fields.innerHTML = providerFields(cfg, select.value); };
+
+    draw();
+    select.addEventListener("change", draw);
+
+    root.querySelector("#ai-save").addEventListener("click", async () => {
+
+        const id = select.value;
+
+        const body = { active: id };
+
+        if (id === "ollama") {
+            body.ollama = {
+                baseUrl: root.querySelector("#ai-baseurl").value.trim(),
+                model: root.querySelector("#ai-model").value.trim()
+            };
+        }
+        else {
+            const key = root.querySelector("#ai-key").value;
+            body.provider = {
+                id,
+                // Hanya kirim key bila diisi (biar tidak menimpa
+                // yang tersimpan dengan string kosong tak sengaja)…
+                ...(key !== "" ? { apiKey: key } : {}),
+                baseUrl: root.querySelector("#ai-baseurl").value.trim(),
+                model: root.querySelector("#ai-model").value.trim()
+            };
+        }
+
+        try {
+            const result = await api.request("/ai/config", { method: "POST", body });
+            toast(`AI aktif: ${result.reconfigured.platform}`, "ok");
+            await renderDaemonConfig(root);
+            // Segarkan info provider di store agar view lain ikut update.
+            document.dispatchEvent(new CustomEvent("aether:reconnect"));
+        }
+        catch (error) {
+            toast(error.message, "danger", 6000);
+        }
+
+    });
+
+}
+
+function wireTelegramPanel(root) {
+
+    root.querySelector("#tg-save").addEventListener("click", async () => {
+
+        const token = root.querySelector("#tg-token").value.trim();
+        const allowed = root.querySelector("#tg-allowed").value.trim();
+
+        const body = { allowed };
+        if (token) {
+            body.token = token;
+        }
+
+        try {
+            const status = await api.request("/telegram/config", { method: "POST", body });
+            toast(
+                status.running ? `Bot @${status.username} aktif` : (status.lastError ?? "Tersimpan"),
+                status.running ? "ok" : "warn",
+                5000
+            );
+            await renderDaemonConfig(root);
+        }
+        catch (error) {
+            toast(error.message, "danger", 6000);
+        }
+
+    });
+
+    const testBtn = root.querySelector("#tg-test");
+    if (testBtn) {
+        testBtn.addEventListener("click", async () => {
+            try {
+                const r = await api.request("/telegram/test", { method: "POST", body: {} });
+                toast(`Terkirim ke ${r.recipients} chat`, "ok");
+            }
+            catch (error) {
+                toast(error.message, "danger");
+            }
+        });
+    }
+
+}
