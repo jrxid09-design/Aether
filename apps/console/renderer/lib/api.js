@@ -273,6 +273,8 @@ class AetherApi {
     // ---- Suara -------------------------------------------------------
 
     voiceStatus()       { return this.request("/voice/status"); }
+    voiceConfig()       { return this.request("/voice/config"); }
+    saveVoiceConfig(b)  { return this.request("/voice/config", { method: "POST", body: b }); }
 
     transcribe(body)    { return this.request("/voice/transcribe", { method: "POST", body, timeout: 60000 }); }
 

@@ -15,6 +15,61 @@ class VoiceController {
 
     }
 
+    config(req, res, next) {
+
+        try {
+            return response.success(res, "Voice config", voiceService.configView());
+        }
+        catch (error) {
+            next(error);
+        }
+
+    }
+
+    saveConfig(req, res, next) {
+
+        try {
+            return response.success(res, "Konfigurasi suara disimpan",
+                voiceService.setConfig(req.body ?? {}));
+        }
+        catch (error) {
+            return response.error(res, error.message, 400);
+        }
+
+    }
+
+    /** Hasilkan audio ucapan (dipakai renderer untuk suara neural). */
+    async speak(req, res, next) {
+
+        try {
+
+            const { text, voice, format } = req.body ?? {};
+
+            if (!text || !String(text).trim()) {
+                return response.error(res, "Field 'text' wajib diisi.", 400);
+            }
+
+            const { audio, contentType } = await voiceService.speak(text, { voice, format });
+
+            res.setHeader("Content-Type", contentType);
+            res.setHeader("Content-Length", audio.length);
+
+            return res.end(audio);
+
+        }
+
+        catch (error) {
+
+            if (error.code === "TTS_NOT_CONFIGURED") {
+                return response.error(res, error.message, 400);
+            }
+
+            return response.error(res, error.message, 502);
+
+        }
+
+    }
+
     /**
      * Terima audio (base64) dari renderer, kembalikan teks.
      *

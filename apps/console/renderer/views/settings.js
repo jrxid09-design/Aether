@@ -242,14 +242,16 @@ async function renderDaemonConfig(root) {
 
     try {
 
-        const [aiCfg, tg] = await Promise.all([
+        const [aiCfg, tg, voice] = await Promise.all([
             api.request("/ai/config"),
-            api.request("/telegram/status")
+            api.request("/telegram/status"),
+            api.voiceConfig()
         ]);
 
-        host.innerHTML = aiPanel(aiCfg) + telegramPanel(tg);
+        host.innerHTML = aiPanel(aiCfg) + voicePanel(voice) + telegramPanel(tg);
 
         wireAiPanel(root, aiCfg);
+        wireVoicePanel(root);
         wireTelegramPanel(root);
 
     }
@@ -298,6 +300,91 @@ function aiPanel(cfg) {
                 <span class="small dim">perubahan langsung dipakai tanpa restart</span>
             </div>
         </div>`;
+
+}
+
+function voicePanel(v) {
+
+    return `
+        <div class="panel">
+            <div class="panel-head">
+                <h2>${icon("mic")} Suara (STT &amp; TTS)</h2>
+                <span class="push">${pill(
+                    v.tts.configured ? "TTS neural" : "suara OS",
+                    v.tts.configured ? "ok" : "idle"
+                )}</span>
+            </div>
+
+            <div class="small muted" style="margin-bottom:10px">
+                <strong>Suara masuk (STT):</strong> endpoint transcribe kompatibel-OpenAI
+                (mis. faster-whisper-server) agar mic bisa mengetik ucapan.<br>
+                <strong>Suara keluar (TTS):</strong> endpoint /v1/audio/speech
+                (mis. <span class="mono">Kokoro-FastAPI</span>) untuk banyak suara &amp;
+                bahasa Indonesia. Kosong → pakai suara OS.
+            </div>
+
+            <div class="divider" style="margin:6px 0"></div>
+            <div class="small dim" style="margin-bottom:6px">Suara masuk — STT</div>
+            <div class="grid cols-3" style="gap:10px">
+                <div class="field"><label>Endpoint</label>
+                    <input type="url" id="stt-url" value="${esc(v.stt.url)}"
+                        placeholder="http://localhost:8000/v1/audio/transcriptions"></div>
+                <div class="field"><label>Model</label>
+                    <input type="text" id="stt-model" value="${esc(v.stt.model)}"
+                        placeholder="Systran/faster-whisper-base"></div>
+                <div class="field"><label>API key ${v.stt.hasKey ? `<span class="dim">(${esc(v.stt.keyHint)})</span>` : ""}</label>
+                    <input type="password" id="stt-key" placeholder="opsional"></div>
+            </div>
+
+            <div class="divider" style="margin:12px 0 6px"></div>
+            <div class="small dim" style="margin-bottom:6px">Suara keluar — TTS neural</div>
+            <div class="grid cols-4" style="gap:10px">
+                <div class="field" style="grid-column:span 2"><label>Endpoint</label>
+                    <input type="url" id="tts-url" value="${esc(v.tts.url)}"
+                        placeholder="http://localhost:8880/v1/audio/speech"></div>
+                <div class="field"><label>Model</label>
+                    <input type="text" id="tts-model" value="${esc(v.tts.model)}" placeholder="kokoro"></div>
+                <div class="field"><label>Voice</label>
+                    <input type="text" id="tts-voice" value="${esc(v.tts.voice)}" placeholder="af_heart / id_..."></div>
+                <div class="field" style="grid-column:span 2"><label>API key ${v.tts.hasKey ? `<span class="dim">(${esc(v.tts.keyHint)})</span>` : ""}</label>
+                    <input type="password" id="tts-key" placeholder="opsional"></div>
+            </div>
+
+            <div class="row" style="margin-top:10px">
+                <button class="btn primary" id="voice-save">${icon("check")} Simpan suara</button>
+                <span class="small dim">efek robot diatur di layar Aether</span>
+            </div>
+        </div>`;
+
+}
+
+function wireVoicePanel(root) {
+
+    root.querySelector("#voice-save").addEventListener("click", async () => {
+
+        const val = id => root.querySelector(id).value.trim();
+
+        const body = {
+            stt: { url: val("#stt-url"), model: val("#stt-model") },
+            tts: { url: val("#tts-url"), model: val("#tts-model"), voice: val("#tts-voice") }
+        };
+
+        // Hanya kirim key bila diisi (biar tak menimpa yang tersimpan).
+        const sttKey = root.querySelector("#stt-key").value;
+        const ttsKey = root.querySelector("#tts-key").value;
+        if (sttKey) body.stt.key = sttKey;
+        if (ttsKey) body.tts.key = ttsKey;
+
+        try {
+            await api.saveVoiceConfig(body);
+            toast("Konfigurasi suara disimpan", "ok");
+            await renderDaemonConfig(root);
+        }
+        catch (error) {
+            toast(error.message, "danger", 6000);
+        }
+
+    });
 
 }
 

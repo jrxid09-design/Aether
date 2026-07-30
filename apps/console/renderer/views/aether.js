@@ -26,7 +26,8 @@ let sttConfigured = false;
 const prefs = {
     autoSpeak: true,
     voiceName: null,
-    rate: 1
+    rate: 1,
+    robot: false
 };
 
 const STATUS = {
@@ -62,7 +63,12 @@ export const aether = {
                         <span class="track"></span>
                         <span class="small">Suara</span>
                     </label>
-                    <select id="ae-voice" style="width:190px" title="Pilih suara"></select>
+                    <label class="switch" title="Efek suara robot">
+                        <input type="checkbox" id="ae-robot" ${prefs.robot ? "checked" : ""}>
+                        <span class="track"></span>
+                        <span class="small">Robot</span>
+                    </label>
+                    <select id="ae-voice" style="width:180px" title="Pilih suara (OS)"></select>
                 </div>
             </div>
 
@@ -116,9 +122,16 @@ export const aether = {
         }
         catch { /* pakai default */ }
 
-        // Isi daftar suara TTS.
+        // Isi daftar suara OS + cek ketersediaan suara neural.
         await tts.load();
+        await tts.refreshStatus();
         populateVoices(voiceSelect);
+
+        const robotToggle = root.querySelector("#ae-robot");
+        robotToggle.addEventListener("change", () => {
+            prefs.robot = robotToggle.checked;
+            savePrefs();
+        });
 
         // Cek kesiapan STT (mic akan dinonaktifkan bila belum ada).
         try {
@@ -165,7 +178,7 @@ export const aether = {
             savePrefs();
             // Cicip suara terpilih.
             if (prefs.autoSpeak) {
-                tts.speak("Halo, aku Aether.", voiceOptions());
+                tts.say("Halo, aku Aether.", { ...voiceOptions(), robot: prefs.robot });
             }
         });
 
@@ -282,13 +295,12 @@ async function speak(text) {
 
     setState("speaking");
 
-    await tts.speak(text, {
+    // say() memilih suara neural (Kokoro dsb) bila ada, atau suara
+    // OS. Mulut avatar digerakkan dari amplitudo suara sungguhan.
+    await tts.say(text, {
         ...voiceOptions(),
-        onBoundary: () => {
-            // Tekankan gerak mulut tiap kata; oscillasi dasar sudah
-            // jalan dari state "speaking".
-            avatar?.setMouth(0.4 + Math.random() * 0.5);
-        },
+        robot: prefs.robot,
+        onLevel: (level) => avatar?.setMouth(level),
         onEnd: () => setState("idle")
     });
 

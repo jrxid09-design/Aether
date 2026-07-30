@@ -1,39 +1,123 @@
+const path = require("node:path");
+
 const telemetry = require("./telemetryService");
+const JsonStore = require("../core/config/JsonStore");
 
 /**
- * Layanan suara sisi-daemon.
+ * Layanan suara sisi-daemon: STT (suara masuk) dan TTS neural
+ * (suara keluar berkualitas).
  *
- * Suara KELUAR (TTS) terjadi di renderer Console lewat
- * speechSynthesis OS — tidak butuh daemon. Yang ditangani di sini
- * adalah suara MASUK (STT): renderer mengirim audio, daemon
- * meneruskannya ke mesin transcribe.
+ * Keduanya memakai backend kompatibel-OpenAI yang bisa diatur dari
+ * Settings (seperti skema API key):
+ *   - STT  : /v1/audio/transcriptions (faster-whisper-server, dll)
+ *   - TTS  : /v1/audio/speech (Kokoro-FastAPI, OpenAI, dll) —
+ *            memberi banyak suara & dukungan bahasa Indonesia.
  *
- * Mengikuti pola seluruh Aether: backend-nya konfigurabel dan
- * degradasinya anggun. Tanpa STT terkonfigurasi, fitur suara-masuk
- * melapor "belum siap" dengan jelas — avatar dan TTS tetap jalan.
- *
- * Backend yang didukung: endpoint transcribe kompatibel-OpenAI
- * (faster-whisper-server, whisper.cpp server, LocalAI, dll) lewat
- * multipart /v1/audio/transcriptions.
+ * Semua opsional & degradasinya anggun: tanpa STT, mic melapor
+ * belum siap; tanpa TTS neural, Console jatuh ke suara OS
+ * (speechSynthesis). Rahasia disimpan di configs/voice.json
+ * (gitignored) dan dimasking saat ditampilkan.
  */
+const store = new JsonStore(
+    path.join(__dirname, "..", "..", "configs", "voice.json"),
+    { stt: {}, tts: {} }
+);
+
 class VoiceService {
 
     constructor() {
-
-        this.sttUrl = process.env.AETHER_STT_URL ?? null;
-
-        this.sttModel =
-            process.env.AETHER_STT_MODEL ?? "Systran/faster-whisper-base";
-
-        this.sttKey = process.env.AETHER_STT_KEY ?? null;
 
         this.lastError = null;
 
     }
 
-    get sttConfigured() {
+    // Setelan tersimpan menang atas .env.
+    cfg() {
+        return store.read();
+    }
 
+    get sttUrl() {
+        return this.cfg().stt?.url || process.env.AETHER_STT_URL || null;
+    }
+    get sttModel() {
+        return this.cfg().stt?.model || process.env.AETHER_STT_MODEL || "Systran/faster-whisper-base";
+    }
+    get sttKey() {
+        return this.cfg().stt?.key || process.env.AETHER_STT_KEY || null;
+    }
+    get sttConfigured() {
         return Boolean(this.sttUrl);
+    }
+
+    get ttsUrl() {
+        return this.cfg().tts?.url || process.env.AETHER_TTS_URL || null;
+    }
+    get ttsModel() {
+        return this.cfg().tts?.model || process.env.AETHER_TTS_MODEL || "kokoro";
+    }
+    get ttsVoice() {
+        return this.cfg().tts?.voice || process.env.AETHER_TTS_VOICE || "af_heart";
+    }
+    get ttsKey() {
+        return this.cfg().tts?.key || process.env.AETHER_TTS_KEY || null;
+    }
+    get ttsConfigured() {
+        return Boolean(this.ttsUrl);
+    }
+
+    /** Simpan setelan dari Settings (key dibiarkan bila tak dikirim). */
+    setConfig({ stt, tts } = {}) {
+
+        const current = this.cfg();
+
+        const merge = (base, patch) => {
+            if (!patch) return base;
+            return {
+                url: patch.url !== undefined ? (patch.url || null) : base.url ?? null,
+                model: patch.model !== undefined ? (patch.model || null) : base.model ?? null,
+                voice: patch.voice !== undefined ? (patch.voice || null) : base.voice ?? null,
+                // key undefined = jangan ubah; "" = hapus.
+                key: patch.key === undefined ? (base.key ?? null) : (patch.key || null)
+            };
+        };
+
+        store.write({
+            stt: merge(current.stt ?? {}, stt),
+            tts: merge(current.tts ?? {}, tts)
+        });
+
+        return this.configView();
+
+    }
+
+    mask(key) {
+        if (!key) return null;
+        const s = String(key);
+        return s.length <= 8 ? "••••" : `${s.slice(0, 4)}…${s.slice(-4)}`;
+    }
+
+    /** Untuk Settings: key dimasking. */
+    configView() {
+
+        const c = this.cfg();
+
+        return {
+            stt: {
+                url: c.stt?.url ?? "",
+                model: c.stt?.model ?? "",
+                hasKey: Boolean(c.stt?.key),
+                keyHint: this.mask(c.stt?.key),
+                configured: this.sttConfigured
+            },
+            tts: {
+                url: c.tts?.url ?? "",
+                model: c.tts?.model ?? "",
+                voice: c.tts?.voice ?? "",
+                hasKey: Boolean(c.tts?.key),
+                keyHint: this.mask(c.tts?.key),
+                configured: this.ttsConfigured
+            }
+        };
 
     }
 
@@ -46,13 +130,85 @@ class VoiceService {
                 model: this.sttModel,
                 lastError: this.lastError
             },
-            // TTS diurus renderer (speechSynthesis), selalu tersedia
-            // selama OS punya voice.
             tts: {
-                engine: "speechSynthesis (renderer)",
-                note: "Suara & bahasa dipilih di sisi Console."
+                // Neural bila dikonfigurasi; kalau tidak, renderer
+                // memakai suara OS (speechSynthesis).
+                neural: this.ttsConfigured,
+                url: this.ttsUrl,
+                model: this.ttsModel,
+                voice: this.ttsVoice,
+                engine: this.ttsConfigured ? "neural (OpenAI-compatible)" : "speechSynthesis (OS)"
             }
         };
+
+    }
+
+    /**
+     * Hasilkan audio ucapan dari teks lewat backend TTS neural.
+     * @returns {Promise<{ audio: Buffer, contentType: string }>}
+     */
+    async speak(text, { voice = null, format = "mp3" } = {}) {
+
+        if (!this.ttsConfigured) {
+            const error = new Error(
+                "TTS neural belum dikonfigurasi. Set endpoint /v1/audio/speech " +
+                "(mis. Kokoro-FastAPI) di Settings, atau pakai suara OS."
+            );
+            error.code = "TTS_NOT_CONFIGURED";
+            throw error;
+        }
+
+        const headers = { "Content-Type": "application/json" };
+        if (this.ttsKey) {
+            headers.Authorization = `Bearer ${this.ttsKey}`;
+        }
+
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 60000);
+
+        try {
+
+            const response = await fetch(this.ttsUrl, {
+                method: "POST",
+                headers,
+                body: JSON.stringify({
+                    model: this.ttsModel,
+                    input: text,
+                    voice: voice || this.ttsVoice,
+                    response_format: format
+                }),
+                signal: controller.signal
+            });
+
+            if (!response.ok) {
+                const detail = await response.text().catch(() => "");
+                throw new Error(`Backend TTS menolak (${response.status}): ${detail.slice(0, 200)}`);
+            }
+
+            const audio = Buffer.from(await response.arrayBuffer());
+
+            telemetry.publish("voice:spoken", { chars: text.length, voice: voice || this.ttsVoice });
+
+            return {
+                audio,
+                contentType: response.headers.get("content-type") || `audio/${format}`
+            };
+
+        }
+
+        catch (error) {
+            if (error.name === "AbortError") {
+                throw new Error("TTS melebihi batas waktu.");
+            }
+            if (error instanceof TypeError) {
+                throw new Error(`Tidak bisa menghubungi backend TTS di ${this.ttsUrl}`);
+            }
+            throw error;
+        }
+
+        finally {
+            clearTimeout(timer);
+        }
 
     }
 

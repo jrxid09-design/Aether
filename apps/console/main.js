@@ -4,6 +4,7 @@ const {
     ipcMain,
     shell,
     screen,
+    session,
     Menu,
     dialog
 } = require("electron");
@@ -295,6 +296,23 @@ app.whenReady().then(() => {
 
     // Menu bawaan tidak dipakai karena jendela frameless.
     Menu.setApplicationMenu(null);
+
+    // Tanpa ini Electron menolak getUserMedia → mikrofon & kamera
+    // tidak berfungsi. Console adalah aplikasi milik pengguna
+    // sendiri, jadi izin media diberikan.
+    const media = new Set([
+        "media", "audioCapture", "videoCapture", "mediaKeySystem"
+    ]);
+
+    session.defaultSession.setPermissionRequestHandler(
+        (webContents, permission, callback) => {
+            callback(media.has(permission));
+        }
+    );
+
+    session.defaultSession.setPermissionCheckHandler(
+        (webContents, permission) => media.has(permission)
+    );
 
     createWindow();
 

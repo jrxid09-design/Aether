@@ -96,7 +96,10 @@ router.delete("/memory/:id", memoryController.forget);
 // ---- Suara (STT) -----------------------------------------------
 
 router.get("/voice/status", voiceController.status);
+router.get("/voice/config", voiceController.config);
+router.post("/voice/config", voiceController.saveConfig);
 router.post("/voice/transcribe", voiceController.transcribe);
+router.post("/voice/speak", voiceController.speak);
 
 // ---- Perangkat (mic / kamera / sensor) -------------------------
 

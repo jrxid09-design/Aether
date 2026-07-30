@@ -118,13 +118,175 @@ export const tts = {
 
     cancel() {
         window.speechSynthesis?.cancel();
+        stopNeural();
     },
 
     get speaking() {
-        return window.speechSynthesis?.speaking ?? false;
+        return (window.speechSynthesis?.speaking ?? false) || neural.playing;
+    },
+
+    // ---- TTS neural (Kokoro / OpenAI-compatible) ----------------
+
+    neuralReady: false,
+
+    /** Cek apakah backend TTS neural dikonfigurasi di daemon. */
+    async refreshStatus() {
+        try {
+            const status = await api.voiceStatus();
+            this.neuralReady = Boolean(status.tts?.neural);
+            return status;
+        }
+        catch {
+            this.neuralReady = false;
+            return null;
+        }
+    },
+
+    /**
+     * Ucapkan teks memakai rute terbaik yang tersedia:
+     * suara neural bila dikonfigurasi (banyak voice + Indonesia +
+     * bisa efek robot), kalau tidak jatuh ke suara OS.
+     *
+     * onLevel(0..1) dipanggil terus-menerus mengikuti amplitudo
+     * suara — dipakai menggerakkan mulut avatar secara nyata.
+     */
+    async say(text, { voice = null, rate = 1, pitch = 1, robot = false, onLevel, onStart, onEnd } = {}) {
+
+        if (this.neuralReady) {
+            return this.speakNeural(text, { voice, robot, onLevel, onStart, onEnd });
+        }
+
+        // Fallback OS: mulut digerakkan lewat batas kata + pitch
+        // rendah bila robot diminta (pendekatan terbaik tanpa neural).
+        return this.speak(text, {
+            voice,
+            rate,
+            pitch: robot ? Math.min(0.4, pitch) : pitch,
+            onStart,
+            onBoundary: () => onLevel?.(0.4 + Math.random() * 0.5),
+            onEnd: () => { onLevel?.(0); onEnd?.(); }
+        });
+
+    },
+
+    async speakNeural(text, { voice = null, robot = false, onLevel, onStart, onEnd } = {}) {
+
+        stopNeural();
+
+        let buffer;
+
+        try {
+            const res = await fetch(`${api.root}/voice/speak`, {
+                method: "POST",
+                headers: api.headers({ "Content-Type": "application/json" }),
+                body: JSON.stringify({ text, voice })
+            });
+
+            if (!res.ok) {
+                throw new Error(`TTS ${res.status}`);
+            }
+
+            buffer = await res.arrayBuffer();
+        }
+        catch {
+            // Neural gagal → pakai suara OS supaya tetap bersuara.
+            return this.speak(text, {
+                voice,
+                onStart,
+                onBoundary: () => onLevel?.(0.4 + Math.random() * 0.5),
+                onEnd: () => { onLevel?.(0); onEnd?.(); }
+            });
+        }
+
+        const ctx = new AudioContext();
+        neural.ctx = ctx;
+        neural.playing = true;
+
+        const audioBuf = await ctx.decodeAudioData(buffer);
+
+        const source = ctx.createBufferSource();
+        source.buffer = audioBuf;
+
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 256;
+
+        // Rangkaian: source → [ring mod robot?] → analyser → speaker.
+        let tail = source;
+
+        if (robot) {
+            tail = applyRobot(ctx, source);
+        }
+
+        tail.connect(analyser);
+        analyser.connect(ctx.destination);
+
+        const data = new Uint8Array(analyser.frequencyBinCount);
+
+        const tick = () => {
+            if (!neural.playing) return;
+            analyser.getByteTimeDomainData(data);
+            let sum = 0;
+            for (const v of data) {
+                const x = (v - 128) / 128;
+                sum += x * x;
+            }
+            onLevel?.(Math.min(1, Math.sqrt(sum / data.length) * 3));
+            neural.raf = requestAnimationFrame(tick);
+        };
+
+        return new Promise(resolve => {
+
+            source.onended = () => {
+                onLevel?.(0);
+                onEnd?.();
+                stopNeural();
+                resolve();
+            };
+
+            onStart?.();
+            source.start();
+            neural.raf = requestAnimationFrame(tick);
+
+        });
+
     }
 
 };
+
+// State pemutaran neural, agar bisa dibatalkan.
+const neural = { ctx: null, raf: null, playing: false };
+
+function stopNeural() {
+    neural.playing = false;
+    if (neural.raf) {
+        cancelAnimationFrame(neural.raf);
+        neural.raf = null;
+    }
+    neural.ctx?.close().catch(() => {});
+    neural.ctx = null;
+}
+
+/**
+ * Efek "robot": ring modulation — kalikan sinyal suara dengan
+ * osilator ~55Hz. GainNode di Web Audio bisa dimodulasi audio-rate
+ * lewat parameter gain-nya, jadi itu dipakai sebagai pengali.
+ */
+function applyRobot(ctx, source) {
+
+    const ring = ctx.createGain();
+    ring.gain.value = 0;
+
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.value = 55;
+    osc.connect(ring.gain);
+    osc.start();
+
+    source.connect(ring);
+
+    return ring;
+
+}
 
 // =====================================================================
 // STT — rekam mikrofon lalu kirim ke daemon
