@@ -9,6 +9,9 @@ const validate = require("../../../middleware/validate");
 const chatController = require("../../../controllers/chatController");
 const sessionController = require("../../../controllers/sessionController");
 
+// Bidang kendali yang dipakai Aether Console (aplikasi desktop).
+router.use("/console", require("./console"));
+
 router.get("/debug/messages", sessionController.debug);
 
 router.get("/sessions", sessionController.getAll);

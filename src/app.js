@@ -17,7 +17,13 @@ const app = express();
 
 const errorHandler = require("./errors/errorHandler");
 
-app.use(express.json());
+app.use(require("./middleware/cors"));
+
+// Batas dinaikkan karena frame kamera dikirim sebagai base64
+// untuk keperluan vision.
+app.use(express.json({ limit: "25mb" }));
+
+app.use("/api/v1/console", require("./middleware/auth"));
 
 app.use("/", routes);
 

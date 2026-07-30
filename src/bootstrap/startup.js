@@ -26,8 +26,8 @@ module.exports = (config) => {
 
         consoleUI.success(plugin.manifest.name);
 
-        for (const tool of plugin.instance.tools) {
-            console.log(`    └─ ${tool.name}`);
+        for (const tool of plugin.instance.tools ?? []) {
+            console.log(`    └─ ${tool.metadata?.name ?? tool.name}`);
         }
 
     }

@@ -1,20 +1,23 @@
 {
-    "id":"system.time",
+    "id": "docker",
 
-    "version":"1.0.0",
+    "version": "0.1.0",
 
-    "name":"System Time",
+    "name": "Docker",
 
-    "description":"Returns current server time.",
+    "description": "Docker container management. Scaffold — tools belum diimplementasikan.",
 
-    "category":"system",
+    "category": "infrastructure",
 
-    "entry":"tool.js",
+    "entry": "index.js",
 
-    "permissions":[],
+    "permissions": [
+        "process:exec"
+    ],
 
-    "tags":[
-        "time",
-        "clock"
+    "tags": [
+        "docker",
+        "container",
+        "infrastructure"
     ]
 }

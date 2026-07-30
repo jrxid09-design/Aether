@@ -134,6 +134,78 @@ class HttpClient {
         });
 
     }
+
+    static async stream(url, options = {}) {
+
+    const {
+        timeout = 30000,
+        ...fetchOptions
+    } = options;
+
+    const controller = new AbortController();
+
+    const timer = setTimeout(() => {
+
+        controller.abort();
+
+    }, timeout);
+
+    try {
+
+        if (
+            fetchOptions.body &&
+            typeof fetchOptions.body === "object" &&
+            !(fetchOptions.body instanceof FormData)
+        ) {
+
+            fetchOptions.headers = {
+
+                "Content-Type": "application/json",
+
+                ...(fetchOptions.headers || {})
+
+            };
+
+            fetchOptions.body =
+                JSON.stringify(fetchOptions.body);
+
+        }
+
+        const response = await fetch(url, {
+
+            method: "POST",   // ⭐ tambahkan ini
+
+            ...fetchOptions,
+
+            signal: controller.signal
+
+        });
+
+        clearTimeout(timer);
+
+        if (!response.ok) {
+
+            throw new Error(
+
+                `${response.status} ${response.statusText}`
+
+            );
+
+        }
+
+        return response.body;
+
+    }
+
+    catch (error) {
+
+        clearTimeout(timer);
+
+        throw error;
+
+    }
+
+}
 static async download(url, output, options = {}) {
 
     const {
@@ -193,6 +265,7 @@ static async download(url, output, options = {}) {
         };
 
     }
+    
 
 }
 }

@@ -1,20 +1,23 @@
 {
-    "id":"system.time",
+    "id": "crypto",
 
-    "version":"1.0.0",
+    "version": "0.1.0",
 
-    "name":"System Time",
+    "name": "Crypto",
 
-    "description":"Returns current server time.",
+    "description": "Harga & snapshot aset kripto. Scaffold — tools belum diimplementasikan.",
 
-    "category":"system",
+    "category": "data",
 
-    "entry":"tool.js",
+    "entry": "index.js",
 
-    "permissions":[],
+    "permissions": [
+        "network"
+    ],
 
-    "tags":[
-        "time",
-        "clock"
+    "tags": [
+        "crypto",
+        "market",
+        "price"
     ]
 }

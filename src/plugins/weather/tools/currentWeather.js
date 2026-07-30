@@ -1,3 +1,7 @@
+const BaseTool = require("../../../core/tools/BaseTool");
+
+const WeatherService = require("../services/WeatherService");
+
 class CurrentWeatherTool extends BaseTool {
 
     constructor() {
@@ -31,3 +35,5 @@ class CurrentWeatherTool extends BaseTool {
     }
 
 }
+
+module.exports = CurrentWeatherTool;

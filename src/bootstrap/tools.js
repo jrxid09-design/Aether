@@ -8,10 +8,10 @@ module.exports = () => {
             `Plugin Loaded : ${plugin.manifest.name}`
         );
 
-        for (const tool of plugin.instance.tools) {
+        for (const tool of plugin.instance.tools ?? []) {
 
             console.log(
-                `  └─ ${tool.name}`
+                `  └─ ${tool.metadata?.name ?? tool.name}`
             );
 
         }

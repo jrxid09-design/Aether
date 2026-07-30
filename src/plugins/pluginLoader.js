@@ -38,17 +38,11 @@ class PluginLoader {
                         pluginPath,
                         manifest
                     );
-                const {
-                        LifecycleManager
-                    } = require("../core/lifecycle");
-
-                    await LifecycleManager.initialize(
-                                  instance
-                                );
 
                 const tools =
-                    this.loadTools(
-                        pluginPath
+                    this.collectTools(
+                        pluginPath,
+                        instance
                     );
 
                 this.registerPlugin(
@@ -70,6 +64,40 @@ class PluginLoader {
 
                 console.error(
                     `✗ Failed Plugin : ${folder}`
+                );
+
+                console.error(error);
+
+            }
+
+        }
+
+    }
+
+    /**
+     * Jalankan hook lifecycle `initialize()` untuk semua plugin
+     * yang sudah ter-load. Dipisah dari load() karena load()
+     * sinkron (dipanggil saat require app.js).
+     */
+    async initializeAll(context) {
+
+        const { LifecycleManager } =
+            require("../core/lifecycle");
+
+        for (const { id, item } of pluginRegistry.list()) {
+
+            try {
+
+                await LifecycleManager.initialize(
+                    item.instance,
+                    context
+                );
+
+            }
+            catch (error) {
+
+                console.error(
+                    `✗ Failed to initialize plugin : ${id}`
                 );
 
                 console.error(error);
@@ -137,6 +165,45 @@ class PluginLoader {
 
     }
 
+    /**
+     * Tool sebuah plugin bisa datang dari dua tempat:
+     * `index.js` yang mengekspor `tools: [...]` (sudah
+     * ter-instansiasi), atau `tool.js` yang mengekspor array.
+     * Keduanya digabung dan dideduplikasi berdasarkan nama.
+     */
+    collectTools(pluginPath, instance) {
+
+        const tools = [];
+
+        if (Array.isArray(instance?.tools)) {
+            tools.push(...instance.tools);
+        }
+
+        // Beberapa plugin lama memakai `tool` (tunggal).
+        if (instance?.tool) {
+            tools.push(instance.tool);
+        }
+
+        tools.push(...this.loadTools(pluginPath));
+
+        const seen = new Set();
+
+        return tools.filter(tool => {
+
+            const name = tool?.metadata?.name ?? tool?.name;
+
+            if (!name || seen.has(name)) {
+                return false;
+            }
+
+            seen.add(name);
+
+            return true;
+
+        });
+
+    }
+
     loadTools(pluginPath) {
 
         const toolPath = path.join(
@@ -184,7 +251,9 @@ class PluginLoader {
             );
 
             console.log(
-                `   └── ${manifest.id}.${tool.metadata.name}`
+                `   └── ${manifest.id}.${
+                    tool.metadata?.name ?? tool.name
+                }`
             );
 
         }

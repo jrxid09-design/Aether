@@ -1,6 +1,7 @@
 node_modules/
 .env
 .env.*
+!.env.example
 dist/
 build/
 logs/
@@ -8,3 +9,9 @@ logs/
 .vscode/settings.json
 data/
 *.db
+*.db-wal
+*.db-shm
+
+# Konfigurasi perangkat bersifat per-mesin (device id mic/kamera
+# berbeda di tiap host), jadi tidak ikut di-commit.
+configs/devices.json

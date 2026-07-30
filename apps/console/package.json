@@ -1,0 +1,14 @@
+{
+  "name": "aether-console",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Aether Console — panel kendali desktop untuk daemon Aether, AI lokal, dan agent terintegrasi.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0"
+  }
+}

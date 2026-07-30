@@ -1,0 +1,390 @@
+const Aether = require("../ai");
+
+const { AITool } = require("../ai/tools");
+
+const { ToolRegistry } = require("../core/tools");
+
+const telemetry = require("./telemetryService");
+
+/**
+ * Satu-satunya pemilik AIEngine untuk proses daemon.
+ *
+ * Tugasnya menjembatani tiga dunia: konfigurasi (env), tool
+ * plugin, dan AI runtime — supaya controller HTTP cukup
+ * memanggil metode di sini tanpa tahu cara engine dirakit.
+ */
+class AIRuntimeService {
+
+    constructor() {
+
+        this.engine = null;
+
+        this.systemPrompt =
+            "Kamu adalah Aether, asisten AI pribadi yang berjalan di perangkat milik pengguna. " +
+            "Jawab ringkas dan langsung ke inti, dalam bahasa yang dipakai pengguna. " +
+            "Gunakan tool yang tersedia bila relevan.\n\n" +
+            "Kamu punya memori jangka panjang. Simpan dengan memory_remember hal yang " +
+            "berguna diingat lain waktu — identitas dan kebiasaan pemilik, perangkat dan " +
+            "ruangan di rumah, project yang sedang dikerjakan — dan cari dengan " +
+            "memory_recall sebelum menjawab pertanyaan yang menyinggung hal yang pernah " +
+            "dibicarakan. Jangan mengarang isi memori: kalau tidak menemukan, katakan " +
+            "belum tahu.";
+
+    }
+
+    /** Rakit engine dari environment. Aman dipanggil ulang (rebuild). */
+    initialize() {
+
+        const builder = new Aether.Builder();
+
+        const ollamaUrl =
+            process.env.AETHER_OLLAMA_URL ??
+            process.env.OLLAMA_URL ??
+            "http://localhost:11434";
+
+        builder.ollama({
+            baseUrl: ollamaUrl,
+            timeout: 120000
+        });
+
+        if (process.env.OPENROUTER_API_KEY) {
+
+            builder.openRouter({
+                apiKey: process.env.OPENROUTER_API_KEY,
+                timeout: 120000
+            });
+
+        }
+
+        const preferred =
+            (process.env.AI_PROVIDER ?? "ollama").toLowerCase();
+
+        builder.use(
+            builder.providers.has(preferred) ? preferred : "ollama"
+        );
+
+        const defaultModel =
+            preferred === "openrouter"
+                ? (process.env.OPENROUTER_MODEL ?? null)
+                : (process.env.OLLAMA_MODEL ?? "llama3.2");
+
+        if (defaultModel) {
+            builder.defaultModel(defaultModel);
+        }
+
+        builder.registerTools(this.bridgePluginTools());
+
+        // Tool memori didaftarkan langsung (bukan lewat plugin)
+        // karena memori adalah bagian inti Aether, bukan kemampuan
+        // opsional yang bisa dicabut.
+        builder.registerTools(require("../memory/tools").memoryTools());
+
+        this.engine = builder.build();
+
+        this.attachEvents();
+
+        telemetry.info(
+            `AI runtime siap (provider=${this.engine.activeProviderId}, model=${defaultModel ?? "—"})`
+        );
+
+        return this;
+
+    }
+
+    /**
+     * Bungkus tool plugin menjadi AITool agar bisa dipanggil model.
+     *
+     * Nama tool memakai "__" sebagai pemisah karena banyak model
+     * menolak titik pada nama fungsi, sementara id internal Aether
+     * berbentuk "plugin.tool".
+     */
+    bridgePluginTools() {
+
+        return ToolRegistry.describe().map(descriptor =>
+
+            new AITool({
+
+                name: descriptor.id.replace(/\./g, "__"),
+
+                description:
+                    descriptor.description ||
+                    `Tool ${descriptor.id} dari plugin ${descriptor.pluginId}.`,
+
+                parameters: this.toJsonSchema(descriptor.parameters),
+
+                execute: async (args) => {
+
+                    telemetry.publish("tool:invoked", {
+                        tool: descriptor.id,
+                        args
+                    });
+
+                    try {
+
+                        const result = await ToolRegistry.execute(
+                            descriptor.id,
+                            args,
+                            { source: "ai" }
+                        );
+
+                        telemetry.publish("tool:result", {
+                            tool: descriptor.id,
+                            ok: true
+                        });
+
+                        return result;
+
+                    }
+
+                    catch (error) {
+
+                        telemetry.publish("tool:result", {
+                            tool: descriptor.id,
+                            ok: false,
+                            error: error.message
+                        });
+
+                        throw error;
+
+                    }
+
+                }
+
+            })
+
+        );
+
+    }
+
+    /**
+     * Parameter plugin ditulis sebagai peta sederhana
+     * ({ city: { type, description, required } }), sedangkan
+     * model butuh JSON Schema utuh.
+     */
+    toJsonSchema(parameters = {}) {
+
+        const properties = {};
+
+        const required = [];
+
+        for (const [key, spec] of Object.entries(parameters)) {
+
+            const { required: isRequired, ...rest } = spec ?? {};
+
+            properties[key] = {
+                type: "string",
+                ...rest
+            };
+
+            if (isRequired) {
+                required.push(key);
+            }
+
+        }
+
+        const schema = {
+            type: "object",
+            properties
+        };
+
+        if (required.length) {
+            schema.required = required;
+        }
+
+        return schema;
+
+    }
+
+    attachEvents() {
+
+        const emitter = this.engine.getEventEmitter();
+
+        for (const type of ["tool:started", "tool:completed", "tool:failed"]) {
+
+            emitter.on(type, payload => {
+                telemetry.publish(type, payload);
+            });
+
+        }
+
+    }
+
+    ensure() {
+
+        if (!this.engine) {
+            this.initialize();
+        }
+
+        return this.engine;
+
+    }
+
+    // ---- Operasi yang dipakai controller -------------------------
+
+    async providers() {
+
+        const engine = this.ensure();
+
+        const health = await engine.healthAll();
+
+        return {
+            active: engine.activeProviderId,
+            providers: health
+        };
+
+    }
+
+    switchProvider(id) {
+
+        const engine = this.ensure();
+
+        engine.use(id);
+
+        telemetry.info(`Provider AI dialihkan ke "${id}"`);
+
+        return engine.activeProviderId;
+
+    }
+
+    setDefaultModel(model) {
+
+        this.ensure().runtime.setDefaultModel(model);
+
+        telemetry.info(`Model default diubah ke "${model}"`);
+
+        return model;
+
+    }
+
+    get defaultModel() {
+
+        return this.ensure().runtime.options.defaultModel;
+
+    }
+
+    async models(provider) {
+
+        return this.ensure().listModels(provider);
+
+    }
+
+    metrics() {
+
+        return this.ensure().getMetrics();
+
+    }
+
+    /** Sisipkan system prompt bila pemanggil belum menyediakannya. */
+    withSystemPrompt(messages = []) {
+
+        if (messages.some(message => message.role === "system")) {
+            return messages;
+        }
+
+        return [
+            { role: "system", content: this.systemPrompt },
+            ...messages
+        ];
+
+    }
+
+    /**
+     * Ambil memori relevan lalu tempelkan ke system prompt.
+     *
+     * Ini yang membuat Aether tidak perlu dijelaskan ulang setiap
+     * percakapan. Model tetap punya tool memory_recall untuk
+     * menggali lebih dalam; injeksi ini hanya menyediakan konteks
+     * awal supaya jawaban pertama pun sudah nyambung.
+     *
+     * Kegagalan di sini tidak boleh menggagalkan chat — tanpa
+     * memori Aether cuma jadi kurang tahu, bukan rusak.
+     */
+    async withMemory(messages = []) {
+
+        const withPrompt = this.withSystemPrompt(messages);
+
+        const lastUser = [...withPrompt]
+            .reverse()
+            .find(message => message.role === "user");
+
+        if (!lastUser?.content || typeof lastUser.content !== "string") {
+            return withPrompt;
+        }
+
+        try {
+
+            const memory = require("../memory/services/MemoryService");
+
+            const context = await memory.buildContext(lastUser.content, {
+                limit: 8,
+                maxChars: 1800
+            });
+
+            if (!context.text) {
+                return withPrompt;
+            }
+
+            telemetry.publish("memory:injected", {
+                memories: context.memoryCount,
+                documents: context.documentCount,
+                strategies: context.strategies
+            });
+
+            return withPrompt.map((message, index) =>
+
+                index === withPrompt.findIndex(m => m.role === "system")
+
+                    ? {
+                        ...message,
+                        content:
+                            `${message.content}\n\n` +
+                            `Berikut yang kamu ingat dan mungkin relevan. ` +
+                            `Gunakan bila membantu, jangan sebutkan bahwa ini "memori" ` +
+                            `kecuali ditanya, dan jangan mengarang bila tidak ada.\n\n` +
+                            context.text
+                    }
+
+                    : message
+
+            );
+
+        }
+
+        catch (error) {
+
+            telemetry.warn(`[memory] injeksi konteks gagal: ${error.message}`);
+
+            return withPrompt;
+
+        }
+
+    }
+
+    async chat({ messages, model, temperature, maxTokens, tools }) {
+
+        return this.ensure().chat({
+            messages: await this.withMemory(messages),
+            model,
+            temperature,
+            maxTokens,
+            tools
+        });
+
+    }
+
+    async *stream({ messages, model, temperature, maxTokens, tools }) {
+
+        yield* this.ensure().stream({
+            messages: await this.withMemory(messages),
+            model,
+            temperature,
+            maxTokens,
+            tools,
+            stream: true
+        });
+
+    }
+
+}
+
+module.exports = new AIRuntimeService();
