@@ -168,6 +168,20 @@ export const settings = {
                 return;
             }
 
+            // Daemon lain sudah hidup di alamat ini — Console tidak
+            // menjalankan proses kedua, cukup menyambung.
+            if (result.external) {
+
+                updateLocal(false, null);
+
+                toast("Daemon sudah berjalan di alamat ini — menyambungkan…", "ok");
+
+                document.dispatchEvent(new CustomEvent("aether:reconnect"));
+
+                return;
+
+            }
+
             updateLocal(true, result.pid);
 
             toast(

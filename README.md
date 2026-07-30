@@ -45,8 +45,15 @@ npm run console:install
 npm run console
 ```
 
-Detail lengkap ada di [docs/console.md](docs/console.md) dan
-[docs/memory.md](docs/memory.md).
+Aether CLI (antarmuka terminal — daemon harus jalan dulu):
+
+```bash
+npm run cli
+```
+
+Detail lengkap ada di [docs/console.md](docs/console.md),
+[docs/cli.md](docs/cli.md), [docs/memory.md](docs/memory.md), dan
+[docs/voice.md](docs/voice.md) (avatar + suara).
 
 ## Struktur
 

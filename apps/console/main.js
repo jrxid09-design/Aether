@@ -135,10 +135,52 @@ function daemonEntry() {
 
 }
 
-function startDaemon() {
+/**
+ * Cek apakah sudah ada daemon hidup di alamat yang dituju Console.
+ *
+ * Tanpa ini, menekan "Jalankan" saat daemon lain (mis. dari
+ * `npm start`) sudah aktif akan menelurkan proses kedua yang
+ * langsung bentrok port — sumber "kadang jalan kadang tidak".
+ */
+async function probeDaemon() {
 
+    const { daemonUrl } = readSettings();
+
+    const base = String(daemonUrl ?? "http://localhost:3000").replace(/\/+$/, "");
+
+    const controller = new AbortController();
+
+    const timer = setTimeout(() => controller.abort(), 1500);
+
+    try {
+
+        const response = await fetch(`${base}/api/v1/console/stats`, {
+            signal: controller.signal
+        });
+
+        return response.ok;
+
+    }
+    catch {
+        return false;
+    }
+    finally {
+        clearTimeout(timer);
+    }
+
+}
+
+async function startDaemon() {
+
+    // Sudah kita jalankan sendiri sebelumnya.
     if (daemonProcess) {
         return { running: true, pid: daemonProcess.pid, alreadyRunning: true };
+    }
+
+    // Sudah ada daemon lain (npm start / instance lama) di alamat
+    // yang sama — jangan spawn yang kedua, cukup sambungkan.
+    if (await probeDaemon()) {
+        return { running: true, external: true };
     }
 
     const entry = daemonEntry();
@@ -228,10 +270,10 @@ ipcMain.handle("daemon:status", () => ({
     repoRoot: REPO_ROOT
 }));
 
-ipcMain.handle("daemon:start", () => {
+ipcMain.handle("daemon:start", async () => {
 
     try {
-        return startDaemon();
+        return await startDaemon();
     }
     catch (error) {
         return { running: false, error: error.message };

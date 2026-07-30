@@ -3,12 +3,16 @@
   "version": "1.0.0",
   "description": "Aether adalah AI Assistant lokal yang dibangun untuk berjalan di server pribadi.",
   "main": "index.js",
+  "bin": {
+    "aether": "src/cli/index.js"
+  },
   "directories": {
     "doc": "docs"
   },
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
+    "cli": "node src/cli/index.js",
     "console": "npm start --prefix apps/console",
     "console:dev": "npm run dev --prefix apps/console",
     "console:install": "npm install --prefix apps/console"

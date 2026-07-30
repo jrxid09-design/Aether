@@ -278,7 +278,7 @@ async function drawBrowse(panel, root) {
                 <div class="field">
                     <label>Isi</label>
                     <textarea id="new-content" rows="3"
-                        placeholder="mis. Nama istri saya Rina, ulang tahunnya 14 Maret"></textarea>
+                        placeholder="mis. NAS di rumah merek Synology DS923+, IP 192.168.1.20"></textarea>
                 </div>
                 <div class="grid cols-3" style="gap:10px">
                     <div class="field">
@@ -296,7 +296,7 @@ async function drawBrowse(panel, root) {
                     </div>
                     <div class="field">
                         <label>Entitas (pisahkan koma)</label>
-                        <input type="text" id="new-entities" placeholder="Rina, Ruang Kerja">
+                        <input type="text" id="new-entities" placeholder="NAS, Ruang Kerja">
                     </div>
                 </div>
                 <div class="row">
@@ -472,7 +472,7 @@ async function drawEntities(panel, root) {
         <div class="panel" style="margin-top:14px">
             <div class="panel-head"><h2>Tambah entitas</h2></div>
             <div class="grid cols-4" style="gap:10px;align-items:end">
-                <div class="field"><label>Nama</label><input type="text" id="ent-name" placeholder="Rina"></div>
+                <div class="field"><label>Nama</label><input type="text" id="ent-name" placeholder="Ruang Tamu"></div>
                 <div class="field">
                     <label>Jenis</label>
                     <select id="ent-kind">

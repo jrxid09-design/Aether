@@ -207,6 +207,12 @@ class AetherApi {
         return this.request("/memory/embeddings/backfill", { method: "POST", timeout: 300000 });
     }
 
+    // ---- Suara -------------------------------------------------------
+
+    voiceStatus()       { return this.request("/voice/status"); }
+
+    transcribe(body)    { return this.request("/voice/transcribe", { method: "POST", body, timeout: 60000 }); }
+
     // ---- Perangkat -------------------------------------------------
 
     devices()             { return this.request("/devices"); }

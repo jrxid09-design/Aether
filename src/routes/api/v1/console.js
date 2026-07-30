@@ -6,6 +6,7 @@ const deviceController = require("../../../controllers/deviceController");
 const telemetryController = require("../../../controllers/telemetryController");
 const pluginController = require("../../../controllers/pluginController");
 const memoryController = require("../../../controllers/memoryController");
+const voiceController = require("../../../controllers/voiceController");
 
 const router = express.Router();
 
@@ -66,6 +67,11 @@ router.delete("/memory/documents/:id", memoryController.removeDocument);
 router.get("/memory/:id", memoryController.get);
 router.patch("/memory/:id", memoryController.update);
 router.delete("/memory/:id", memoryController.forget);
+
+// ---- Suara (STT) -----------------------------------------------
+
+router.get("/voice/status", voiceController.status);
+router.post("/voice/transcribe", voiceController.transcribe);
 
 // ---- Perangkat (mic / kamera / sensor) -------------------------
 
