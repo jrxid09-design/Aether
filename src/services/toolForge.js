@@ -134,10 +134,18 @@ class ToolForge {
             author: spec.author ?? "aether-forge",
             permissions: spec.permissions ?? [],
             tags: spec.tags ?? ["user"],
-            // Jejak untuk membedakan karya Aether vs tulisan manual.
+            // Jejak untuk membedakan karya Aether vs tulisan manual,
+            // plus spec asli agar tool bisa diedit ulang dari Console
+            // tanpa harus mengurai tool.js.
             forge: {
                 origin: spec.origin ?? "manual",
-                createdAt: new Date().toISOString()
+                createdAt: new Date().toISOString(),
+                spec: {
+                    toolName: spec.tool.name,
+                    description: spec.tool.description ?? "",
+                    parameters: spec.tool.parameters ?? {},
+                    code: spec.tool.code
+                }
             }
         };
 
@@ -411,6 +419,7 @@ module.exports = [ new ${className}() ];
                 status: root === this.userRoot ? "active" : "draft",
                 manifest,
                 source,
+                spec: manifest.forge?.spec ?? null,
                 risks: this.analyzeRisk(source)
             };
 

@@ -207,6 +207,17 @@ class AetherApi {
         return this.request("/memory/embeddings/backfill", { method: "POST", timeout: 300000 });
     }
 
+    // ---- Forge (buat tool sendiri) ----------------------------------
+
+    forgeList()          { return this.request("/forge"); }
+    forgeRead(id)        { return this.request(`/forge/${encodeURIComponent(id)}`); }
+    forgeCreate(body)    { return this.request("/forge", { method: "POST", body, timeout: 30000 }); }
+    forgeApprove(id)     { return this.request(`/forge/${encodeURIComponent(id)}/approve`, { method: "POST", timeout: 30000 }); }
+    forgeReject(id)      { return this.request(`/forge/${encodeURIComponent(id)}/reject`, { method: "POST" }); }
+    forgeRemove(id)      { return this.request(`/forge/${encodeURIComponent(id)}`, { method: "DELETE" }); }
+
+    telegramStatus()     { return this.request("/telegram/status"); }
+
     // ---- Suara -------------------------------------------------------
 
     voiceStatus()       { return this.request("/voice/status"); }

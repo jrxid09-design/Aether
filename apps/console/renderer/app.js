@@ -11,17 +11,18 @@ import { models } from "./views/models.js";
 import { integrations } from "./views/integrations.js";
 import { devices } from "./views/devices.js";
 import { plugins } from "./views/plugins.js";
+import { studio } from "./views/studio.js";
 import { logs } from "./views/logs.js";
 import { settings } from "./views/settings.js";
 
 const VIEWS = [
     dashboard, aether, chat, memory, models,
-    integrations, devices, plugins, logs, settings
+    integrations, devices, plugins, studio, logs, settings
 ];
 
 const GROUPS = [
     { label: "Pantau", ids: ["dashboard", "logs"] },
-    { label: "Kerja", ids: ["aether", "chat", "memory", "models", "plugins"] },
+    { label: "Kerja", ids: ["aether", "chat", "memory", "models", "plugins", "studio"] },
     { label: "Sistem", ids: ["integrations", "devices", "settings"] }
 ];
 
