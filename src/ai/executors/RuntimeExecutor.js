@@ -40,12 +40,38 @@ class RuntimeExecutor {
 
         let iterations = 0;
 
+        // Model gratis (dan kadang lokal saat sibuk) sesekali
+        // membalas kosong — tanpa isi, tanpa tool call. Alih-alih
+        // meneruskan hampa itu ke pengguna, coba ulang beberapa
+        // kali; percobaan berikutnya biasanya berhasil.
+        let emptyRetries = 0;
+        const maxEmptyRetries = 2;
+
         while (iterations++ < this.maxToolIterations) {
 
             const response =
                 await this.service.chat(request);
 
             if (!response.toolCalls?.length) {
+
+                const isEmpty =
+                    !response.content || !response.content.trim();
+
+                if (isEmpty && emptyRetries < maxEmptyRetries) {
+
+                    emptyRetries++;
+
+                    // Percobaan kosong tidak dihitung sebagai iterasi
+                    // tool, jadi loop tidak cepat habis.
+                    iterations--;
+
+                    await new Promise(resolve =>
+                        setTimeout(resolve, 400 * emptyRetries)
+                    );
+
+                    continue;
+
+                }
 
                 return response;
 
@@ -189,9 +215,55 @@ class RuntimeExecutor {
 
     }
 
+    /**
+     * Streaming yang MENDUKUNG tool.
+     *
+     * Streaming provider mentah tidak bisa memanggil tool di
+     * tengah jalan, sehingga jalur suara/chat dulu tak bisa
+     * memakai memori, forge, atau kalkulator sama sekali. Di sini
+     * loop tool dijalankan penuh (non-stream) lalu jawaban akhir
+     * dipancarkan bertahap — antarmuka tetap terasa "mengetik",
+     * dan seluruh kemampuan tool ikut hidup.
+     *
+     * Untuk balasan panjang tanpa tool, ini menambah jeda sebelum
+     * kata pertama; itu tebusan yang wajar demi tool berfungsi di
+     * mana-mana (dan TTS toh mengucapkan kalimat utuh).
+     */
     async *stream(request) {
 
-        yield* this.service.stream(request);
+        const AIStreamChunk = require("../models/AIStreamChunk");
+
+        const response = await this.execute({
+            ...request,
+            stream: false
+        });
+
+        const text = response.content ?? "";
+
+        // Pancarkan per potongan kata agar UI tetap animatif.
+        const pieces = text.match(/\S+\s*/g) ?? [];
+
+        for (const piece of pieces) {
+
+            yield new AIStreamChunk({
+                provider: response.provider,
+                model: response.model,
+                delta: piece,
+                done: false
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 12));
+
+        }
+
+        yield new AIStreamChunk({
+            provider: response.provider,
+            model: response.model,
+            delta: "",
+            toolCalls: response.toolCalls ?? [],
+            finishReason: response.finishReason ?? "stop",
+            done: true
+        });
 
     }
 

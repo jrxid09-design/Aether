@@ -12,6 +12,10 @@ data/
 *.db-wal
 *.db-shm
 
+# Plugin buatan pengguna / karya Aether sendiri — spesifik per mesin,
+# tidak ikut kode inti. Hapus baris ini bila ingin memversikannya.
+userPlugins/
+
 # Konfigurasi perangkat bersifat per-mesin (device id mic/kamera
 # berbeda di tiap host), jadi tidak ikut di-commit.
 configs/devices.json

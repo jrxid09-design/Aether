@@ -79,6 +79,10 @@ class AIRuntimeService {
         // opsional yang bisa dicabut.
         builder.registerTools(require("../memory/tools").memoryTools());
 
+        // Tool "forge" — kemampuan Aether menambah kemampuannya
+        // sendiri lewat percakapan.
+        builder.registerTools(require("./forgeTools").forgeTools());
+
         this.engine = builder.build();
 
         this.attachEvents();
@@ -206,6 +210,49 @@ class AIRuntimeService {
             });
 
         }
+
+        // Saat forge menamb/menghapus tool, segarkan daftar tool
+        // yang dilihat model — kalau tidak, tool baru buatan Aether
+        // baru terlihat setelah restart.
+        telemetry.on("event", event => {
+            if (event?.type === "forge:changed") {
+                try {
+                    this.refreshTools();
+                }
+                catch (error) {
+                    telemetry.warn(`[forge] refresh tool gagal: ${error.message}`);
+                }
+            }
+        });
+
+    }
+
+    /** Rakit ulang registry tool AI dari keadaan terkini. */
+    refreshTools() {
+
+        if (!this.engine) {
+            return 0;
+        }
+
+        const { AIToolRegistry } = require("../ai/tools");
+
+        const registry = new AIToolRegistry();
+
+        for (const tool of this.bridgePluginTools()) {
+            registry.register(tool);
+        }
+
+        for (const tool of require("../memory/tools").memoryTools()) {
+            registry.register(tool);
+        }
+
+        for (const tool of require("./forgeTools").forgeTools()) {
+            registry.register(tool);
+        }
+
+        this.engine.runtime.setToolRegistry(registry);
+
+        return registry.all().length;
 
     }
 

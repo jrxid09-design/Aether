@@ -7,6 +7,7 @@ const telemetryController = require("../../../controllers/telemetryController");
 const pluginController = require("../../../controllers/pluginController");
 const memoryController = require("../../../controllers/memoryController");
 const voiceController = require("../../../controllers/voiceController");
+const forgeController = require("../../../controllers/forgeController");
 
 const router = express.Router();
 
@@ -32,6 +33,15 @@ router.post("/ai/stream", aiController.stream);
 router.get("/plugins", pluginController.list);
 router.get("/tools", pluginController.tools);
 router.post("/tools/:id/execute", pluginController.execute);
+
+// ---- Forge (Aether bikin tool sendiri / editor manual) ---------
+
+router.get("/forge", forgeController.list);
+router.post("/forge", forgeController.create);
+router.get("/forge/:id", forgeController.read);
+router.post("/forge/:id/approve", forgeController.approve);
+router.post("/forge/:id/reject", forgeController.reject);
+router.delete("/forge/:id", forgeController.remove);
 
 // ---- Integrasi eksternal ---------------------------------------
 

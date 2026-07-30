@@ -8,70 +8,194 @@ const {
     ToolRegistry
 } = require("../core/tools");
 
+/**
+ * Direktori plugin buatan pengguna / hasil karya Aether sendiri.
+ *
+ * Dipisah dari src/plugins (bawaan, ikut git) supaya tool yang
+ * dibuat di rumah tidak tercampur dengan kode inti dan tidak
+ * ikut ter-commit. Isinya di-scan bersama plugin bawaan.
+ */
+const USER_ROOT =
+    process.env.AETHER_USER_PLUGINS ??
+    path.join(__dirname, "..", "..", "userPlugins");
+
 class PluginLoader {
 
-    load(pluginRoot) {
+    constructor() {
+
+        /**
+         * Catatan tiap plugin ter-load: dari mana asalnya dan tool
+         * apa saja miliknya. Dibutuhkan untuk hot reload / unload
+         * yang bersih tanpa merestart daemon.
+         * @type {Map<string, {path:string, source:string, toolIds:string[]}>}
+         */
+        this.loaded = new Map();
+
+    }
+
+    get userRoot() {
+        return USER_ROOT;
+    }
+
+    /**
+     * Muat ulang semuanya dari awal: plugin bawaan lalu plugin
+     * pengguna. Dipanggil sekali saat boot (dari app.js).
+     */
+    load(builtinRoot) {
 
         pluginRegistry.clear();
         ToolRegistry.clear();
+        this.loaded.clear();
 
-        const folders = fs.readdirSync(pluginRoot);
+        this.loadRoot(builtinRoot, "builtin");
+
+        if (fs.existsSync(USER_ROOT)) {
+            this.loadRoot(USER_ROOT, "user");
+        }
+
+    }
+
+    loadRoot(root, source) {
+
+        const folders = fs.readdirSync(root);
 
         for (const folder of folders) {
 
-            const pluginPath = path.join(
-                pluginRoot,
-                folder
-            );
+            // Lewati folder tersembunyi (mis. .drafts) — draft belum
+            // disetujui tidak boleh ikut ter-load.
+            if (folder.startsWith(".")) {
+                continue;
+            }
+
+            const pluginPath = path.join(root, folder);
 
             if (!this.isPluginDirectory(pluginPath)) {
                 continue;
             }
 
-            try {
+            this.loadOne(pluginPath, source);
 
-                const manifest =
-                    this.loadManifest(pluginPath);
+        }
 
-                const instance =
-                    this.loadPlugin(
-                        pluginPath,
-                        manifest
-                    );
+    }
 
-                const tools =
-                    this.collectTools(
-                        pluginPath,
-                        instance
-                    );
+    /**
+     * Muat satu plugin dari folder-nya. Aman dipanggil ulang untuk
+     * plugin yang sama (hot reload) — versi lama di-unload dulu.
+     *
+     * @returns {{ok:boolean, id?:string, tools?:number, error?:string}}
+     */
+    loadOne(pluginPath, source = "user") {
 
-                this.registerPlugin(
-                    manifest,
-                    instance
-                );
+        // require/require.resolve butuh path absolut (relatifnya
+        // dihitung dari lokasi modul ini, bukan cwd). Diresolve di
+        // sini agar pemanggil boleh memberi path relatif.
+        pluginPath = path.resolve(pluginPath);
 
-                this.registerTools(
-                    manifest,
-                    tools
-                );
+        let manifest;
 
-                console.log(
-                    `✓ Loaded Plugin : ${manifest.name}`
-                );
+        try {
+            manifest = this.loadManifest(pluginPath);
+        }
+        catch (error) {
+            console.error(`✗ Manifest plugin gagal : ${pluginPath}`);
+            console.error(error.message);
+            return { ok: false, error: error.message };
+        }
 
-            }
-            catch (error) {
+        // Kalau plugin ini sudah ter-load, lepas dulu supaya tidak
+        // menumpuk tool ganda di registry.
+        if (this.loaded.has(manifest.id)) {
+            this.unloadPlugin(manifest.id);
+        }
 
-                console.error(
-                    `✗ Failed Plugin : ${folder}`
-                );
+        try {
 
-                console.error(error);
+            const instance = this.loadPlugin(pluginPath, manifest);
 
+            const tools = this.collectTools(pluginPath, instance);
+
+            this.registerPlugin(manifest, instance);
+
+            const toolIds = this.registerTools(manifest, tools);
+
+            this.loaded.set(manifest.id, {
+                path: pluginPath,
+                source,
+                toolIds
+            });
+
+            console.log(
+                `✓ Loaded Plugin : ${manifest.name}` +
+                (source === "user" ? "  (user)" : "")
+            );
+
+            return { ok: true, id: manifest.id, tools: toolIds.length };
+
+        }
+
+        catch (error) {
+
+            console.error(`✗ Failed Plugin : ${path.basename(pluginPath)}`);
+            console.error(error);
+
+            return { ok: false, id: manifest.id, error: error.message };
+
+        }
+
+    }
+
+    /**
+     * Lepas sebuah plugin: hapus tool-nya dari ToolRegistry, cabut
+     * dari pluginRegistry, dan buang cache require-nya supaya
+     * pemuatan berikutnya membaca kode terbaru.
+     */
+    unloadPlugin(pluginId) {
+
+        const record = this.loaded.get(pluginId);
+
+        if (!record) {
+            return false;
+        }
+
+        for (const toolId of record.toolIds) {
+            ToolRegistry.unregister(toolId);
+        }
+
+        pluginRegistry.unregister(pluginId);
+
+        this.clearRequireCache(record.path);
+
+        this.loaded.delete(pluginId);
+
+        return true;
+
+    }
+
+    /** Muat ulang satu plugin dari path-nya (dipakai setelah edit). */
+    reloadPath(pluginPath) {
+
+        return this.loadOne(pluginPath, "user");
+
+    }
+
+    /** Buang cache require untuk seluruh berkas di dalam folder plugin. */
+    clearRequireCache(pluginPath) {
+
+        const resolved = path.resolve(pluginPath);
+
+        for (const key of Object.keys(require.cache)) {
+
+            if (path.resolve(key).startsWith(resolved)) {
+                delete require.cache[key];
             }
 
         }
 
+    }
+
+    info(pluginId) {
+        return this.loaded.get(pluginId) ?? null;
     }
 
     /**
@@ -126,18 +250,10 @@ class PluginLoader {
     loadManifest(pluginPath) {
 
         const manifest = JSON.parse(
-
             fs.readFileSync(
-
-                path.join(
-                    pluginPath,
-                    "manifest.json"
-                ),
-
+                path.join(pluginPath, "manifest.json"),
                 "utf8"
-
             )
-
         );
 
         pluginValidator.validate(manifest);
@@ -232,31 +348,33 @@ class PluginLoader {
     registerPlugin(manifest, instance) {
 
         pluginRegistry.register({
-
             manifest,
-
             instance
-
         });
 
     }
 
+    /** @returns {string[]} id tool yang terdaftar (untuk unload nanti). */
     registerTools(manifest, tools) {
+
+        const toolIds = [];
 
         for (const tool of tools) {
 
-            ToolRegistry.register(
+            const registered = ToolRegistry.register(
                 manifest.id,
                 tool
             );
 
-            console.log(
-                `   └── ${manifest.id}.${
-                    tool.metadata?.name ?? tool.name
-                }`
-            );
+            const name = tool.metadata?.name ?? tool.name;
+
+            toolIds.push(`${manifest.id}.${name}`);
+
+            console.log(`   └── ${manifest.id}.${name}`);
 
         }
+
+        return toolIds;
 
     }
 
