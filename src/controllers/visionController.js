@@ -96,6 +96,45 @@ class VisionController {
         }
     }
 
+    /**
+     * Proxy snapshot kamera: daemon yang mengambil gambar (dengan
+     * header/auth kamera) lalu meneruskan byte-nya ke renderer.
+     * Dipakai untuk pratinjau "live" — renderer me-refresh <img> ini
+     * berkala, jadi tak perlu akses langsung ke kamera (hindari CORS).
+     */
+    async snapshot(req, res, next) {
+
+        try {
+
+            const cam = deviceService.getCamera(req.params.id);
+
+            if (!cam) {
+                return response.error(res, "Kamera tidak ditemukan.", 404);
+            }
+
+            const upstream = await fetch(cam.snapshotUrl, {
+                headers: cam.headers ?? {},
+                signal: AbortSignal.timeout(8000)
+            });
+
+            if (!upstream.ok) {
+                return response.error(res, `Kamera balas ${upstream.status}`, 502);
+            }
+
+            const buffer = Buffer.from(await upstream.arrayBuffer());
+
+            res.setHeader("Content-Type", upstream.headers.get("content-type") ?? "image/jpeg");
+            res.setHeader("Cache-Control", "no-store");
+
+            return res.end(buffer);
+
+        }
+        catch (error) {
+            return response.error(res, `Snapshot gagal: ${error.message}`, 502);
+        }
+
+    }
+
     /** Ambil snapshot kamera lalu analisis dengan model vision. */
     async seeCamera(req, res, next) {
 

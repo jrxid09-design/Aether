@@ -12,6 +12,21 @@ import { esc, pill, toast } from "../lib/ui.js";
 
 let stream = null;
 
+/** Pratinjau live kamera: timer refresh + object URL agar bisa dibersihkan. */
+const liveCams = new Map();   // id → { timer, url }
+
+function stopLive(id) {
+    const live = liveCams.get(id);
+    if (!live) return;
+    clearInterval(live.timer);
+    if (live.url) URL.revokeObjectURL(live.url);
+    liveCams.delete(id);
+}
+
+function stopAllLive() {
+    for (const id of [...liveCams.keys()]) stopLive(id);
+}
+
 export const vision = {
 
     id: "vision",
@@ -61,6 +76,10 @@ export const vision = {
                                 <div class="field"><label>URL snapshot</label><input type="url" id="cam-url" placeholder="http://.../snapshot.jpg"></div>
                             </div>
                             <button class="btn primary sm" id="cam-add" style="margin-top:8px">${icon("plus")} Tambah kamera</button>
+                            <div class="small dim" style="margin-top:10px">
+                                ${icon("chat")} Terhubung ke Chat: minta Aether
+                                <em>"lihat kamera dapur"</em> — ia otomatis memakai kamera ini.
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -101,6 +120,7 @@ export const vision = {
 
     unmount() {
         stopCam();
+        stopAllLive();
     }
 
 };
@@ -109,48 +129,98 @@ async function drawModel(root) {
 
     const host = root.querySelector("#vis-model");
 
+    let cfg;
     try {
-        const cfg = await api.visionConfig();
-
-        host.innerHTML = `
-            <div class="panel-head">
-                <h2>${icon("orb")} Model vision</h2>
-                <span class="push">${pill(
-                    cfg.configured ? (cfg.effective ?? "aktif") : "belum diatur",
-                    cfg.configured ? "ok" : "idle"
-                )}</span>
-            </div>
-            <div class="row">
-                <input type="text" id="vis-model-input" value="${esc(cfg.model ?? "")}"
-                    placeholder="mis. llava atau qwen2-vl (Ollama), atau model vision cloud" style="flex:1">
-                <button class="btn primary sm" id="vis-model-save">${icon("check")} Simpan</button>
-            </div>
-            <div class="small muted" style="margin-top:8px">
-                Butuh model yang bisa melihat. Di Ollama: <span class="mono">ollama pull llava</span>.
-                Kalau kosong &amp; provider Ollama, otomatis pakai <span class="mono">llava</span>.
-            </div>`;
-
-        host.querySelector("#vis-model-save").addEventListener("click", async () => {
-            try {
-                await api.saveVisionConfig({ model: host.querySelector("#vis-model-input").value.trim() });
-                toast("Model vision disimpan", "ok");
-                await drawModel(root);
-            }
-            catch (error) {
-                toast(error.message, "danger");
-            }
-        });
-
+        cfg = await api.visionConfig();
     }
     catch (error) {
         host.innerHTML = `<div class="small danger-text">${esc(error.message)}</div>`;
+        return;
     }
+
+    // Integrasi AI aktif (vision memakai otak yang sama).
+    let integ = "AI aktif";
+    try {
+        const ai = await api.request("/ai/config");
+        integ = ai?.resolved?.label ?? integ;
+    }
+    catch { /* opsional */ }
+
+    host.innerHTML = `
+        <div class="panel-head">
+            <h2>${icon("orb")} Model vision</h2>
+            <span class="push">${pill(
+                cfg.configured ? (cfg.effective ?? "aktif") : "belum diatur",
+                cfg.configured ? "ok" : "idle"
+            )}</span>
+        </div>
+        <div class="small muted" style="margin-bottom:8px">
+            Vision memakai integrasi AI yang sedang aktif:
+            <strong>${esc(integ)}</strong>. Pilih model yang bisa "melihat"
+            (mis. <span class="mono">llava</span>, <span class="mono">qwen2-vl</span>,
+            <span class="mono">gpt-4o</span>, <span class="mono">gemini-*-flash</span>).
+        </div>
+        <div class="row">
+            <select id="vis-model-select" style="flex:1">
+                <option value="">— pakai default (${esc(cfg.effective ?? "otomatis")}) —</option>
+                ${cfg.model ? `<option value="${esc(cfg.model)}" selected>${esc(cfg.model)}</option>` : ""}
+                <option value="__manual__">✎ ketik manual…</option>
+            </select>
+            <button class="btn ghost sm" id="vis-model-load">${icon("refresh")} Muat</button>
+            <button class="btn primary sm" id="vis-model-save">${icon("check")} Simpan</button>
+        </div>
+        <input type="text" id="vis-model-manual" style="display:none;margin-top:6px"
+            value="${esc(cfg.model ?? "")}" placeholder="nama model vision">
+        <div class="small dim" id="vis-model-help" style="margin-top:8px">
+            Tekan <strong>Muat</strong> untuk mengambil daftar model dari integrasi aktif.
+        </div>`;
+
+    const select = host.querySelector("#vis-model-select");
+    const manual = host.querySelector("#vis-model-manual");
+    const help = host.querySelector("#vis-model-help");
+
+    select.addEventListener("change", () => {
+        const isManual = select.value === "__manual__";
+        manual.style.display = isManual ? "" : "none";
+        if (isManual) manual.focus();
+    });
+
+    host.querySelector("#vis-model-load").addEventListener("click", async () => {
+        help.textContent = "Memuat model…";
+        try {
+            const data = await api.models();
+            const list = data.models ?? [];
+            select.innerHTML =
+                `<option value="">— pakai default (${esc(cfg.effective ?? "otomatis")}) —</option>` +
+                list.map(m => `<option value="${esc(m.id)}" ${m.id === cfg.model ? "selected" : ""}>${esc(m.name ?? m.id)}</option>`).join("") +
+                `<option value="__manual__">✎ ketik manual…</option>`;
+            help.textContent = `${list.length} model tersedia. Pilih yang mendukung gambar.`;
+        }
+        catch (error) {
+            help.textContent = `Gagal memuat: ${error.message}`;
+        }
+    });
+
+    host.querySelector("#vis-model-save").addEventListener("click", async () => {
+        const model = select.value === "__manual__" ? manual.value.trim() : select.value.trim();
+        try {
+            await api.saveVisionConfig({ model });
+            toast("Model vision disimpan", "ok");
+            await drawModel(root);
+        }
+        catch (error) {
+            toast(error.message, "danger");
+        }
+    });
 
 }
 
 async function drawCameras(root) {
 
     const host = root.querySelector("#vis-cameras");
+
+    // Bersihkan pratinjau live lama sebelum menggambar ulang daftar.
+    stopAllLive();
 
     try {
         const { cameras } = await api.cameras();
@@ -161,18 +231,25 @@ async function drawCameras(root) {
         }
 
         host.innerHTML = cameras.map(c => `
-            <div class="list-item" data-cam="${esc(c.id)}">
+            <div class="list-item" data-cam="${esc(c.id)}" style="flex-wrap:wrap">
                 <div style="min-width:0;flex:1">
                     <div class="title">${esc(c.label)} <span class="tag mono">${esc(c.id)}</span></div>
                     <div class="sub mono truncate" style="max-width:260px">${esc(c.snapshotUrl)}</div>
                 </div>
+                <button class="btn sm" data-live-btn>${icon("play")} Live</button>
                 <button class="btn sm" data-see>${icon("orb")} Lihat</button>
                 <button class="btn sm danger" data-del>${icon("trash")}</button>
+                <div class="video-frame" data-live style="flex-basis:100%;margin-top:8px;display:none"></div>
                 <div class="quote" data-out style="flex-basis:100%;margin-top:8px;display:none"></div>
             </div>`).join("");
 
         host.querySelectorAll("[data-cam]").forEach(row => {
             const id = row.dataset.cam;
+
+            row.querySelector("[data-live-btn]").addEventListener("click", event => {
+                toggleLive(id, row, event.currentTarget);
+            });
+
             row.querySelector("[data-see]").addEventListener("click", async () => {
                 const out = row.querySelector("[data-out]");
                 out.style.display = "block";
@@ -201,6 +278,73 @@ async function drawCameras(root) {
     catch (error) {
         host.innerHTML = `<div class="small danger-text" style="padding:16px">${esc(error.message)}</div>`;
     }
+
+}
+
+/**
+ * Nyala/matikan pratinjau live sebuah kamera. Snapshot diambil lewat
+ * proxy daemon (fetch → blob) supaya lolos CSP & tanpa masalah CORS,
+ * lalu <img> di-refresh berkala hingga terasa seperti video.
+ */
+async function toggleLive(id, row, button) {
+
+    const box = row.querySelector("[data-live]");
+
+    if (liveCams.has(id)) {
+        stopLive(id);
+        box.style.display = "none";
+        box.innerHTML = "";
+        button.innerHTML = `${icon("play")} Live`;
+        return;
+    }
+
+    box.style.display = "block";
+    box.innerHTML = `<div class="placeholder">Menyambung ke kamera…</div>`;
+    button.innerHTML = `${icon("stop")} Stop`;
+
+    const img = document.createElement("img");
+    img.style.width = "100%";
+    img.style.height = "100%";
+    img.style.objectFit = "cover";
+
+    const refresh = async () => {
+
+        try {
+
+            const res = await fetch(
+                `${api.root}/cameras/${encodeURIComponent(id)}/snapshot?t=${Date.now()}`,
+                { headers: api.headers() }
+            );
+
+            if (!res.ok) {
+                throw new Error(`snapshot ${res.status}`);
+            }
+
+            const blob = await res.blob();
+
+            const live = liveCams.get(id);
+            if (!live) return;                 // dihentikan saat menunggu
+
+            if (img.parentNode !== box) {
+                box.innerHTML = "";
+                box.appendChild(img);
+            }
+
+            const previous = live.url;
+            live.url = URL.createObjectURL(blob);
+            img.src = live.url;
+            if (previous) URL.revokeObjectURL(previous);
+
+        }
+        catch (error) {
+            box.innerHTML = `<div class="placeholder danger-text">${esc(error.message)}</div>`;
+        }
+
+    };
+
+    const timer = setInterval(refresh, 1200);
+    liveCams.set(id, { timer, url: null });
+    refresh();
 
 }
 

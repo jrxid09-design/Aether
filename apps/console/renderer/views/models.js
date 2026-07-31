@@ -1,7 +1,7 @@
-import { store } from "../lib/store.js";
 import { api } from "../lib/api.js";
 import { icon } from "../lib/icons.js";
 import { esc, bytes, relativeTime, pill, toast } from "../lib/ui.js";
+import { aiChoices } from "../lib/aiselect.js";
 
 export const models = {
 
@@ -9,25 +9,18 @@ export const models = {
     label: "Models",
     icon: "cpu",
     title: "Models",
-    subtitle: "Model yang tersedia pada tiap provider.",
+    subtitle: "Model yang tersedia pada AI yang dipakai Aether.",
 
     render(root) {
-
-        const o = store.get().overview;
 
         root.innerHTML = `
             <div class="view-head">
                 <div>
                     <h1>Models</h1>
-                    <p>Model yang tersedia pada tiap provider AI.</p>
+                    <p>Model yang tersedia pada AI yang sedang dipakai Aether.</p>
                 </div>
                 <div class="actions">
-                    <select id="model-provider" style="width:170px">
-                        ${(o?.ai.providers ?? []).map(provider => `
-                            <option value="${esc(provider.id)}" ${provider.id === o?.ai.active ? "selected" : ""}>
-                                ${esc(provider.id)}
-                            </option>`).join("")}
-                    </select>
+                    <div class="seg" id="model-mode" style="margin:0"></div>
                     <button class="btn ghost sm" id="model-refresh">${icon("refresh")} Muat ulang</button>
                 </div>
             </div>
@@ -42,8 +35,11 @@ export const models = {
 
     async mount(root) {
 
-        const select = root.querySelector("#model-provider");
+        const seg = root.querySelector("#model-mode");
         const body = root.querySelector("#model-body");
+
+        // Selektor "AI Lokal / AI Provider" — ganti otak Aether langsung.
+        await aiChoices.render(seg, () => load());
 
         const load = async () => {
 
@@ -51,7 +47,7 @@ export const models = {
 
             try {
 
-                const data = await api.models(select.value);
+                const data = await api.models();
 
                 body.innerHTML = table(data);
 
@@ -81,8 +77,6 @@ export const models = {
             }
 
         };
-
-        select.addEventListener("change", load);
 
         root.querySelector("#model-refresh").addEventListener("click", load);
 

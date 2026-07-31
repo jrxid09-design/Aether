@@ -133,11 +133,11 @@ async function draw(root) {
         agents.map(a => `${a.online ? "●" : "○"} ${a.id}`).join("  ")
     ]));
 
-    // Telegram
-    const tg = c.telegram ?? {};
-    cards.push(card("send", "Telegram", tg.running ? "aktif" : (tg.configured ? "mati" : "—"), [
-        tg.running ? `@${tg.username}` : (tg.configured ? "tidak jalan" : "belum diatur")
-    ], tg.running ? "ok" : (tg.configured ? "danger" : "idle")));
+    // WhatsApp
+    const wa = c.whatsapp ?? {};
+    cards.push(card("send", "WhatsApp", wa.running ? "aktif" : (wa.configured ? "mati" : "—"), [
+        wa.running ? (wa.number ?? "tersambung") : (wa.configured ? "belum tertaut" : "belum diatur")
+    ], wa.running ? "ok" : (wa.configured ? "danger" : "idle")));
 
     grid.innerHTML = cards.join("");
 

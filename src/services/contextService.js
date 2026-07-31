@@ -26,19 +26,19 @@ class ContextService {
             this.cameras(),
             this.people(),
             this.agents(),
-            this.telegram(),
+            this.whatsapp(),
             this.devices()
         ]);
 
         const [
             system, ai, memory, integrations, home,
-            sensors, cameras, people, agents, telegram, devices
+            sensors, cameras, people, agents, whatsapp, devices
         ] = parts.map(p => p.status === "fulfilled" ? p.value : { error: p.reason?.message });
 
         return {
             at: new Date().toISOString(),
             system, ai, memory, integrations, home,
-            sensors, cameras, people, agents, telegram, devices
+            sensors, cameras, people, agents, whatsapp, devices
         };
 
     }
@@ -122,10 +122,10 @@ class ContextService {
         return { agents: list.map(a => ({ id: a.id, online: a.online })) };
     }
 
-    telegram() {
-        const telegram = require("./telegramService");
-        const s = telegram.status();
-        return { configured: s.configured, running: s.running, username: s.username };
+    whatsapp() {
+        const whatsapp = require("./whatsappService");
+        const s = whatsapp.status();
+        return { configured: s.configured, running: s.running, number: s.number };
     }
 
     devices() {
@@ -179,8 +179,8 @@ class ContextService {
             lines.push(`Kamera terdaftar: ${snap.cameras.total}.`);
         }
 
-        if (snap.telegram?.running) {
-            lines.push(`Telegram aktif (@${snap.telegram.username}).`);
+        if (snap.whatsapp?.running) {
+            lines.push(`WhatsApp aktif (${snap.whatsapp.number ?? "tersambung"}).`);
         }
 
         const prompt =

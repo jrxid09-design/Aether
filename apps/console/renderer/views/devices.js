@@ -95,6 +95,12 @@ export const devices = {
 
         }
 
+        // Chromium/Electron baru membocorkan deviceId (dan label) SETELAH
+        // izin media diberikan minimal sekali di sesi ini. Tanpa langkah
+        // ini, deviceId tersimpan tak cocok dengan daftar enumerasi →
+        // pilihan device seolah "hilang" tiap kali Console dibuka ulang.
+        await primePermission();
+
         await renderAudio(root);
         await renderVideo(root);
         await renderSensors(root);
@@ -155,10 +161,7 @@ async function renderAudio(root) {
             <label>Perangkat input</label>
             <select id="mic-device">
                 <option value="">— belum dipilih —</option>
-                ${list.map(device => `
-                    <option value="${esc(device.deviceId)}" ${device.deviceId === audio.inputDeviceId ? "selected" : ""}>
-                        ${esc(device.label || `Mikrofon ${device.deviceId.slice(0, 6)}`)}
-                    </option>`).join("")}
+                ${deviceOptions(list, audio.inputDeviceId, audio.inputLabel, "Mikrofon")}
             </select>
             ${list.length === 0 || !list[0].label
                 ? `<span class="help">Tekan "Izinkan akses" agar nama perangkat muncul.</span>`
@@ -347,10 +350,7 @@ async function renderVideo(root) {
             <label>Perangkat</label>
             <select id="cam-device">
                 <option value="">— belum dipilih —</option>
-                ${list.map(device => `
-                    <option value="${esc(device.deviceId)}" ${device.deviceId === video.deviceId ? "selected" : ""}>
-                        ${esc(device.label || `Kamera ${device.deviceId.slice(0, 6)}`)}
-                    </option>`).join("")}
+                ${deviceOptions(list, video.deviceId, video.label, "Kamera")}
             </select>
         </div>
 
@@ -664,6 +664,51 @@ async function enumerate(kind) {
     catch {
         return [];
     }
+
+}
+
+/**
+ * Minta izin media sekali agar enumerateDevices() mengembalikan
+ * deviceId & label yang sebenarnya. Dijalankan diam-diam; kegagalan
+ * (mis. tak ada kamera) tidak fatal.
+ */
+async function primePermission() {
+
+    for (const constraints of [{ audio: true, video: true }, { audio: true }, { video: true }]) {
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            stream.getTracks().forEach(track => track.stop());
+            return;
+        }
+        catch {
+            // Coba kombinasi berikutnya (mis. hanya mic bila tak ada kamera).
+        }
+
+    }
+
+}
+
+/**
+ * Bangun <option> daftar perangkat, sekaligus MENJAGA perangkat
+ * yang tersimpan tetap terpilih walau sedang tidak ter-enumerasi
+ * (mis. sempat dicabut) — supaya setelan tidak "hilang" sendiri.
+ */
+function deviceOptions(list, savedId, savedLabel, fallbackPrefix) {
+
+    const options = list.map(device => `
+        <option value="${esc(device.deviceId)}" ${device.deviceId === savedId ? "selected" : ""}>
+            ${esc(device.label || `${fallbackPrefix} ${device.deviceId.slice(0, 6)}`)}
+        </option>`);
+
+    if (savedId && !list.some(device => device.deviceId === savedId)) {
+        options.unshift(`
+            <option value="${esc(savedId)}" selected>
+                ${esc(savedLabel || `${fallbackPrefix} tersimpan`)} (tak terdeteksi)
+            </option>`);
+    }
+
+    return options.join("");
 
 }
 

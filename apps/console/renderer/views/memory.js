@@ -546,21 +546,33 @@ async function drawDocuments(panel, root) {
 
     const result = await api.documents();
 
+    // Pemilih native tersedia hanya di dalam Console (Electron).
+    const hasPicker = Boolean(window.aether?.dialog?.openFile);
+
     panel.innerHTML = `
         <div class="panel">
             <div class="panel-head"><h2>Baca dokumen baru</h2></div>
             <div class="stack">
-                <div class="row">
-                    <input type="text" id="doc-path" style="flex:1"
-                        placeholder="Path berkas atau folder di mesin tempat daemon berjalan">
-                    <button class="btn" id="doc-file">${icon("download")} Berkas</button>
-                    <button class="btn" id="doc-dir">${icon("box")} Folder</button>
-                </div>
-                <div class="small dim">
-                    Didukung: PDF, DOCX, Markdown, TXT, CSV, JSON, HTML, dan berkas kode.
-                    Path dibaca oleh daemon, jadi tulis path menurut mesin daemon —
-                    bukan menurut laptop ini.
-                </div>
+                ${hasPicker
+                    ? `<div class="row">
+                        <button class="btn" id="doc-file">${icon("terminal")} Pilih berkas…</button>
+                        <button class="btn" id="doc-dir">${icon("folder")} Pilih folder…</button>
+                        <span class="small dim" id="doc-picked"></span>
+                    </div>
+                    <div class="small dim">
+                        Klik untuk memilih langsung dari komputer ini — tak perlu mengetik path.
+                        Didukung: PDF, DOCX, Markdown, TXT, CSV, JSON, HTML, dan berkas kode.
+                    </div>`
+                    : `<div class="row">
+                        <input type="text" id="doc-path" style="flex:1"
+                            placeholder="Path berkas atau folder di mesin tempat daemon berjalan">
+                        <button class="btn" id="doc-file">${icon("terminal")} Berkas</button>
+                        <button class="btn" id="doc-dir">${icon("folder")} Folder</button>
+                    </div>
+                    <div class="small dim">
+                        Didukung: PDF, DOCX, Markdown, TXT, CSV, JSON, HTML, dan berkas kode.
+                        Path dibaca oleh daemon.
+                    </div>`}
                 <div class="divider" style="margin:6px 0"></div>
                 <div class="field">
                     <label>Atau tempel teks langsung</label>
@@ -599,6 +611,7 @@ async function drawDocuments(panel, root) {
         </div>`;
 
     const pathInput = panel.querySelector("#doc-path");
+    const picked = panel.querySelector("#doc-picked");
 
     const ingest = async (body, button) => {
 
@@ -646,25 +659,43 @@ async function drawDocuments(panel, root) {
 
     };
 
-    panel.querySelector("#doc-file").addEventListener("click", event => {
+    panel.querySelector("#doc-file").addEventListener("click", async event => {
+
+        const button = event.currentTarget;
+
+        if (hasPicker) {
+            const path = await window.aether.dialog.openFile();
+            if (!path) return;                          // dibatalkan
+            if (picked) picked.textContent = path;
+            return ingest({ path }, button);
+        }
 
         if (!pathInput.value.trim()) {
             toast("Isi path berkas dulu.", "warn");
             return;
         }
 
-        ingest({ path: pathInput.value.trim() }, event.currentTarget);
+        ingest({ path: pathInput.value.trim() }, button);
 
     });
 
-    panel.querySelector("#doc-dir").addEventListener("click", event => {
+    panel.querySelector("#doc-dir").addEventListener("click", async event => {
+
+        const button = event.currentTarget;
+
+        if (hasPicker) {
+            const dir = await window.aether.dialog.openDirectory();
+            if (!dir) return;                           // dibatalkan
+            if (picked) picked.textContent = dir;
+            return ingest({ directory: dir }, button);
+        }
 
         if (!pathInput.value.trim()) {
             toast("Isi path folder dulu.", "warn");
             return;
         }
 
-        ingest({ directory: pathInput.value.trim() }, event.currentTarget);
+        ingest({ directory: pathInput.value.trim() }, button);
 
     });
 

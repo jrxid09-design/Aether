@@ -244,20 +244,20 @@ async function renderDaemonConfig(root) {
 
         const [aiCfg, tg, voice, homeCfg, people] = await Promise.all([
             api.request("/ai/config"),
-            api.request("/telegram/status"),
+            api.request("/whatsapp/status"),
             api.voiceConfig(),
             api.homeStatus().catch(() => null),
             api.request("/people/status").catch(() => null)
         ]);
 
         host.innerHTML = aiPanel(aiCfg) + voicePanel(voice)
-            + homePanel(homeCfg) + peoplePanel(people) + telegramPanel(tg);
+            + homePanel(homeCfg) + peoplePanel(people) + whatsappPanel(tg);
 
         wireAiPanel(root, aiCfg);
         wireVoicePanel(root);
         wireHomePanel(root);
         wirePeoplePanel(root);
-        wireTelegramPanel(root);
+        wireWhatsappPanel(root);
 
     }
 
@@ -270,7 +270,7 @@ async function renderDaemonConfig(root) {
 
 function aiPanel(cfg) {
 
-    const ids = Object.keys(cfg.providers);
+    const isLocal = cfg.active === "ollama";
 
     const fellBack = cfg.resolved.fellBackFrom;
 
@@ -284,26 +284,47 @@ function aiPanel(cfg) {
                 )}</span>
             </div>
 
-            <div class="small muted" style="margin-bottom:10px">
-                Isi API key dari platform mana pun. <strong>Key terisi → Aether pakai
-                platform itu. Key kosong → otomatis Ollama lokal.</strong>
-                ${fellBack ? `<span class="warn-text"> (key ${esc(fellBack)} kosong, sekarang pakai Ollama)</span>` : ""}
+            <div class="small muted" style="margin-bottom:6px">
+                Pilih otak Aether: <strong>AI Lokal</strong> (Ollama — gratis, privat,
+                jalan di mesin sendiri) atau <strong>AI Provider</strong> (cloud pakai
+                API key). Kosongkan key &amp; simpan untuk balik ke AI Lokal.
+                ${fellBack ? `<span class="warn-text"> (key ${esc(fellBack)} kosong, sekarang pakai AI Lokal)</span>` : ""}
             </div>
 
-            <div class="field">
-                <label>Platform aktif</label>
-                <select id="ai-active">
-                    ${ids.map(id => `<option value="${id}" ${cfg.active === id ? "selected" : ""}>${esc(cfg.providers[id].label)}</option>`).join("")}
-                    <option value="ollama" ${cfg.active === "ollama" ? "selected" : ""}>${esc(cfg.ollama.label)}</option>
-                </select>
+            <div class="seg" id="ai-mode">
+                <button type="button" data-mode="ollama" class="${isLocal ? "active" : ""}">
+                    ${icon("server")} AI Lokal</button>
+                <button type="button" data-mode="provider" class="${isLocal ? "" : "active"}">
+                    ${icon("cloud")} AI Provider</button>
             </div>
 
             <div id="ai-provider-fields"></div>
 
             <div class="row" style="margin-top:10px">
                 <button class="btn primary" id="ai-save">${icon("check")} Simpan &amp; terapkan</button>
-                <span class="small dim">perubahan langsung dipakai tanpa restart</span>
+                <span class="small dim">langsung dipakai tanpa restart</span>
             </div>
+        </div>`;
+
+}
+
+/** Kolom Model: dropdown terisi lewat "Muat", dengan opsi ketik manual. */
+function modelField(currentModel) {
+
+    return `
+        <div class="field">
+            <label>Model</label>
+            <div class="row" style="gap:6px">
+                <select id="ai-model" style="flex:1">
+                    <option value="">— pilih model —</option>
+                    ${currentModel ? `<option value="${esc(currentModel)}" selected>${esc(currentModel)}</option>` : ""}
+                    <option value="__manual__">✎ ketik manual…</option>
+                </select>
+                <button type="button" class="btn ghost sm" id="ai-load-models">${icon("refresh")} Muat</button>
+            </div>
+            <input type="text" id="ai-model-manual" style="display:none;margin-top:6px"
+                value="${esc(currentModel ?? "")}" placeholder="nama model, mis. gpt-4o-mini">
+            <span class="help" id="ai-model-help">Tekan <strong>Muat</strong> untuk mengambil daftar model dari provider (butuh key valid).</span>
         </div>`;
 
 }
@@ -542,170 +563,309 @@ function wirePeoplePanel(root) {
 
 }
 
-function telegramPanel(tg) {
+function whatsappPanel(wa) {
+
+    const statusPill = wa.connected
+        ? pill(wa.number ? `tersambung · ${wa.number}` : "tersambung", "ok")
+        : (wa.available ? pill("belum tertaut", "idle") : pill("paket belum diinstall", "warn"));
 
     return `
         <div class="panel">
             <div class="panel-head">
-                <h2>${icon("send")} Telegram</h2>
-                <span class="push">${pill(
-                    tg.running ? `@${tg.username}` : (tg.hasToken ? "tidak aktif" : "belum diatur"),
-                    tg.running ? "ok" : (tg.hasToken ? "danger" : "idle")
-                )}</span>
+                <h2>${icon("send")} WhatsApp</h2>
+                <span class="push">${statusPill}</span>
             </div>
 
             <div class="stack">
+                ${!wa.available ? `<div class="small warn-text">Jalankan di folder proyek:
+                    <span class="mono">npm install @whiskeysockets/baileys</span> lalu mulai ulang daemon.</div>` : ""}
+
                 <div class="field">
-                    <label>Bot token</label>
-                    <input type="password" id="tg-token" placeholder="${tg.hasToken ? esc(tg.tokenHint) + " (tersimpan — isi untuk ganti)" : "dari @BotFather"}">
-                    <span class="help">Dari @BotFather. Disimpan lokal di daemon (gitignored).</span>
+                    <label>Nomor WhatsApp (untuk pairing, format internasional)</label>
+                    <input type="text" id="wa-number" value="${esc(wa.pairNumber ?? "")}"
+                        placeholder="mis. 6281234567890 (tanpa + / spasi)">
+                    <span class="help">Nomor perangkat yang menjalankan Aether. Setelah "Hubungkan", buka
+                        WhatsApp di HP itu → <em>Perangkat Tertaut → Tautkan dengan nomor telepon</em>,
+                        lalu masukkan kode di bawah.</span>
+                </div>
+
+                ${wa.pairingCode ? `<div class="panel" style="background:rgba(52,211,153,.08)">
+                    <div class="small dim">Kode pairing (berlaku singkat):</div>
+                    <div class="mono" style="font-size:26px;letter-spacing:4px">${esc(wa.pairingCode)}</div>
+                </div>` : ""}
+
+                <div class="field">
+                    <label>Nomor pribadi yang diizinkan</label>
+                    <input type="text" id="wa-allowed" value="${esc((wa.allowed ?? []).join(", "))}"
+                        placeholder="mis. 6281111, 6282222">
+                    <span class="help">Kirim <span class="mono">/id</span> ke Aether untuk tahu nomormu. Pisahkan koma. Tanpa ini chat pribadi ditolak.</span>
                 </div>
                 <div class="field">
-                    <label>Chat id yang diizinkan</label>
-                    <input type="text" id="tg-allowed" value="${esc((tg.allowed ?? []).join(", "))}"
-                        placeholder="mis. 123456789, 987654321">
-                    <span class="help">Kirim <span class="mono">/id</span> ke bot untuk tahu chat id-mu. Pisahkan koma. Tanpa ini bot menolak semua.</span>
+                    <label>Id grup yang didaftarkan</label>
+                    <input type="text" id="wa-groups" value="${esc((wa.groups ?? []).join(", "))}"
+                        placeholder="mis. 120363012345678901@g.us">
+                    <span class="help">Kirim <span class="mono">/id</span> di grup untuk tahu id-nya. Di grup, Aether menjawab saat di-mention (sebut <em>Aether</em>) atau di-reply.</span>
                 </div>
-                ${tg.lastError ? `<div class="small danger-text">${esc(tg.lastError)}</div>` : ""}
+                ${wa.lastError ? `<div class="small danger-text">${esc(wa.lastError)}</div>` : ""}
                 <div class="row">
-                    <button class="btn primary" id="tg-save">${icon("check")} Simpan &amp; jalankan</button>
-                    <button class="btn ghost" id="tg-test" ${tg.running ? "" : "disabled"}>${icon("send")} Kirim uji</button>
+                    <button class="btn primary" id="wa-save">${icon("check")} Simpan</button>
+                    <button class="btn" id="wa-connect">${icon("plug")} Hubungkan / minta kode</button>
+                    <button class="btn ghost" id="wa-test" ${wa.connected ? "" : "disabled"}>${icon("send")} Kirim uji</button>
+                    <button class="btn ghost danger" id="wa-logout" ${wa.connected ? "" : "disabled"}>${icon("x")} Putuskan</button>
                 </div>
             </div>
         </div>`;
 
 }
 
-function providerFields(cfg, id) {
+function providerFields(cfg, mode, platformId) {
 
-    if (id === "ollama") {
+    if (mode === "ollama") {
+        const o = cfg.ollama;
         return `
-            <div class="grid cols-2" style="gap:10px">
-                <div class="field">
-                    <label>Base URL</label>
-                    <input type="url" id="ai-baseurl" value="${esc(cfg.ollama.baseUrl)}" placeholder="http://localhost:11434">
-                </div>
-                <div class="field">
-                    <label>Model</label>
-                    <input type="text" id="ai-model" value="${esc(cfg.ollama.model ?? "")}" placeholder="${esc(cfg.ollama.modelHint)}">
-                </div>
-            </div>`;
+            <div class="field">
+                <label>Base URL Ollama</label>
+                <input type="url" id="ai-baseurl" value="${esc(o.baseUrl)}" placeholder="http://localhost:11434">
+            </div>
+            ${modelField(o.model)}`;
     }
 
-    const p = cfg.providers[id];
+    const p = cfg.providers[platformId];
 
     return `
         <div class="field">
-            <label>API key ${p.hasKey ? `<span class="dim">(tersimpan: ${esc(p.keyHint)})</span>` : ""}</label>
-            <input type="password" id="ai-key" placeholder="${p.hasKey ? "isi untuk mengganti, kosongkan untuk pakai Ollama" : "tempel API key di sini"}">
-            <span class="help">Kosongkan &amp; simpan untuk menghapus key (Aether balik ke Ollama).</span>
+            <label>Platform</label>
+            <select id="ai-platform">
+                ${Object.keys(cfg.providers).map(pid =>
+                    `<option value="${esc(pid)}" ${pid === platformId ? "selected" : ""}>${esc(cfg.providers[pid].label)}</option>`
+                ).join("")}
+            </select>
         </div>
-        <div class="grid cols-2" style="gap:10px">
-            <div class="field">
-                <label>Base URL</label>
-                <input type="url" id="ai-baseurl" value="${esc(p.baseUrl)}" placeholder="${esc(p.defaultBaseUrl)}">
-            </div>
-            <div class="field">
-                <label>Model</label>
-                <input type="text" id="ai-model" value="${esc(p.model ?? "")}" placeholder="${esc(p.modelHint)}">
-            </div>
-        </div>`;
+        <div class="field">
+            <label>API key ${p.hasKey ? `<span class="dim">(tersimpan: ${esc(p.keyHint)})</span>` : ""}</label>
+            <input type="password" id="ai-key" placeholder="${p.hasKey ? "isi untuk mengganti, kosongkan untuk pakai AI Lokal" : "tempel API key di sini"}">
+            <span class="help">Kosongkan &amp; simpan untuk menghapus key (Aether balik ke AI Lokal).</span>
+        </div>
+        <div class="field">
+            <label>Base URL</label>
+            <input type="url" id="ai-baseurl" value="${esc(p.baseUrl)}" placeholder="${esc(p.defaultBaseUrl)}">
+        </div>
+        ${modelField(p.model)}`;
 
 }
 
 function wireAiPanel(root, cfg) {
 
-    const select = root.querySelector("#ai-active");
+    const modeSeg = root.querySelector("#ai-mode");
     const fields = root.querySelector("#ai-provider-fields");
 
-    const draw = () => { fields.innerHTML = providerFields(cfg, select.value); };
+    const providerIds = Object.keys(cfg.providers);
 
-    draw();
-    select.addEventListener("change", draw);
+    let mode = cfg.active === "ollama" ? "ollama" : "provider";
+    let platform = cfg.active !== "ollama"
+        ? cfg.active
+        : (providerIds.find(id => cfg.providers[id].hasKey) ?? providerIds[0]);
 
-    root.querySelector("#ai-save").addEventListener("click", async () => {
+    const draw = () => {
+        fields.innerHTML = providerFields(cfg, mode, platform);
+        wireFields();
+    };
 
-        const id = select.value;
+    function wireFields() {
 
-        const body = { active: id };
-
-        if (id === "ollama") {
-            body.ollama = {
-                baseUrl: root.querySelector("#ai-baseurl").value.trim(),
-                model: root.querySelector("#ai-model").value.trim()
-            };
+        const plat = fields.querySelector("#ai-platform");
+        if (plat) {
+            plat.addEventListener("change", () => { platform = plat.value; draw(); });
         }
-        else {
-            const key = root.querySelector("#ai-key").value;
-            body.provider = {
-                id,
-                // Hanya kirim key bila diisi (biar tidak menimpa
-                // yang tersimpan dengan string kosong tak sengaja)…
-                ...(key !== "" ? { apiKey: key } : {}),
-                baseUrl: root.querySelector("#ai-baseurl").value.trim(),
-                model: root.querySelector("#ai-model").value.trim()
-            };
+
+        const modelSel = fields.querySelector("#ai-model");
+        const manual = fields.querySelector("#ai-model-manual");
+        if (modelSel && manual) {
+            modelSel.addEventListener("change", () => {
+                const isManual = modelSel.value === "__manual__";
+                manual.style.display = isManual ? "" : "none";
+                if (isManual) manual.focus();
+            });
         }
+
+        const loadBtn = fields.querySelector("#ai-load-models");
+        if (loadBtn) {
+            loadBtn.addEventListener("click", loadModels);
+        }
+
+    }
+
+    /** Simpan kredensial lalu ambil daftar model yang benar-benar tersedia. */
+    async function loadModels() {
+
+        const help = fields.querySelector("#ai-model-help");
+        const modelSel = fields.querySelector("#ai-model");
+        const loadBtn = fields.querySelector("#ai-load-models");
+
+        help.textContent = "Menyimpan kredensial & memuat model…";
+        loadBtn.disabled = true;
 
         try {
-            const result = await api.request("/ai/config", { method: "POST", body });
+
+            // Model hanya bisa didaftar dengan provider yang aktif,
+            // jadi simpan dulu (tanpa toast) agar daemon memakai key ini.
+            await persist(false);
+
+            const data = await api.models();
+            const list = data.models ?? [];
+
+            const current = data.defaultModel ?? "";
+
+            modelSel.innerHTML =
+                `<option value="">— pilih model —</option>` +
+                list.map(m =>
+                    `<option value="${esc(m.id)}" ${m.id === current ? "selected" : ""}>${esc(m.name ?? m.id)}</option>`
+                ).join("") +
+                `<option value="__manual__">✎ ketik manual…</option>`;
+
+            help.textContent = list.length
+                ? `${list.length} model tersedia — pilih lalu tekan Simpan.`
+                : "Tidak ada model terbaca. Coba ketik manual atau periksa key/URL.";
+
+        }
+        catch (error) {
+            help.textContent = `Gagal memuat: ${error.message}`;
+        }
+        finally {
+            loadBtn.disabled = false;
+        }
+
+    }
+
+    /** Baca model terpilih (dropdown atau input manual). */
+    function readModel() {
+        const modelSel = fields.querySelector("#ai-model");
+        const manual = fields.querySelector("#ai-model-manual");
+        if (modelSel?.value === "__manual__") {
+            return manual.value.trim();
+        }
+        return modelSel?.value.trim() ?? "";
+    }
+
+    /** Kirim konfigurasi ke daemon. showToast=false dipakai saat memuat model. */
+    async function persist(showToast) {
+
+        const baseUrl = fields.querySelector("#ai-baseurl")?.value.trim();
+        const model = readModel();
+
+        const body = { active: mode === "ollama" ? "ollama" : platform };
+
+        if (mode === "ollama") {
+            body.ollama = { baseUrl, model };
+        }
+        else {
+            const key = fields.querySelector("#ai-key")?.value ?? "";
+            body.provider = {
+                id: platform,
+                ...(key !== "" ? { apiKey: key } : {}),
+                baseUrl,
+                model
+            };
+        }
+
+        const result = await api.request("/ai/config", { method: "POST", body });
+
+        if (showToast) {
             const v = result.verify;
-            // Verifikasi memberi jawaban jelas: key valid? model kurang?
             toast(
                 v?.note ? `${result.reconfigured.platform}: ${v.note}` : `AI aktif: ${result.reconfigured.platform}`,
                 v && v.ok === false ? "warn" : "ok",
                 6000
             );
             await renderDaemonConfig(root);
-            // Segarkan info provider di store agar view lain ikut update.
             document.dispatchEvent(new CustomEvent("aether:reconnect"));
+        }
+
+        return result;
+
+    }
+
+    modeSeg.querySelectorAll("[data-mode]").forEach(button => {
+        button.addEventListener("click", () => {
+            mode = button.dataset.mode;
+            modeSeg.querySelectorAll("[data-mode]").forEach(b =>
+                b.classList.toggle("active", b === button));
+            draw();
+        });
+    });
+
+    root.querySelector("#ai-save").addEventListener("click", async () => {
+        try {
+            await persist(true);
         }
         catch (error) {
             toast(error.message, "danger", 6000);
         }
-
     });
+
+    draw();
 
 }
 
-function wireTelegramPanel(root) {
+function wireWhatsappPanel(root) {
 
-    root.querySelector("#tg-save").addEventListener("click", async () => {
+    const body = () => ({
+        number: root.querySelector("#wa-number").value.trim(),
+        allowed: root.querySelector("#wa-allowed").value.trim(),
+        groups: root.querySelector("#wa-groups").value.trim()
+    });
 
-        const token = root.querySelector("#tg-token").value.trim();
-        const allowed = root.querySelector("#tg-allowed").value.trim();
-
-        const body = { allowed };
-        if (token) {
-            body.token = token;
-        }
-
+    root.querySelector("#wa-save").addEventListener("click", async () => {
         try {
-            const status = await api.request("/telegram/config", { method: "POST", body });
+            await api.request("/whatsapp/config", { method: "POST", body: body() });
+            toast("Setelan WhatsApp disimpan", "ok");
+            await renderDaemonConfig(root);
+        }
+        catch (error) {
+            toast(error.message, "danger", 6000);
+        }
+    });
+
+    root.querySelector("#wa-connect").addEventListener("click", async () => {
+        try {
+            // Simpan dulu (nomor & izin) baru minta kode pairing.
+            await api.request("/whatsapp/config", { method: "POST", body: body() });
+            const status = await api.request("/whatsapp/connect", { method: "POST", body: {} });
             toast(
-                status.running ? `Bot @${status.username} aktif` : (status.lastError ?? "Tersimpan"),
-                status.running ? "ok" : "warn",
-                5000
+                status.pairingCode
+                    ? `Kode pairing: ${status.pairingCode}`
+                    : (status.connected ? "Sudah tersambung" : (status.lastError ?? "Menyambungkan…")),
+                status.lastError ? "warn" : "ok",
+                8000
             );
             await renderDaemonConfig(root);
         }
         catch (error) {
             toast(error.message, "danger", 6000);
         }
-
     });
 
-    const testBtn = root.querySelector("#tg-test");
-    if (testBtn) {
-        testBtn.addEventListener("click", async () => {
-            try {
-                const r = await api.request("/telegram/test", { method: "POST", body: {} });
-                toast(`Terkirim ke ${r.recipients} chat`, "ok");
-            }
-            catch (error) {
-                toast(error.message, "danger");
-            }
-        });
-    }
+    const testBtn = root.querySelector("#wa-test");
+    if (testBtn) testBtn.addEventListener("click", async () => {
+        try {
+            const r = await api.request("/whatsapp/test", { method: "POST", body: {} });
+            toast(`Terkirim ke ${r.recipients} chat`, "ok");
+        }
+        catch (error) {
+            toast(error.message, "danger");
+        }
+    });
+
+    const logoutBtn = root.querySelector("#wa-logout");
+    if (logoutBtn) logoutBtn.addEventListener("click", async () => {
+        try {
+            await api.request("/whatsapp/logout", { method: "POST", body: {} });
+            toast("WhatsApp diputuskan", "ok");
+            await renderDaemonConfig(root);
+        }
+        catch (error) {
+            toast(error.message, "danger");
+        }
+    });
 
 }

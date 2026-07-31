@@ -23,12 +23,14 @@ function forgeTools() {
             name: "create_tool",
 
             description:
-                "Buat tool/plugin baru untuk memperluas kemampuan Aether. Pakai ini saat " +
-                "pengguna meminta kemampuan yang belum ada (mis. 'buatkan tool untuk cek " +
-                "ping ke sebuah host'). Tool disimpan sebagai DRAFT dan BELUM aktif — " +
-                "setelah membuatnya, jelaskan singkat apa yang dilakukan tool dan sebutkan " +
-                "peringatan risiko (bila ada), lalu minta pengguna menyetujui. Jangan " +
-                "mengaktifkan tanpa persetujuan eksplisit.",
+                "Buat SKILL baru (disebut juga tool/plugin/kemampuan) untuk memperluas " +
+                "kemampuan Aether. WAJIB dipakai setiap kali pengguna minta dibuatkan " +
+                "skill/tool/plugin atau butuh kemampuan yang belum ada (mis. 'buatkan " +
+                "skill untuk cek ping ke sebuah host'). JANGAN menuliskan kode di dalam " +
+                "chat — buat skill-nya lewat tool ini. Skill disimpan sebagai DRAFT dan " +
+                "BELUM aktif — setelah membuatnya, jelaskan singkat apa yang dilakukan " +
+                "skill dan sebutkan peringatan risiko (bila ada), lalu TANYA apakah mau " +
+                "diaktifkan. Jangan mengaktifkan tanpa persetujuan eksplisit.",
 
             parameters: {
                 type: "object",

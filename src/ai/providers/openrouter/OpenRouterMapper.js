@@ -2,6 +2,58 @@ const AIResponse = require("../../models/AIResponse");
 const AIStreamChunk = require("../../models/AIStreamChunk");
 const AIToolCall = require("../../tools/AIToolCall");
 
+// Kunci JSON-Schema yang aman dikirim ke semua provider. Google
+// Gemini (endpoint OpenAI-compatible) MENOLAK kunci di luar ini —
+// mis. additionalProperties, $schema, format, default — dengan 400
+// Bad Request, padahal OpenRouter/OpenAI membiarkannya. Kita saring
+// agar satu skema tool berlaku di semua platform.
+const ALLOWED_SCHEMA_KEYS = new Set([
+    "type", "description", "properties", "required", "items", "enum"
+]);
+
+/** Bersihkan skema parameter tool secara rekursif agar lintas-provider. */
+function sanitizeSchema(schema) {
+
+    if (!schema || typeof schema !== "object") {
+        return schema;
+    }
+
+    const out = {};
+
+    for (const [key, value] of Object.entries(schema)) {
+
+        if (!ALLOWED_SCHEMA_KEYS.has(key)) {
+            continue;
+        }
+
+        if (key === "properties" && value && typeof value === "object") {
+            out.properties = {};
+            for (const [propKey, propValue] of Object.entries(value)) {
+                out.properties[propKey] = sanitizeSchema(propValue);
+            }
+        }
+        else if (key === "items") {
+            out.items = sanitizeSchema(value);
+        }
+        else {
+            out[key] = value;
+        }
+
+    }
+
+    // `required` yang menyebut properti tak-ada juga memicu 400 di
+    // Gemini — buang yang menggantung.
+    if (Array.isArray(out.required) && out.properties) {
+        out.required = out.required.filter(name => name in out.properties);
+        if (out.required.length === 0) {
+            delete out.required;
+        }
+    }
+
+    return out;
+
+}
+
 class OpenRouterMapper {
 
     toRequest(request) {
@@ -22,21 +74,25 @@ class OpenRouterMapper {
 
         if (request.tools?.length) {
 
-            payload.tools = request.tools.map(tool => ({
+            payload.tools = request.tools.map(tool => {
 
-                type: "function",
-
-                function: {
-
+                const fn = {
                     name: tool.name,
+                    description: tool.description
+                };
 
-                    description: tool.description,
+                const params = sanitizeSchema(tool.parameters);
 
-                    parameters: tool.parameters
-
+                // Tool tanpa parameter: OMIT `parameters` sama sekali.
+                // Skema { type:"object", properties:{} } ditolak Gemini
+                // (400) — dan OpenAI-spec membolehkan fungsi tanpa param.
+                if (params?.properties && Object.keys(params.properties).length > 0) {
+                    fn.parameters = params;
                 }
 
-            }));
+                return { type: "function", function: fn };
+
+            });
 
         }
 

@@ -38,7 +38,7 @@ export const agents = {
                     <div class="panel-head"><h2>${icon("activity")} Orkestrasi</h2></div>
                     <div class="row">
                         <input type="text" id="ag-input" style="flex:1"
-                            placeholder="mis. cek suhu server lalu ringkas dan kirim ke Telegram">
+                            placeholder="mis. cek suhu server lalu ringkas dan kirim ke WhatsApp">
                         <button class="btn primary" id="ag-run">${icon("play")} Jalankan</button>
                     </div>
                     <div id="ag-run-out" class="stack" style="margin-top:14px"></div>
@@ -158,8 +158,20 @@ async function drawHealth(root) {
                 <div class="label">${icon(a.kind === "reasoner" ? "orb" : a.kind === "actuator" ? "tool" : "activity")} ${esc(a.label)}</div>
                 <div class="value" style="font-size:16px">${pill(a.online ? "siap" : "offline", a.online ? "ok" : "danger")}</div>
                 <div class="meta">${esc(a.description ?? "")}</div>
-                <div class="meta dim">${esc(a.detail ?? "")}</div>
-            </div>`).join("");
+                ${(a.skills ?? []).length ? `
+                    <div class="small dim" style="margin:8px 0 4px">Skill</div>
+                    <div class="row wrap" style="gap:5px">
+                        ${a.skills.map(s => `<span class="tag">${esc(s)}</span>`).join("")}
+                    </div>` : ""}
+                <div class="meta dim" style="margin-top:8px">${esc(a.detail ?? "")}</div>
+            </div>`).join("")
+            + `<div class="panel" style="grid-column:1/-1">
+                <div class="small muted">${icon("activity")}
+                    Aether mengoordinasikan <strong>ketiga agent</strong>: ia menyusun rencana,
+                    lalu memberi tiap langkah ke agent yang paling cocok (menalar ke Aether,
+                    aksi antarmuka ke OpenClaw, tugas berlapis ke Hermes) dan menyatukan hasilnya.
+                </div>
+            </div>`;
 
     }
 

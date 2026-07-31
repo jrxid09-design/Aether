@@ -8,7 +8,7 @@ const pluginController = require("../../../controllers/pluginController");
 const memoryController = require("../../../controllers/memoryController");
 const voiceController = require("../../../controllers/voiceController");
 const forgeController = require("../../../controllers/forgeController");
-const telegramController = require("../../../controllers/telegramController");
+const whatsappController = require("../../../controllers/whatsappController");
 const orchestratorController = require("../../../controllers/orchestratorController");
 const homeController = require("../../../controllers/homeController");
 const visionController = require("../../../controllers/visionController");
@@ -70,6 +70,7 @@ router.post("/vision/analyze", visionController.analyze);
 router.get("/cameras", visionController.cameras);
 router.post("/cameras", visionController.addCamera);
 router.delete("/cameras/:id", visionController.removeCamera);
+router.get("/cameras/:id/snapshot", visionController.snapshot);
 router.post("/cameras/:id/see", visionController.seeCamera);
 
 // ---- Orang & wajah (Immich + face-match) -----------------------
@@ -85,11 +86,13 @@ router.post("/people/search", peopleController.search);
 router.get("/agents", orchestratorController.agents);
 router.post("/orchestrate", orchestratorController.orchestrate);
 
-// ---- Telegram --------------------------------------------------
+// ---- WhatsApp --------------------------------------------------
 
-router.get("/telegram/status", telegramController.status);
-router.post("/telegram/config", telegramController.saveConfig);
-router.post("/telegram/test", telegramController.test);
+router.get("/whatsapp/status", whatsappController.status);
+router.post("/whatsapp/config", whatsappController.saveConfig);
+router.post("/whatsapp/connect", whatsappController.connect);
+router.post("/whatsapp/logout", whatsappController.logout);
+router.post("/whatsapp/test", whatsappController.test);
 
 // ---- Integrasi eksternal ---------------------------------------
 

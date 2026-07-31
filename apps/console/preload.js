@@ -48,7 +48,12 @@ contextBridge.exposeInMainWorld("aether", {
 
     dialog: {
         error: (title, message) =>
-            ipcRenderer.invoke("dialog:error", { title, message })
+            ipcRenderer.invoke("dialog:error", { title, message }),
+        // Pemilih berkas/folder native → kembalikan path terpilih
+        // (atau null bila dibatalkan), supaya pengguna tak perlu
+        // mengetik path secara manual.
+        openFile: (options) => ipcRenderer.invoke("dialog:open-file", options),
+        openDirectory: () => ipcRenderer.invoke("dialog:open-directory")
     }
 
 });

@@ -28,7 +28,16 @@ class AgentHub {
                 description:
                     "Menalar, menjawab, menulis, memakai memori & tool internal " +
                     "(kalkulasi, memori, filesystem, http, dst). Pilihan default " +
-                    "untuk berpikir dan menyusun jawaban."
+                    "untuk berpikir dan menyusun jawaban.",
+                skills: [
+                    "Menalar & menjawab",
+                    "Memori jangka panjang",
+                    "Vision — lihat kamera/CCTV",
+                    "Kendali rumah",
+                    "Kenali wajah (Immich)",
+                    "Kirim media WhatsApp",
+                    "Buat skill sendiri"
+                ]
             },
             {
                 id: "openclaw",
@@ -37,7 +46,13 @@ class AgentHub {
                 description:
                     "Mengoperasikan aplikasi desktop/website tanpa API: klik tombol, " +
                     "isi formulir, buka browser, tugas berulang di komputer. Pilih ini " +
-                    "untuk AKSI pada antarmuka yang tak bisa dilakukan lewat kode biasa."
+                    "untuk AKSI pada antarmuka yang tak bisa dilakukan lewat kode biasa.",
+                skills: [
+                    "Klik & isi formulir",
+                    "Operasikan aplikasi desktop",
+                    "Buka & kendalikan browser",
+                    "Tugas berulang di layar"
+                ]
             },
             {
                 id: "hermes",
@@ -45,7 +60,12 @@ class AgentHub {
                 kind: "agent",
                 description:
                     "Menjalankan tugas agentik berlapis di runtime terpisah. Pilih ini " +
-                    "untuk pekerjaan panjang yang lebih cocok didelegasikan ke agent khusus."
+                    "untuk pekerjaan panjang yang lebih cocok didelegasikan ke agent khusus.",
+                skills: [
+                    "Tugas agentik berlapis",
+                    "Orkestrasi tugas panjang",
+                    "Runtime agent terpisah"
+                ]
             }
         ];
 
@@ -67,7 +87,23 @@ class AgentHub {
         for (const agent of this.agents()) {
 
             if (agent.id === "aether") {
-                out.push({ ...agent, online: true, detail: "runtime lokal" });
+
+                // Skill Aether = tool yang benar-benar terpasang; tambahkan
+                // hitungan tool internal yang bisa dipanggil sekarang.
+                let toolCount = 0;
+                try {
+                    toolCount = require("../core/tools").ToolRegistry.describe().length;
+                }
+                catch { /* registry belum siap */ }
+
+                out.push({
+                    ...agent,
+                    skills: toolCount
+                        ? [...agent.skills, `+${toolCount} tool internal`]
+                        : agent.skills,
+                    online: true,
+                    detail: "runtime lokal"
+                });
                 continue;
             }
 

@@ -290,6 +290,32 @@ ipcMain.handle("dialog:error", (event, { title, message }) =>
     dialog.showErrorBox(title ?? "Aether Console", message ?? "")
 );
 
+ipcMain.handle("dialog:open-file", async (event, options = {}) => {
+
+    const result = await dialog.showOpenDialog(mainWindow, {
+        title: options.title ?? "Pilih berkas",
+        properties: ["openFile"],
+        filters: options.filters ?? [
+            { name: "Dokumen", extensions: ["pdf", "docx", "md", "txt", "csv", "json", "html", "htm"] },
+            { name: "Semua berkas", extensions: ["*"] }
+        ]
+    });
+
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+
+});
+
+ipcMain.handle("dialog:open-directory", async () => {
+
+    const result = await dialog.showOpenDialog(mainWindow, {
+        title: "Pilih folder",
+        properties: ["openDirectory"]
+    });
+
+    return result.canceled ? null : (result.filePaths[0] ?? null);
+
+});
+
 // ---- Siklus hidup aplikasi --------------------------------------
 
 app.whenReady().then(() => {

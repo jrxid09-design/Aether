@@ -156,14 +156,18 @@ export const tts = {
             return this.speakNeural(text, { voice, robot, onLevel, onStart, onEnd });
         }
 
-        // Fallback OS: mulut digerakkan lewat batas kata + pitch
-        // rendah bila robot diminta (pendekatan terbaik tanpa neural).
+        // Fallback OS: suara speechSynthesis tak bisa dilewatkan Web
+        // Audio, jadi efek robot ditiru lewat pitch serendah mungkin +
+        // tempo sedikit melambat + ritme mulut yang lebih "patah-patah"
+        // (mekanis). Ini pendekatan terbaik tanpa backend TTS neural.
         return this.speak(text, {
             voice,
-            rate,
-            pitch: robot ? Math.min(0.4, pitch) : pitch,
+            rate: robot ? Math.min(rate, 0.85) : rate,
+            pitch: robot ? 0 : pitch,
             onStart,
-            onBoundary: () => onLevel?.(0.4 + Math.random() * 0.5),
+            onBoundary: () => onLevel?.(robot
+                ? (Math.random() < 0.5 ? 0.15 : 0.85)   // buka-tutup tegas
+                : 0.4 + Math.random() * 0.5),
             onEnd: () => { onLevel?.(0); onEnd?.(); }
         });
 
@@ -267,24 +271,68 @@ function stopNeural() {
 }
 
 /**
- * Efek "robot": ring modulation — kalikan sinyal suara dengan
- * osilator ~55Hz. GainNode di Web Audio bisa dimodulasi audio-rate
- * lewat parameter gain-nya, jadi itu dipakai sebagai pengali.
+ * Efek "robot" untuk suara neural: ring modulation + sedikit
+ * distorsi + highpass, supaya timbre-nya jelas metalik/mekanis.
+ *
+ * Ring modulation = kalikan sinyal suara dengan osilator. GainNode
+ * di Web Audio bisa dimodulasi audio-rate lewat parameter gain-nya,
+ * jadi itu dipakai sebagai pengali. Osilator kotak (square) memberi
+ * harmonik lebih kaya → terdengar lebih "robot" ketimbang sine.
  */
 function applyRobot(ctx, source) {
 
+    // --- Ring modulation ---
     const ring = ctx.createGain();
     ring.gain.value = 0;
 
     const osc = ctx.createOscillator();
-    osc.type = "sine";
-    osc.frequency.value = 55;
-    osc.connect(ring.gain);
+    osc.type = "square";
+    osc.frequency.value = 50;
+
+    // Kedalaman modulasi penuh.
+    const depth = ctx.createGain();
+    depth.gain.value = 1;
+
+    osc.connect(depth);
+    depth.connect(ring.gain);
     osc.start();
 
     source.connect(ring);
 
-    return ring;
+    // --- Distorsi ringan (kesan "mesin") ---
+    const shaper = ctx.createWaveShaper();
+    shaper.curve = distortionCurve(12);
+    shaper.oversample = "2x";
+    ring.connect(shaper);
+
+    // --- Highpass menajamkan sisi logam ---
+    const hp = ctx.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = 350;
+    shaper.connect(hp);
+
+    // Kompensasi volume karena ring-mod menurunkan energi.
+    const makeup = ctx.createGain();
+    makeup.gain.value = 1.6;
+    hp.connect(makeup);
+
+    return makeup;
+
+}
+
+/** Kurva distorsi lembut untuk WaveShaperNode. */
+function distortionCurve(amount = 12) {
+
+    const samples = 1024;
+    const curve = new Float32Array(samples);
+    const deg = Math.PI / 180;
+
+    for (let i = 0; i < samples; i++) {
+        const x = (i * 2) / samples - 1;
+        curve[i] = ((3 + amount) * x * 20 * deg) / (Math.PI + amount * Math.abs(x));
+    }
+
+    return curve;
 
 }
 

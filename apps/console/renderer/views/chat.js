@@ -2,6 +2,7 @@ import { store } from "../lib/store.js";
 import { api } from "../lib/api.js";
 import { icon } from "../lib/icons.js";
 import { esc, markdown, toast, clockTime } from "../lib/ui.js";
+import { aiChoices } from "../lib/aiselect.js";
 
 let scrollHost = null;
 
@@ -18,10 +19,6 @@ export const chat = {
 
     render(root) {
 
-        const state = store.get();
-
-        const o = state.overview;
-
         root.innerHTML = `
             <div class="view-head">
                 <div>
@@ -29,12 +26,7 @@ export const chat = {
                     <p>Bicara langsung dengan AI yang sedang aktif.</p>
                 </div>
                 <div class="actions">
-                    <select id="chat-provider" style="width:150px" title="Provider aktif">
-                        ${(o?.ai.providers ?? []).map(provider => `
-                            <option value="${esc(provider.id)}" ${provider.id === o?.ai.active ? "selected" : ""}>
-                                ${esc(provider.id)}${provider.online ? "" : " (offline)"}
-                            </option>`).join("")}
-                    </select>
+                    <div class="seg" id="chat-mode" style="margin:0"></div>
                     <select id="chat-model" style="width:230px" title="Model"></select>
                     <button class="btn ghost sm" id="chat-clear">${icon("trash")} Bersihkan</button>
                 </div>
@@ -66,23 +58,13 @@ export const chat = {
         const input = root.querySelector("#chat-input");
         const sendBtn = root.querySelector("#chat-send");
         const stopBtn = root.querySelector("#chat-stop");
-        const providerSelect = root.querySelector("#chat-provider");
+        const modeSeg = root.querySelector("#chat-mode");
         const modelSelect = root.querySelector("#chat-model");
 
-        await fillModels(modelSelect, providerSelect.value);
+        // Selektor AI Lokal / AI Provider; ganti → muat ulang model aktif.
+        await aiChoices.render(modeSeg, () => fillModels(modelSelect));
 
-        providerSelect.addEventListener("change", async () => {
-
-            try {
-                await api.selectProvider(providerSelect.value);
-                await fillModels(modelSelect, providerSelect.value);
-                toast(`Provider: ${providerSelect.value}`, "ok");
-            }
-            catch (error) {
-                toast(error.message, "danger");
-            }
-
-        });
+        await fillModels(modelSelect);
 
         modelSelect.addEventListener("change", async () => {
 

@@ -23,8 +23,12 @@ configs/devices.json
 # Berisi RAHASIA (API key, token bot) — jangan pernah di-commit.
 configs/providers.json
 configs/telegram.json
+configs/whatsapp.json
 configs/voice.json
 configs/home.json
 configs/vision.json
 configs/immich.json
 configs/face.json
+
+# Sesi login WhatsApp (Baileys) — kredensial perangkat, per-mesin.
+configs/wa-auth/

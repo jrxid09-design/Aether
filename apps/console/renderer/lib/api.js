@@ -289,7 +289,7 @@ class AetherApi {
     forgeReject(id)      { return this.request(`/forge/${encodeURIComponent(id)}/reject`, { method: "POST" }); }
     forgeRemove(id)      { return this.request(`/forge/${encodeURIComponent(id)}`, { method: "DELETE" }); }
 
-    telegramStatus()     { return this.request("/telegram/status"); }
+    whatsappStatus()     { return this.request("/whatsapp/status"); }
 
     // ---- Suara -------------------------------------------------------
 

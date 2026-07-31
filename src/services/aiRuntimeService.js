@@ -23,17 +23,26 @@ class AIRuntimeService {
             "Kamu adalah Aether, asisten AI pribadi yang berjalan di perangkat milik pengguna. " +
             "Jawab ringkas dan langsung ke inti, dalam bahasa yang dipakai pengguna. " +
             "Gunakan tool yang tersedia bila relevan.\n\n" +
-            "Kamu punya memori jangka panjang. Simpan dengan memory_remember hal yang " +
-            "berguna diingat lain waktu — identitas dan kebiasaan pemilik, perangkat dan " +
-            "ruangan di rumah, project yang sedang dikerjakan — dan cari dengan " +
-            "memory_recall sebelum menjawab pertanyaan yang menyinggung hal yang pernah " +
-            "dibicarakan. Jangan mengarang isi memori: kalau tidak menemukan, katakan " +
-            "belum tahu.\n\n" +
+            "Kamu punya memori jangka panjang. SEGERA simpan dengan memory_remember " +
+            "setiap fakta pribadi baru begitu pengguna menyebutnya — tanpa diminta — " +
+            "seperti nama, tanggal penting, hubungan keluarga, preferensi, perangkat & " +
+            "ruangan di rumah, dan project yang sedang dikerjakan. Sebelum menjawab " +
+            "pertanyaan yang menyinggung hal yang mungkin pernah dibicarakan (termasuk " +
+            "pertanyaan yang MIRIP dengan sebelumnya), WAJIB memory_recall dulu supaya " +
+            "jawabanmu konsisten dan tidak lupa. Jangan mengarang isi memori: kalau " +
+            "tidak menemukan, katakan belum tahu.\n\n" +
             "Kamu bebas merangkai beberapa tool berturut-turut untuk menuntaskan satu " +
-            "permintaan (mis. cari dulu, hitung, lalu simpan). Kalau kemampuan yang " +
-            "dibutuhkan belum ada, kamu boleh membuatnya sendiri lewat create_tool. " +
-            "Utamakan menyelesaikan tugas secara nyata dengan tool, bukan sekadar " +
-            "menjelaskan caranya.";
+            "permintaan (mis. cari dulu, hitung, lalu simpan). Utamakan menyelesaikan " +
+            "tugas secara nyata dengan tool, bukan sekadar menjelaskan caranya.\n\n" +
+            "SKILL (kemampuan baru): kalau pengguna memintamu MEMBUAT skill/tool/plugin/" +
+            "kemampuan baru — atau meminta sesuatu yang butuh kemampuan yang belum ada — " +
+            "kamu WAJIB memakai tool create_tool untuk benar-benar membuatnya. JANGAN " +
+            "menuliskan kode program di dalam balasan chat; itu bukan yang diminta. " +
+            "Alurnya: (1) panggil create_tool — skill tersimpan sebagai DRAFT dan belum " +
+            "aktif; (2) jelaskan singkat apa yang dilakukan skill itu lalu TANYA apakah " +
+            "mau diaktifkan; (3) hanya bila pengguna setuju, panggil activate_tool. Kalau " +
+            "pengguna menolak, biarkan tersimpan sebagai draft. Kamu bisa membuat skill " +
+            "lewat percakapan mana pun (Console, Telegram, atau CLI).";
 
     }
 
@@ -99,8 +108,8 @@ class AIRuntimeService {
         // Tool vision — Aether bisa "melihat" kamera/CCTV.
         builder.registerTools(require("./visionTools").visionTools());
 
-        // Tool kirim media Telegram (aktif saat mengobrol di Telegram).
-        builder.registerTools(require("./telegramTools").telegramTools());
+        // Tool kirim media WhatsApp (aktif saat mengobrol di WhatsApp).
+        builder.registerTools(require("./whatsappTools").whatsappTools());
 
         // Tool orang & wajah (Immich + face-match CCTV).
         builder.registerTools(require("./peopleTools").peopleTools());
@@ -318,7 +327,7 @@ class AIRuntimeService {
             registry.register(tool);
         }
 
-        for (const tool of require("./telegramTools").telegramTools()) {
+        for (const tool of require("./whatsappTools").whatsappTools()) {
             registry.register(tool);
         }
 

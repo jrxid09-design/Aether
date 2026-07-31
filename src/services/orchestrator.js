@@ -11,7 +11,7 @@ const telemetry = require("./telemetryService");
  *      diteruskan sebagai konteks ke langkah berikutnya.
  *   3. SINTESIS — Aether-LLM merangkum hasil jadi jawaban akhir.
  *
- * Setiap tahap memancarkan event supaya Console/Telegram bisa
+ * Setiap tahap memancarkan event supaya Console/WhatsApp bisa
  * menampilkan proses berpikirnya, bukan sekadar hasil akhir.
  */
 class Orchestrator {

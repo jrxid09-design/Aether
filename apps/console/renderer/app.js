@@ -5,14 +5,12 @@ import { $, esc, pill, toast } from "./lib/ui.js";
 
 import { dashboard } from "./views/dashboard.js";
 import { awareness } from "./views/awareness.js";
-import { aether } from "./views/aether.js";
-import { chat } from "./views/chat.js";
+import { companion } from "./views/companion.js";
 import { memory } from "./views/memory.js";
 import { models } from "./views/models.js";
 import { integrations } from "./views/integrations.js";
 import { devices } from "./views/devices.js";
-import { plugins } from "./views/plugins.js";
-import { studio } from "./views/studio.js";
+import { skills } from "./views/skills.js";
 import { agents } from "./views/agents.js";
 import { home } from "./views/home.js";
 import { vision } from "./views/vision.js";
@@ -20,13 +18,13 @@ import { logs } from "./views/logs.js";
 import { settings } from "./views/settings.js";
 
 const VIEWS = [
-    dashboard, awareness, aether, chat, memory, models,
-    integrations, devices, plugins, studio, agents, home, vision, logs, settings
+    dashboard, awareness, companion, memory, models,
+    integrations, devices, skills, agents, home, vision, logs, settings
 ];
 
 const GROUPS = [
     { label: "Pantau", ids: ["dashboard", "awareness", "logs"] },
-    { label: "Kerja", ids: ["aether", "chat", "memory", "models", "plugins", "studio", "agents"] },
+    { label: "Kerja", ids: ["aether", "memory", "models", "skills", "agents"] },
     { label: "Sistem", ids: ["home", "vision", "devices", "integrations", "settings"] }
 ];
 
@@ -183,7 +181,7 @@ function updateChrome() {
 
     const o = state.overview;
 
-    setCount("plugins", o ? o.tools.total : "");
+    setCount("skills", o ? o.tools.total : "");
     setCount("integrations", o ? `${o.integrations.summary.online}/${o.integrations.summary.enabled}` : "");
     setCount("logs", state.logs.length || "");
 
