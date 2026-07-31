@@ -10,6 +10,7 @@ const telemetry = require("./services/telemetryService");
 const aiRuntime = require("./services/aiRuntimeService");
 const memory = require("./memory/services/MemoryService");
 const whatsapp = require("./services/whatsappService");
+const automation = require("./services/automationService");
 const { manager: integrations } = require("./integrations");
 
 const host = process.env.HOST ?? "0.0.0.0";
@@ -57,6 +58,9 @@ function bootSubsystems() {
     whatsapp.start().catch(error => {
         telemetry.error(`WhatsApp gagal disiapkan: ${error.message}`);
     });
+
+    // Lapisan proaktif: brief harian terjadwal (aktif bila diset di Settings).
+    automation.start();
 
     if (!process.env.AETHER_TOKEN) {
         telemetry.warn(
@@ -177,6 +181,7 @@ const shutdown = (signal) => {
     integrations.stopPolling();
     memory.stop();
     whatsapp.stop();
+    automation.stop();
 
     if (server) {
         server.close(() => process.exit(0));

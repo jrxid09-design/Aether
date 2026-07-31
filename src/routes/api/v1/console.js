@@ -14,6 +14,7 @@ const homeController = require("../../../controllers/homeController");
 const visionController = require("../../../controllers/visionController");
 const peopleController = require("../../../controllers/peopleController");
 const contextController = require("../../../controllers/contextController");
+const automationController = require("../../../controllers/automationController");
 
 const router = express.Router();
 
@@ -85,6 +86,14 @@ router.post("/people/search", peopleController.search);
 
 router.get("/agents", orchestratorController.agents);
 router.post("/orchestrate", orchestratorController.orchestrate);
+
+// ---- WhatsApp --------------------------------------------------
+
+// ---- Proaktif (brief terjadwal) --------------------------------
+
+router.get("/automation/status", automationController.status);
+router.post("/automation/config", automationController.saveConfig);
+router.post("/automation/run", automationController.run);
 
 // ---- WhatsApp --------------------------------------------------
 

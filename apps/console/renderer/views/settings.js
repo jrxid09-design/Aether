@@ -242,22 +242,25 @@ async function renderDaemonConfig(root) {
 
     try {
 
-        const [aiCfg, tg, voice, homeCfg, people] = await Promise.all([
+        const [aiCfg, tg, voice, homeCfg, people, auto] = await Promise.all([
             api.request("/ai/config"),
             api.request("/whatsapp/status"),
             api.voiceConfig(),
             api.homeStatus().catch(() => null),
-            api.request("/people/status").catch(() => null)
+            api.request("/people/status").catch(() => null),
+            api.request("/automation/status").catch(() => null)
         ]);
 
         host.innerHTML = aiPanel(aiCfg) + voicePanel(voice)
-            + homePanel(homeCfg) + peoplePanel(people) + whatsappPanel(tg);
+            + homePanel(homeCfg) + peoplePanel(people) + whatsappPanel(tg)
+            + automationPanel(auto);
 
         wireAiPanel(root, aiCfg);
         wireVoicePanel(root);
         wireHomePanel(root);
         wirePeoplePanel(root);
         wireWhatsappPanel(root);
+        wireAutomationPanel(root);
 
     }
 
@@ -865,6 +868,67 @@ function wireWhatsappPanel(root) {
         }
         catch (error) {
             toast(error.message, "danger");
+        }
+    });
+
+}
+
+function automationPanel(a) {
+
+    a = a ?? { enabled: false, time: "07:00", lastSent: null };
+
+    return `
+        <div class="panel">
+            <div class="panel-head">
+                <h2>${icon("activity")} Proaktif — brief harian</h2>
+                <span class="push">${pill(a.enabled ? "aktif" : "mati", a.enabled ? "ok" : "idle")}</span>
+            </div>
+            <div class="small muted" style="margin-bottom:10px">
+                Aether menyapa lebih dulu: ringkasan keadaan rumah dikirim otomatis
+                ke WhatsApp yang diizinkan pada jam yang kamu tentukan.
+            </div>
+            <div class="row wrap" style="gap:14px">
+                <label class="switch">
+                    <input type="checkbox" id="auto-enabled" ${a.enabled ? "checked" : ""}>
+                    <span class="track"></span><span>Aktifkan brief harian</span>
+                </label>
+                <div class="field" style="max-width:140px">
+                    <label>Jam kirim</label>
+                    <input type="time" id="auto-time" value="${esc(a.time ?? "07:00")}">
+                </div>
+            </div>
+            <div class="row" style="margin-top:10px">
+                <button class="btn primary" id="auto-save">${icon("check")} Simpan</button>
+                <button class="btn ghost" id="auto-run">${icon("send")} Kirim brief sekarang</button>
+                ${a.lastSent ? `<span class="small dim">terakhir: ${esc(a.lastSent)}</span>` : ""}
+            </div>
+        </div>`;
+
+}
+
+function wireAutomationPanel(root) {
+
+    root.querySelector("#auto-save").addEventListener("click", async () => {
+        try {
+            await api.request("/automation/config", { method: "POST", body: {
+                enabled: root.querySelector("#auto-enabled").checked,
+                time: root.querySelector("#auto-time").value
+            }});
+            toast("Setelan brief disimpan", "ok");
+            await renderDaemonConfig(root);
+        }
+        catch (error) {
+            toast(error.message, "danger", 6000);
+        }
+    });
+
+    root.querySelector("#auto-run").addEventListener("click", async () => {
+        try {
+            const r = await api.request("/automation/run", { method: "POST", body: {} });
+            toast(`Brief terkirim ke ${r.recipients} chat`, r.recipients ? "ok" : "warn", 5000);
+        }
+        catch (error) {
+            toast(error.message, "danger", 6000);
         }
     });
 

@@ -19,6 +19,7 @@ userPlugins/
 # Konfigurasi perangkat bersifat per-mesin (device id mic/kamera
 # berbeda di tiap host), jadi tidak ikut di-commit.
 configs/devices.json
+configs/automation.json
 
 # Berisi RAHASIA (API key, token bot) — jangan pernah di-commit.
 configs/providers.json
