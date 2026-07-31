@@ -106,8 +106,8 @@ atau ditimpa lewat `AETHER_OPENCLAW_URL` / `AETHER_HERMES_URL`.
 | 4 | Local Memory | ✅ |
 | 5 | Workflow Engine | ⬜ |
 | 6 | Multi-Agent | ✅ |
-| 7 | Voice + Vision | ⬜ |
-| 8 | Home Automation | ⬜ |
+| 7 | Voice + Vision | ✅ |
+| 8 | Home Automation | ✅ |
 
 ## Status
 

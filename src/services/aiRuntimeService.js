@@ -102,6 +102,9 @@ class AIRuntimeService {
         // Tool kirim media Telegram (aktif saat mengobrol di Telegram).
         builder.registerTools(require("./telegramTools").telegramTools());
 
+        // Tool orang & wajah (Immich + face-match CCTV).
+        builder.registerTools(require("./peopleTools").peopleTools());
+
         this.engine = builder.build();
 
         this.activePlatform = resolved;
@@ -316,6 +319,10 @@ class AIRuntimeService {
         }
 
         for (const tool of require("./telegramTools").telegramTools()) {
+            registry.register(tool);
+        }
+
+        for (const tool of require("./peopleTools").peopleTools()) {
             registry.register(tool);
         }
 

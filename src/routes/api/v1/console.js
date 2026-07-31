@@ -12,6 +12,7 @@ const telegramController = require("../../../controllers/telegramController");
 const orchestratorController = require("../../../controllers/orchestratorController");
 const homeController = require("../../../controllers/homeController");
 const visionController = require("../../../controllers/visionController");
+const peopleController = require("../../../controllers/peopleController");
 
 const router = express.Router();
 
@@ -67,6 +68,14 @@ router.get("/cameras", visionController.cameras);
 router.post("/cameras", visionController.addCamera);
 router.delete("/cameras/:id", visionController.removeCamera);
 router.post("/cameras/:id/see", visionController.seeCamera);
+
+// ---- Orang & wajah (Immich + face-match) -----------------------
+
+router.get("/people/status", peopleController.status);
+router.post("/people/immich", peopleController.saveImmich);
+router.post("/people/face", peopleController.saveFace);
+router.get("/people", peopleController.people);
+router.post("/people/search", peopleController.search);
 
 // ---- Multi-agent orkestrasi ------------------------------------
 

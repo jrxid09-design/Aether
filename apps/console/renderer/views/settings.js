@@ -242,19 +242,21 @@ async function renderDaemonConfig(root) {
 
     try {
 
-        const [aiCfg, tg, voice, homeCfg] = await Promise.all([
+        const [aiCfg, tg, voice, homeCfg, people] = await Promise.all([
             api.request("/ai/config"),
             api.request("/telegram/status"),
             api.voiceConfig(),
-            api.homeStatus().catch(() => null)
+            api.homeStatus().catch(() => null),
+            api.request("/people/status").catch(() => null)
         ]);
 
         host.innerHTML = aiPanel(aiCfg) + voicePanel(voice)
-            + homePanel(homeCfg) + telegramPanel(tg);
+            + homePanel(homeCfg) + peoplePanel(people) + telegramPanel(tg);
 
         wireAiPanel(root, aiCfg);
         wireVoicePanel(root);
         wireHomePanel(root);
+        wirePeoplePanel(root);
         wireTelegramPanel(root);
 
     }
@@ -456,6 +458,86 @@ function wireHomePanel(root) {
             toast(error.message, "danger", 6000);
         }
 
+    });
+
+}
+
+function peoplePanel(p) {
+
+    const im = p?.immich ?? {};
+    const fc = p?.face ?? {};
+    const online = im.health?.online;
+
+    return `
+        <div class="panel">
+            <div class="panel-head">
+                <h2>${icon("camera")} Orang &amp; Wajah</h2>
+                <span class="push">${pill(
+                    !im.configured ? "Immich belum diatur" : (online ? "Immich tersambung" : "Immich offline"),
+                    !im.configured ? "idle" : (online ? "ok" : "danger")
+                )}</span>
+            </div>
+
+            <div class="small muted" style="margin-bottom:10px">
+                <strong>Immich</strong> = galeri + pengenalan wajah bawaan: cari foto
+                ("foto ibu", "saat ke Bandung"). <strong>Layanan wajah</strong> (CompreFace)
+                = kenali siapa di CCTV secara langsung. Keduanya opsional.
+            </div>
+
+            <div class="small dim" style="margin-bottom:6px">Immich</div>
+            <div class="grid cols-2" style="gap:10px">
+                <div class="field"><label>URL Immich</label>
+                    <input type="url" id="im-url" value="${esc(im.url ?? "")}" placeholder="http://192.168.1.10:2283"></div>
+                <div class="field"><label>API key ${im.hasKey ? `<span class="dim">(${esc(im.keyHint)})</span>` : ""}</label>
+                    <input type="password" id="im-key" placeholder="${im.hasKey ? "isi untuk ganti" : "API key Immich"}"></div>
+            </div>
+            <div class="row" style="margin-top:8px">
+                <button class="btn primary sm" id="im-save">${icon("check")} Simpan Immich</button>
+            </div>
+
+            <div class="divider" style="margin:12px 0 6px"></div>
+            <div class="small dim" style="margin-bottom:6px">Layanan wajah (CompreFace-compatible) — untuk CCTV</div>
+            <div class="grid cols-2" style="gap:10px">
+                <div class="field"><label>URL</label>
+                    <input type="url" id="fc-url" value="${esc(fc.url ?? "")}" placeholder="http://localhost:8000"></div>
+                <div class="field"><label>API key ${fc.hasKey ? `<span class="dim">(${esc(fc.keyHint)})</span>` : ""}</label>
+                    <input type="password" id="fc-key" placeholder="${fc.hasKey ? "isi untuk ganti" : "recognition API key"}"></div>
+            </div>
+            <div class="row" style="margin-top:8px">
+                <button class="btn primary sm" id="fc-save">${icon("check")} Simpan layanan wajah</button>
+            </div>
+        </div>`;
+
+}
+
+function wirePeoplePanel(root) {
+
+    const im = root.querySelector("#im-save");
+    if (im) im.addEventListener("click", async () => {
+        const body = { url: root.querySelector("#im-url").value.trim() };
+        const k = root.querySelector("#im-key").value.trim();
+        if (k) body.key = k;
+        try {
+            await api.request("/people/immich", { method: "POST", body });
+            const st = await api.request("/people/status");
+            toast(st.immich?.health?.online ? "Immich tersambung ✅" : (st.immich?.health?.error ?? "Tersimpan"),
+                st.immich?.health?.online ? "ok" : "warn", 5000);
+            await renderDaemonConfig(root);
+        }
+        catch (error) { toast(error.message, "danger", 6000); }
+    });
+
+    const fc = root.querySelector("#fc-save");
+    if (fc) fc.addEventListener("click", async () => {
+        const body = { url: root.querySelector("#fc-url").value.trim() };
+        const k = root.querySelector("#fc-key").value.trim();
+        if (k) body.key = k;
+        try {
+            await api.request("/people/face", { method: "POST", body });
+            toast("Layanan wajah disimpan", "ok");
+            await renderDaemonConfig(root);
+        }
+        catch (error) { toast(error.message, "danger", 6000); }
     });
 
 }
