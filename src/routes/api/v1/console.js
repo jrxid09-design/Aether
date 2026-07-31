@@ -11,6 +11,7 @@ const forgeController = require("../../../controllers/forgeController");
 const telegramController = require("../../../controllers/telegramController");
 const orchestratorController = require("../../../controllers/orchestratorController");
 const homeController = require("../../../controllers/homeController");
+const visionController = require("../../../controllers/visionController");
 
 const router = express.Router();
 
@@ -55,6 +56,17 @@ router.get("/home/config", homeController.config);
 router.post("/home/config", homeController.saveConfig);
 router.get("/home/devices", homeController.devices);
 router.post("/home/control", homeController.control);
+
+// ---- Vision ----------------------------------------------------
+
+router.get("/vision/status", visionController.status);
+router.get("/vision/config", visionController.config);
+router.post("/vision/config", visionController.saveConfig);
+router.post("/vision/analyze", visionController.analyze);
+router.get("/cameras", visionController.cameras);
+router.post("/cameras", visionController.addCamera);
+router.delete("/cameras/:id", visionController.removeCamera);
+router.post("/cameras/:id/see", visionController.seeCamera);
 
 // ---- Multi-agent orkestrasi ------------------------------------
 

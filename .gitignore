@@ -25,3 +25,4 @@ configs/providers.json
 configs/telegram.json
 configs/voice.json
 configs/home.json
+configs/vision.json

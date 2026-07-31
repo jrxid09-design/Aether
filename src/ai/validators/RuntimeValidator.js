@@ -30,9 +30,15 @@ class RuntimeValidator {
                 continue;
             }
 
-            if (typeof message.content !== "string") {
+            // Konten boleh string, atau array bagian multimodal
+            // (teks + gambar) untuk permintaan vision.
+            const validContent =
+                typeof message.content === "string" ||
+                Array.isArray(message.content);
+
+            if (!validContent) {
                 throw new Error(
-                    `Message content must be a string (role="${message.role}").`
+                    `Message content must be a string or content array (role="${message.role}").`
                 );
             }
 

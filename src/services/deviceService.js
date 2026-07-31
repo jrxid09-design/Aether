@@ -40,6 +40,13 @@ const DEFAULTS = {
      */
     sensors: [],
 
+    /**
+     * Kamera/CCTV. Tiap kamera punya URL snapshot (gambar diam)
+     * yang bisa diambil Aether untuk dianalisis model vision —
+     * mis. entitas kamera Home Assistant, RTSP-to-JPEG, atau IP cam.
+     */
+    cameras: [],
+
     updatedAt: null
 
 };
@@ -72,7 +79,9 @@ class DeviceService {
 
             video: { ...current.video, ...(patch.video ?? {}) },
 
-            sensors: patch.sensors ?? current.sensors
+            sensors: patch.sensors ?? current.sensors,
+
+            cameras: patch.cameras ?? current.cameras
 
         };
 
@@ -131,6 +140,61 @@ class DeviceService {
 
     }
 
+    // ---- Kamera --------------------------------------------------
+
+    cameras() {
+        return this.get().cameras ?? [];
+    }
+
+    getCamera(id) {
+        return this.cameras().find(c => c.id === id) ?? null;
+    }
+
+    addCamera(camera) {
+
+        const current = this.get();
+
+        if (!camera?.id) {
+            throw new Error("Id kamera wajib diisi.");
+        }
+
+        if (!camera?.snapshotUrl) {
+            throw new Error("URL snapshot kamera wajib diisi.");
+        }
+
+        if ((current.cameras ?? []).some(c => c.id === camera.id)) {
+            throw new Error(`Kamera "${camera.id}" sudah ada.`);
+        }
+
+        const entry = {
+            id: camera.id,
+            label: camera.label ?? camera.id,
+            snapshotUrl: camera.snapshotUrl,
+            // Header opsional (mis. Authorization untuk kamera HA).
+            headers: camera.headers ?? {},
+            enabled: camera.enabled !== false
+        };
+
+        this.store.write({
+            cameras: [...(current.cameras ?? []), entry]
+        });
+
+        return entry;
+
+    }
+
+    removeCamera(id) {
+
+        const current = this.get();
+
+        this.store.write({
+            cameras: (current.cameras ?? []).filter(c => c.id !== id)
+        });
+
+        return true;
+
+    }
+
     /** Ringkasan kesiapan perangkat untuk kartu status di dashboard. */
     readiness() {
 
@@ -153,6 +217,11 @@ class DeviceService {
             sensors: {
                 total: config.sensors.length,
                 enabled: config.sensors.filter(s => s.enabled).length
+            },
+
+            cameras: {
+                total: (config.cameras ?? []).length,
+                enabled: (config.cameras ?? []).filter(c => c.enabled).length
             }
 
         };

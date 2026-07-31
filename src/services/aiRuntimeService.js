@@ -96,6 +96,9 @@ class AIRuntimeService {
         // Tool kendali rumah (Home Assistant).
         builder.registerTools(require("./homeTools").homeTools());
 
+        // Tool vision — Aether bisa "melihat" kamera/CCTV.
+        builder.registerTools(require("./visionTools").visionTools());
+
         this.engine = builder.build();
 
         this.activePlatform = resolved;
@@ -302,6 +305,10 @@ class AIRuntimeService {
         }
 
         for (const tool of require("./homeTools").homeTools()) {
+            registry.register(tool);
+        }
+
+        for (const tool of require("./visionTools").visionTools()) {
             registry.register(tool);
         }
 

@@ -207,6 +207,17 @@ class AetherApi {
         return this.request("/memory/embeddings/backfill", { method: "POST", timeout: 300000 });
     }
 
+    // ---- Vision -----------------------------------------------------
+
+    visionStatus()        { return this.request("/vision/status"); }
+    visionConfig()        { return this.request("/vision/config"); }
+    saveVisionConfig(b)   { return this.request("/vision/config", { method: "POST", body: b }); }
+    visionAnalyze(b)      { return this.request("/vision/analyze", { method: "POST", body: b, timeout: 90000 }); }
+    cameras()             { return this.request("/cameras"); }
+    addCamera(b)          { return this.request("/cameras", { method: "POST", body: b }); }
+    removeCamera(id)      { return this.request(`/cameras/${encodeURIComponent(id)}`, { method: "DELETE" }); }
+    seeCamera(id, prompt) { return this.request(`/cameras/${encodeURIComponent(id)}/see`, { method: "POST", body: { prompt }, timeout: 90000 }); }
+
     // ---- Home automation --------------------------------------------
 
     homeStatus()          { return this.request("/home/status", { timeout: 12000 }); }
