@@ -38,13 +38,6 @@ const RECOMMENDED_MODELS = {
 const NON_CHAT_MODEL =
     /embedding|embed|aqa|imagen|\bveo\b|-image|image-|native-audio|\btts\b|text-to-speech|whisper|learnlm|gemma-3n/i;
 
-// Model usang yang tetap muncul di /models tapi balas 404 "no longer
-// available to new users" — API tak menandainya, jadi disaring manual.
-const DEPRECATED_MODELS = new Set([
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite"
-]);
-
 function isFreeModel(platform, id) {
     if (platform === "groq" || platform === "ollama") return true;
     if (platform === "openrouter") return id.endsWith(":free");
@@ -52,35 +45,57 @@ function isFreeModel(platform, id) {
     return false;
 }
 
+// Tingkat kematangan model, untuk pemeringkatan (stabil diutamakan).
+const TIER_RANK = { stable: 0, preview: 1, experimental: 2, legacy: 3 };
+
+function tier(id) {
+    const s = String(id).toLowerCase();
+    if (/preview/.test(s)) return "preview";
+    if (/-exp\b|\bexp\b|experimental/.test(s)) return "experimental";
+    if (/gemini-1\.5|gpt-3\.5|llama-2\b|gemma-2\b|-1\.0|text-bison|chat-bison/.test(s)) return "legacy";
+    return "stable";
+}
+
+/**
+ * Saring + peringkat daftar model mentah jadi daftar SIAP-PAKAI:
+ *  - normalisasi id (buang prefix models/ Google)
+ *  - buang non-chat (jaring pengaman regex; Google sudah difilter by capability)
+ *  - buang model yang cache kesehatan tandai "bad" (dipelajari, bukan hardcoded)
+ *  - lampirkan free/tier/status, urutkan: verified → rekomendasi → tier → free → abjad
+ */
 function curateModels(platform, rawModels = []) {
 
-    // Normalisasi id (buang prefix models/ khas Google) + saring non-chat.
+    const health = require("./modelHealthService");
+    const rec = RECOMMENDED_MODELS[platform] ?? [];
+
     const seen = new Set();
     const list = [];
 
     for (const m of rawModels) {
         const id = platform === "google" ? String(m.id).replace(/^models\//, "") : m.id;
-        if (!id || NON_CHAT_MODEL.test(id) || DEPRECATED_MODELS.has(id) || seen.has(id)) continue;
+        if (!id || NON_CHAT_MODEL.test(id) || seen.has(id)) continue;
+        if (health.isBad(platform, id)) continue;      // terbukti mati → sembunyikan
         seen.add(id);
-        list.push({ ...m, id, name: id, free: isFreeModel(platform, id) });
+        list.push({
+            id,
+            name: m.displayName ?? id,
+            free: isFreeModel(platform, id),
+            tier: tier(id),
+            status: health.get(platform, id)?.status ?? "unknown"   // verified|quota|unknown
+        });
     }
 
-    const byId = new Map(list.map(m => [m.id, m]));
+    const recRank = id => { const i = rec.indexOf(id); return i < 0 ? rec.length : i; };
 
-    // Rekomendasi di paling atas (pakai entri asli bila ada, kalau tidak
-    // buat sintetis agar tetap bisa dipilih walau tak muncul di /models).
-    const rec = RECOMMENDED_MODELS[platform] ?? [];
-    const recModels = rec.map(id =>
-        byId.get(id) ?? { id, name: id, free: isFreeModel(platform, id) });
+    list.sort((a, b) =>
+        (a.status === "verified" ? 0 : 1) - (b.status === "verified" ? 0 : 1) ||
+        recRank(a.id) - recRank(b.id) ||
+        TIER_RANK[a.tier] - TIER_RANK[b.tier] ||
+        (a.free ? 0 : 1) - (b.free ? 0 : 1) ||
+        a.id.localeCompare(b.id)
+    );
 
-    const recSet = new Set(rec);
-    const rest = list.filter(m => !recSet.has(m.id));
-
-    // Sisanya: gratis dulu, lalu alfabet.
-    rest.sort((a, b) => (b.free ? 1 : 0) - (a.free ? 1 : 0) || a.id.localeCompare(b.id));
-
-    return [...recModels, ...rest];
-
+    return list;
 }
 
 /**
@@ -471,14 +486,166 @@ class AIRuntimeService {
 
     }
 
-    async models(provider) {
+    async models() {
 
-        const raw = await this.ensure().listModels(provider);
-
-        // Kurasi per PLATFORM (google/openrouter/…), bukan id engine.
         const platform = this.activePlatform?.id ?? "ollama";
 
+        return this.discoverModels(platform);
+
+    }
+
+    /**
+     * Temukan model siap-pakai untuk platform aktif. Google memakai
+     * endpoint NATIVE (/v1beta/models) agar bisa menyaring by capability
+     * (supportedGenerationMethods ∋ generateContent) — bukan tebak-tebakan
+     * nama. Provider lain memakai daftar OpenAI-compatible.
+     */
+    async discoverModels(platform) {
+
+        const resolved = this.activePlatform ?? {};
+
+        let raw = [];
+
+        try {
+            if (platform === "google" && resolved.apiKey) {
+                raw = await this.googleNativeModels(resolved.baseUrl, resolved.apiKey);
+            }
+            else {
+                raw = await this.ensure().listModels();
+            }
+        }
+        catch (error) {
+            telemetry.warn(`[models] discovery gagal (${platform}): ${error.message}`);
+            raw = [];
+        }
+
         return curateModels(platform, raw);
+
+    }
+
+    /** Daftar model Google lewat endpoint native + kemampuannya. */
+    async googleNativeModels(baseUrl, apiKey) {
+
+        // baseUrl tersimpan ".../v1beta/openai" → native ".../v1beta".
+        const base = String(baseUrl).replace(/\/openai\/?$/, "");
+
+        const res = await fetch(
+            `${base}/models?pageSize=1000&key=${encodeURIComponent(apiKey)}`,
+            { signal: AbortSignal.timeout(15000) }
+        );
+
+        if (!res.ok) {
+            throw new Error(`native models ${res.status}`);
+        }
+
+        const data = await res.json();
+
+        return (data.models ?? [])
+            .filter(m => (m.supportedGenerationMethods ?? []).includes("generateContent"))
+            .map(m => ({ id: m.name, displayName: m.displayName }));
+
+    }
+
+    /**
+     * Uji satu model dengan generateContent minimal. Perbarui cache
+     * kesehatan. Dipakai saat menyimpan pilihan & tombol "Verifikasi".
+     */
+    async verifyModel(platform, id) {
+
+        const health = require("./modelHealthService");
+        const r = this.activePlatform ?? {};
+
+        if (r.kind !== "openai") {
+            return { ok: true };            // Ollama lokal: lewati uji jarak jauh
+        }
+
+        try {
+            const res = await fetch(`${r.baseUrl}/chat/completions`, {
+                method: "POST",
+                headers: { Authorization: `Bearer ${r.apiKey}`, "Content-Type": "application/json" },
+                body: JSON.stringify({ model: id, messages: [{ role: "user", content: "Hello" }], max_tokens: 1 }),
+                signal: AbortSignal.timeout(20000)
+            });
+
+            if (res.ok) {
+                health.mark(platform, id, "verified");
+                return { ok: true, status: 200 };
+            }
+
+            const body = await res.json().catch(() => null);
+            const message = (body?.[0]?.error?.message ?? body?.error?.message ?? "").slice(0, 140);
+            const reason =
+                res.status === 404 ? "tidak tersedia / usang" :
+                res.status === 403 ? "izin ditolak" :
+                res.status === 429 ? "kuota habis" : `http ${res.status}`;
+
+            // 429 = sementara (kuota), jangan cap "bad" permanen.
+            health.mark(platform, id, res.status === 429 ? "quota" : "bad", reason);
+            return { ok: false, status: res.status, reason, message };
+        }
+        catch (error) {
+            return { ok: false, reason: error.message };
+        }
+
+    }
+
+    /** Verifikasi semua kandidat (OPT-IN dari UI — memakai kuota). */
+    async verifyAll(platform) {
+        const list = await this.discoverModels(platform);
+        const results = [];
+        for (const m of list) {
+            results.push({ id: m.id, ...(await this.verifyModel(platform, m.id)) });
+        }
+        return { platform, results, models: await this.discoverModels(platform) };
+    }
+
+    /** Model peringkat-tertinggi yang belum ditandai mati. */
+    async pickWorkingDefault(platform) {
+        const list = await this.discoverModels(platform);
+        return list[0]?.id ?? null;
+    }
+
+    /**
+     * Tangani kegagalan model saat chat: tandai mati bila 404/403/410/
+     * usang (429 = kuota, sementara), pilih pengganti terperingkat, simpan,
+     * dan kembalikan id-nya untuk retry sekali. Null = jangan fallback.
+     */
+    async handleModelFailure(platform, model, err) {
+
+        const health = require("./modelHealthService");
+        const status = err?.status;
+        const deprecated = /no longer available|not_?found|deprecated|is not supported|does not exist|not found/i
+            .test(err?.message || "");
+
+        if (status === 404 || status === 403 || status === 410 || deprecated) {
+            health.mark(platform, model, "bad", status ? `http ${status}` : "deprecated");
+        }
+        else if (status === 429) {
+            health.mark(platform, model, "quota", "kuota habis");
+        }
+        else {
+            return null;    // 5xx / jaringan → bukan salah model, jangan fallback
+        }
+
+        const list = await this.discoverModels(platform);
+        const next = list.find(m => m.id !== model);
+
+        if (next) {
+            this.setDefaultModel(next.id);
+            if (platform !== "ollama") {
+                try { require("./providerConfigService").setProvider(platform, { model: next.id }); }
+                catch { /* abaikan */ }
+            }
+            // Log terstruktur (Phase 8).
+            telemetry.publish("ai:fallback", { provider: platform, from: model, status: status ?? null, to: next.id });
+            telemetry.warn(
+                `[AI fallback]\n  Provider: ${platform}\n  Requested Model: ${model}\n` +
+                `  Status: ${status ?? "?"}\n  Reason: ${deprecated ? "model tidak tersedia" : "gagal"}\n` +
+                `  Fallback: ${next.id}`
+            );
+        }
+
+        return next?.id ?? null;
 
     }
 
@@ -599,28 +766,39 @@ class AIRuntimeService {
 
     async chat({ messages, model, temperature, maxTokens, tools }) {
 
-        return this.ensure().chat({
-            messages: await this.withMemory(messages),
-            model: this.resolveModel(model),
-            temperature,
-            maxTokens,
-            tools
-        });
+        const msgs = await this.withMemory(messages);
+        const platform = this.activePlatform?.id ?? "ollama";
+        const first = this.resolveModel(model);
+
+        try {
+            return await this.ensure().chat({ messages: msgs, model: first, temperature, maxTokens, tools });
+        }
+        catch (error) {
+            const next = await this.handleModelFailure(platform, first, error);
+            if (!next) throw error;
+            // Retry sekali dengan model pengganti (tanpa interaksi pengguna).
+            return await this.ensure().chat({ messages: msgs, model: next, temperature, maxTokens, tools });
+        }
 
     }
 
     async *stream({ messages, model, temperature, maxTokens, tools }) {
 
-        const resolved = this.resolveModel(model);
+        const msgs = await this.withMemory(messages);
+        const platform = this.activePlatform?.id ?? "ollama";
+        const first = this.resolveModel(model);
 
-        yield* this.ensure().stream({
-            messages: await this.withMemory(messages),
-            model: resolved,
-            temperature,
-            maxTokens,
-            tools,
-            stream: true
-        });
+        // Loop tool dijalankan penuh sebelum token pertama dipancarkan,
+        // jadi kegagalan model muncul SEBELUM ada chunk keluar → aman
+        // untuk fallback + retry tanpa dobel-output.
+        try {
+            yield* this.ensure().stream({ messages: msgs, model: first, temperature, maxTokens, tools, stream: true });
+        }
+        catch (error) {
+            const next = await this.handleModelFailure(platform, first, error);
+            if (!next) throw error;
+            yield* this.ensure().stream({ messages: msgs, model: next, temperature, maxTokens, tools, stream: true });
+        }
 
     }
 

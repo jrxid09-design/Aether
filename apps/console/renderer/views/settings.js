@@ -311,6 +311,13 @@ function aiPanel(cfg) {
 
 }
 
+/** Penanda status model di dropdown: ✓ terverifikasi, ⚠ preview/eksperimental. */
+function modelGlyph(m) {
+    if (m.status === "verified") return "✓ ";
+    if (m.tier === "preview" || m.tier === "experimental") return "⚠ ";
+    return "";
+}
+
 /** Kolom Model: dropdown terisi lewat "Muat", dengan opsi ketik manual. */
 function modelField(currentModel) {
 
@@ -324,10 +331,12 @@ function modelField(currentModel) {
                     <option value="__manual__">✎ ketik manual…</option>
                 </select>
                 <button type="button" class="btn ghost sm" id="ai-load-models">${icon("refresh")} Muat</button>
+                <button type="button" class="btn ghost sm" id="ai-verify-models">${icon("check")} Verifikasi</button>
             </div>
             <input type="text" id="ai-model-manual" style="display:none;margin-top:6px"
                 value="${esc(currentModel ?? "")}" placeholder="nama model, mis. gpt-4o-mini">
-            <span class="help" id="ai-model-help">Tekan <strong>Muat</strong> untuk mengambil daftar model dari provider (butuh key valid).</span>
+            <span class="help" id="ai-model-help">Tekan <strong>Muat</strong> untuk daftar model.
+                <strong>Verifikasi</strong> menguji tiap model (pakai kuota) &amp; menandai ✓ yang benar-benar bisa dipakai.</span>
         </div>`;
 
 }
@@ -696,6 +705,36 @@ function wireAiPanel(root, cfg) {
             loadBtn.addEventListener("click", loadModels);
         }
 
+        const verifyBtn = fields.querySelector("#ai-verify-models");
+        if (verifyBtn) {
+            verifyBtn.addEventListener("click", verifyModels);
+        }
+
+    }
+
+    /** Uji tiap model (opt-in, pakai kuota) → tandai ✓ yang bisa dipakai. */
+    async function verifyModels() {
+
+        const help = fields.querySelector("#ai-model-help");
+        const btn = fields.querySelector("#ai-verify-models");
+
+        help.textContent = "Menguji tiap model (pakai kuota, bisa sebentar)…";
+        btn.disabled = true;
+
+        try {
+            await persist(false);      // pastikan provider aktif = platform ini
+            const r = await api.request("/ai/models/verify", { method: "POST", body: {}, timeout: 180000 });
+            const ok = (r.results ?? []).filter(x => x.ok).length;
+            await loadModels();        // muat ulang → glyph ✓ muncul, yang mati hilang
+            help.textContent = `${ok}/${(r.results ?? []).length} model bisa dipakai (✓). Yang gagal disembunyikan.`;
+        }
+        catch (error) {
+            help.textContent = `Gagal verifikasi: ${error.message}`;
+        }
+        finally {
+            btn.disabled = false;
+        }
+
     }
 
     /** Simpan kredensial lalu ambil daftar model yang benar-benar tersedia. */
@@ -722,12 +761,12 @@ function wireAiPanel(root, cfg) {
             modelSel.innerHTML =
                 `<option value="">— pilih model —</option>` +
                 list.map(m =>
-                    `<option value="${esc(m.id)}" ${m.id === current ? "selected" : ""}>${esc(m.name ?? m.id)}${m.free ? " · free" : ""}</option>`
+                    `<option value="${esc(m.id)}" ${m.id === current ? "selected" : ""}>${modelGlyph(m)}${esc(m.name ?? m.id)}${m.free ? " · free" : ""}</option>`
                 ).join("") +
                 `<option value="__manual__">✎ ketik manual…</option>`;
 
             help.textContent = list.length
-                ? `${list.length} model tersedia — pilih lalu tekan Simpan.`
+                ? `${list.length} model tersedia (✓ terverifikasi, ⚠ preview/eksperimental) — pilih lalu Simpan.`
                 : "Tidak ada model terbaca. Coba ketik manual atau periksa key/URL.";
 
         }

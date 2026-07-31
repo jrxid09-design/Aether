@@ -260,10 +260,13 @@ async function fillModels(select, provider) {
 
         }
 
-        select.innerHTML = models.map(model => `
-            <option value="${esc(model.id)}" ${model.id === data.defaultModel ? "selected" : ""}>
-                ${esc(model.name ?? model.id)}${model.free ? " · free" : ""}
-            </option>`).join("");
+        select.innerHTML = models.map(model => {
+            const glyph = model.status === "verified" ? "✓ "
+                : (model.tier === "preview" || model.tier === "experimental") ? "⚠ " : "";
+            return `<option value="${esc(model.id)}" ${model.id === data.defaultModel ? "selected" : ""}>
+                ${glyph}${esc(model.name ?? model.id)}${model.free ? " · free" : ""}
+            </option>`;
+        }).join("");
 
     }
 

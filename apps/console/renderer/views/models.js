@@ -123,6 +123,8 @@ function table(data) {
                     <td>
                         <div class="row" style="gap:8px">
                             <span class="mono">${esc(model.name ?? model.id)}</span>
+                            ${model.status === "verified" ? pill("✓ verified", "ok") : ""}
+                            ${model.tier && model.tier !== "stable" ? pill(model.tier, "warn") : ""}
                             ${model.free ? pill("free", "ok") : ""}
                             ${isDefault ? pill("default", "ok") : ""}
                         </div>

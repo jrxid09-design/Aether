@@ -12,30 +12,50 @@ const telemetry = require("../services/telemetryService");
  */
 async function verifyActive(resolved) {
 
-    if (resolved.kind === "ollama") {
+    const active = aiRuntime.activePlatform ?? {};
+
+    if (resolved.kind === "ollama" || active.kind === "ollama") {
         return { ok: true, note: "Ollama lokal aktif." };
     }
 
-    if (!resolved.model) {
+    const platform = active.id;
+    const model = active.model;
+
+    if (!model) {
         return {
             ok: false,
             reason: "no_model",
             note: `Key ${resolved.platform ?? "tersimpan"}, tapi MODEL belum dipilih. ` +
-                  "Isi kolom Model (mis. gpt-4o-mini / gemini-2.0-flash / llama-3.3-70b-versatile)."
+                  "Pilih model di dropdown (yang bertanda free/verified)."
         };
     }
 
-    try {
-        const models = await aiRuntime.models();
+    // Uji model yang DIPILIH dengan generateContent minimal — inilah
+    // yang 404 kalau usang. Bila gagal, pindah otomatis ke pengganti.
+    const check = await aiRuntime.verifyModel(platform, model);
+
+    if (check.ok) {
+        return { ok: true, note: `Terverifikasi — ${model} bisa dipakai.` };
+    }
+
+    const next = await aiRuntime.pickWorkingDefault(platform);
+
+    if (next && next !== model) {
+        providerConfig.setProvider(platform, { model: next });
+        aiRuntime.reconfigure();
         return {
             ok: true,
-            note: `Terverifikasi — key valid, ${models.length} model tersedia.`,
-            models: models.slice(0, 50).map(m => m.id)
+            switched: true,
+            model: next,
+            note: `Model "${model}" tak tersedia (${check.reason}). Otomatis pindah ke "${next}".`
         };
     }
-    catch (error) {
-        return { ok: false, reason: "key_or_url", note: `Key/URL bermasalah: ${error.message}` };
-    }
+
+    return {
+        ok: false,
+        reason: check.reason,
+        note: `Model "${model}" tak tersedia (${check.reason}) dan tak ada pengganti terverifikasi.`
+    };
 
 }
 
@@ -151,6 +171,20 @@ class AIController {
         }
         catch (error) {
             next(error);
+        }
+
+    }
+
+    /** Verifikasi seluruh kandidat model (OPT-IN — memakai kuota). */
+    async verifyModels(req, res, next) {
+
+        try {
+            aiRuntime.ensure();
+            const platform = aiRuntime.activePlatform?.id ?? "ollama";
+            return response.success(res, "Verifikasi model", await aiRuntime.verifyAll(platform));
+        }
+        catch (error) {
+            return response.error(res, error.message, 400);
         }
 
     }

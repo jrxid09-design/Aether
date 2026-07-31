@@ -47,14 +47,16 @@ class OpenRouterClient {
 
         if (!response.success) {
 
-            throw new Error(
-
+            // Sertakan status HTTP pada error agar runtime bisa
+            // bereaksi (mis. 404 model usang → fallback otomatis).
+            const error = new Error(
                 response.data?.error?.message ??
                 response.error ??
                 response.statusText ??
                 "OpenRouter request failed."
-
             );
+            error.status = response.status ?? null;
+            throw error;
 
         }
 

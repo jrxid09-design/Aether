@@ -34,6 +34,7 @@ router.post("/ai/config", aiController.saveConfig);
 router.get("/ai/providers", aiController.providers);
 router.post("/ai/provider", aiController.selectProvider);
 router.get("/ai/models", aiController.models);
+router.post("/ai/models/verify", aiController.verifyModels);
 router.post("/ai/model", aiController.selectModel);
 router.get("/ai/metrics", aiController.metrics);
 router.post("/ai/chat", aiController.chat);

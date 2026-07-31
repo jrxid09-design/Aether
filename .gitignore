@@ -20,6 +20,7 @@ userPlugins/
 # berbeda di tiap host), jadi tidak ikut di-commit.
 configs/devices.json
 configs/automation.json
+configs/model-health.json
 
 # Berisi RAHASIA (API key, token bot) — jangan pernah di-commit.
 configs/providers.json
