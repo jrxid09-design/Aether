@@ -99,6 +99,9 @@ class AIRuntimeService {
         // Tool vision — Aether bisa "melihat" kamera/CCTV.
         builder.registerTools(require("./visionTools").visionTools());
 
+        // Tool kirim media Telegram (aktif saat mengobrol di Telegram).
+        builder.registerTools(require("./telegramTools").telegramTools());
+
         this.engine = builder.build();
 
         this.activePlatform = resolved;
@@ -312,6 +315,10 @@ class AIRuntimeService {
             registry.register(tool);
         }
 
+        for (const tool of require("./telegramTools").telegramTools()) {
+            registry.register(tool);
+        }
+
         this.engine.runtime.setToolRegistry(registry);
 
         return registry.all().length;
@@ -469,11 +476,34 @@ class AIRuntimeService {
 
     }
 
+    /**
+     * Pastikan ada model yang bisa dipakai. Provider cloud WAJIB
+     * punya nama model; tanpa itu API menolak dengan pesan yang
+     * membingungkan, jadi dicegat di sini dengan pesan jelas.
+     */
+    resolveModel(requested) {
+
+        const model = requested || this.defaultModel || this.activePlatform?.model;
+
+        if (!model && this.activePlatform?.kind === "openai") {
+            const error = new Error(
+                `Model belum dipilih untuk ${this.activePlatform.label}. ` +
+                "Buka Settings → Provider AI, isi kolom Model (mis. gpt-4o-mini, " +
+                "gemini-2.0-flash, atau llama-3.3-70b-versatile), lalu simpan."
+            );
+            error.code = "NO_MODEL";
+            throw error;
+        }
+
+        return model;
+
+    }
+
     async chat({ messages, model, temperature, maxTokens, tools }) {
 
         return this.ensure().chat({
             messages: await this.withMemory(messages),
-            model,
+            model: this.resolveModel(model),
             temperature,
             maxTokens,
             tools
@@ -483,9 +513,11 @@ class AIRuntimeService {
 
     async *stream({ messages, model, temperature, maxTokens, tools }) {
 
+        const resolved = this.resolveModel(model);
+
         yield* this.ensure().stream({
             messages: await this.withMemory(messages),
-            model,
+            model: resolved,
             temperature,
             maxTokens,
             tools,

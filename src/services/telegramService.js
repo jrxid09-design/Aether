@@ -48,6 +48,12 @@ class TelegramService {
         /** Konteks percakapan ringkas per chat. */
         this.sessions = new Map();
 
+        /** Jendela sesi grup (chatId → kedaluwarsa ms). */
+        this.groupSessions = new Map();
+
+        /** Chat yang sedang dilayani — dibaca tool kirim media. */
+        this.currentChatId = null;
+
         this.pollController = null;
 
     }
@@ -244,42 +250,124 @@ class TelegramService {
 
         const message = update.message;
 
-        if (!message?.text) {
+        if (!message) {
             return;
         }
 
-        const chatId = message.chat.id;
-        const text = message.text.trim();
-        const from = message.from?.first_name ?? "?";
+        const chat = message.chat;
+        const chatId = chat.id;
+        const isGroup = chat.type === "group" || chat.type === "supergroup";
+        const fromId = message.from?.id;
+        const fromName = message.from?.first_name ?? "?";
+        const text = (message.text ?? message.caption ?? "").trim();
 
-        // /id dan /start selalu boleh — supaya pengguna bisa
-        // menemukan chat id-nya untuk didaftarkan.
+        // /id & /start selalu boleh (agar pengguna tahu chat id-nya).
         if (/^\/(id|start)\b/.test(text)) {
-            return this.sendId(chatId, from);
+            return this.sendId(chatId, fromName);
         }
 
-        if (!this.isAllowed(chatId)) {
+        // Izin: privat → chat harus diizinkan; grup → grup ATAU
+        // pengirim (pemilik) diizinkan.
+        const allowed = isGroup
+            ? (this.isAllowed(chatId) || this.isAllowed(fromId))
+            : this.isAllowed(chatId);
 
-            await this.send(
-                chatId,
-                "Maaf, kamu belum diizinkan. Minta pemilik menambahkan " +
-                `chat id ini (${chatId}) ke AETHER_TELEGRAM_ALLOWED.`
-            );
-
-            telemetry.warn(`[telegram] pesan ditolak dari chat ${chatId} (${from})`);
-
+        if (!allowed) {
+            // Di grup jangan berisik menolak; hanya balas di privat.
+            if (!isGroup) {
+                await this.send(chatId,
+                    `Maaf, kamu belum diizinkan. Chat id ini: ${chatId}. ` +
+                    "Minta pemilik menambahkannya di Settings → Telegram.");
+                telemetry.warn(`[telegram] ditolak dari ${chatId} (${fromName})`);
+            }
             return;
-
         }
 
-        telemetry.publish("telegram:message", { chatId, preview: text.slice(0, 60) });
+        // Di grup: hanya respon bila di-mention/di-reply, ATAU sesi
+        // percakapan sedang aktif (dalam 15 detik terakhir).
+        if (isGroup) {
+            const mentioned = this.isMentioned(message, text);
+            if (mentioned || this.sessionActive(chatId)) {
+                this.touchSession(chatId);
+            }
+            else {
+                return; // grup, tanpa mention, di luar sesi → abaikan
+            }
+        }
+
+        telemetry.publish("telegram:message", {
+            chatId, group: isGroup, preview: text.slice(0, 60)
+        });
+
+        // Media masuk (foto/dokumen/video/stiker) → dianalisis Aether.
+        if (message.photo || message.document || message.video || message.sticker) {
+            return this.handleMedia(chatId, message, this.stripMention(text));
+        }
 
         if (text.startsWith("/")) {
             return this.handleCommand(chatId, text);
         }
 
-        return this.converse(chatId, text);
+        if (!text) {
+            return;
+        }
 
+        return this.converse(chatId, this.stripMention(text));
+
+    }
+
+    /** Apakah pesan grup men-mention / me-reply bot? */
+    isMentioned(message, text) {
+
+        const username = this.me?.username;
+
+        // Reply ke pesan bot.
+        if (message.reply_to_message?.from?.id === this.me?.id) {
+            return true;
+        }
+
+        const entities = message.entities ?? message.caption_entities ?? [];
+
+        for (const e of entities) {
+
+            if (e.type === "text_mention" && e.user?.id === this.me?.id) {
+                return true;
+            }
+
+            if (e.type === "mention" && username) {
+                const slice = (message.text ?? message.caption ?? "")
+                    .substr(e.offset, e.length).toLowerCase();
+                if (slice === `@${username.toLowerCase()}`) {
+                    return true;
+                }
+            }
+
+        }
+
+        // Fallback: nama disebut langsung.
+        return username
+            ? new RegExp(`@${username}`, "i").test(text) || /\baether\b/i.test(text)
+            : /\baether\b/i.test(text);
+
+    }
+
+    stripMention(text) {
+        const username = this.me?.username;
+        let out = String(text ?? "");
+        if (username) {
+            out = out.replace(new RegExp(`@${username}`, "ig"), "");
+        }
+        return out.trim();
+    }
+
+    /** Sesi grup: hidup 15 detik sejak pesan terakhir yang direspon. */
+    sessionActive(chatId) {
+        const until = this.groupSessions.get(chatId);
+        return until && Date.now() < until;
+    }
+
+    touchSession(chatId) {
+        this.groupSessions.set(chatId, Date.now() + 15000);
     }
 
     async handleCommand(chatId, text) {
@@ -321,6 +409,9 @@ class TelegramService {
 
         const aiRuntime = require("./aiRuntimeService");
 
+        // Tool kirim-media membaca ini untuk tahu chat tujuan.
+        this.currentChatId = chatId;
+
         const session = this.sessions.get(chatId) ?? [];
 
         session.push({ role: "user", content: text });
@@ -356,6 +447,155 @@ class TelegramService {
 
         }
 
+    }
+
+    /**
+     * Tangani media masuk: foto & gambar dianalisis model vision,
+     * berkas teks dibaca, video dianalisis dari thumbnail-nya.
+     */
+    async handleMedia(chatId, message, caption) {
+
+        this.currentChatId = chatId;
+
+        this.call("sendChatAction", { chat_id: chatId, action: "typing" }).catch(() => {});
+
+        const vision = require("./visionService");
+
+        try {
+
+            // --- Foto ---
+            if (message.photo?.length) {
+                const largest = message.photo[message.photo.length - 1];
+                const { buffer } = await this.downloadFile(largest.file_id);
+                const r = await vision.analyze({
+                    imageBase64: buffer.toString("base64"),
+                    mimeType: "image/jpeg",
+                    prompt: caption || undefined
+                });
+                return this.replyWithMemory(chatId, caption, r.text, "gambar");
+            }
+
+            // --- Stiker (punya thumbnail/emoji) ---
+            if (message.sticker) {
+                const emoji = message.sticker.emoji ?? "";
+                const fileId = message.sticker.thumb?.file_id ?? message.sticker.file_id;
+                try {
+                    const { buffer } = await this.downloadFile(fileId);
+                    const r = await vision.analyze({
+                        imageBase64: buffer.toString("base64"),
+                        prompt: "Deskripsikan stiker ini singkat."
+                    });
+                    return this.send(chatId, `${emoji} ${r.text}`);
+                }
+                catch {
+                    return this.send(chatId, `Stiker ${emoji} diterima.`);
+                }
+            }
+
+            // --- Video: pakai thumbnail ---
+            if (message.video) {
+                const thumb = message.video.thumb ?? message.video.thumbnail;
+                if (thumb) {
+                    const { buffer } = await this.downloadFile(thumb.file_id);
+                    const r = await vision.analyze({
+                        imageBase64: buffer.toString("base64"),
+                        prompt: (caption || "Deskripsikan isi video ini") + " (dari thumbnail)."
+                    });
+                    return this.send(chatId, `📹 (dari cuplikan video)\n${r.text}`);
+                }
+                return this.send(chatId, "Video diterima, tapi tak ada cuplikan untuk dianalisis.");
+            }
+
+            // --- Dokumen ---
+            if (message.document) {
+                const doc = message.document;
+                const mime = doc.mime_type ?? "";
+
+                if (mime.startsWith("image/")) {
+                    const { buffer } = await this.downloadFile(doc.file_id);
+                    const r = await vision.analyze({
+                        imageBase64: buffer.toString("base64"),
+                        mimeType: mime,
+                        prompt: caption || undefined
+                    });
+                    return this.replyWithMemory(chatId, caption, r.text, "gambar");
+                }
+
+                if (mime.startsWith("text/") || /\.(txt|md|csv|json|log)$/i.test(doc.file_name ?? "")) {
+                    const { buffer } = await this.downloadFile(doc.file_id);
+                    const content = buffer.toString("utf8").slice(0, 6000);
+                    return this.converse(chatId,
+                        `${caption || "Tolong ringkas/analisis isi berkas ini"} ` +
+                        `(${doc.file_name}):\n\n${content}`);
+                }
+
+                return this.send(chatId,
+                    `Berkas "${doc.file_name}" (${mime || "tipe tak dikenal"}) diterima, ` +
+                    "tapi jenis ini belum bisa kuanalisis.");
+            }
+
+        }
+
+        catch (error) {
+
+            if (error.code === "VISION_NOT_CONFIGURED") {
+                return this.send(chatId,
+                    "Aku menerima medianya, tapi model vision belum diatur. " +
+                    "Set model vision (mis. llava) di Console → Vision.");
+            }
+
+            return this.send(chatId, `Gagal menganalisis media: ${error.message}`);
+
+        }
+
+    }
+
+    /** Kirim hasil analisis vision, sekaligus lewat otak agar natural. */
+    async replyWithMemory(chatId, caption, seen, kind) {
+
+        // Bila ada pertanyaan (caption), biarkan LLM menjawab
+        // berdasarkan hasil penglihatan; kalau tidak, kirim deskripsi.
+        if (caption) {
+            return this.converse(chatId,
+                `[Aether melihat ${kind}: ${seen}]\n\nPertanyaan: ${caption}`);
+        }
+
+        return this.send(chatId, seen);
+
+    }
+
+    /** Unduh berkas Telegram → Buffer. */
+    async downloadFile(fileId) {
+
+        const file = await this.call("getFile", { file_id: fileId });
+
+        const url = `https://api.telegram.org/file/bot${this.token}/${file.file_path}`;
+
+        const response = await fetch(url);
+
+        if (!response.ok) {
+            throw new Error(`Unduh berkas gagal (${response.status})`);
+        }
+
+        return {
+            buffer: Buffer.from(await response.arrayBuffer()),
+            path: file.file_path
+        };
+
+    }
+
+    // ---- Kirim media (dipakai tool) ------------------------------
+
+    async sendPhoto(chatId, photoUrl, caption) {
+        return this.call("sendPhoto", { chat_id: chatId, photo: photoUrl, caption });
+    }
+
+    async sendDocument(chatId, docUrl, caption) {
+        return this.call("sendDocument", { chat_id: chatId, document: docUrl, caption });
+    }
+
+    async sendSticker(chatId, sticker) {
+        return this.call("sendSticker", { chat_id: chatId, sticker });
     }
 
     async sendStatus(chatId) {

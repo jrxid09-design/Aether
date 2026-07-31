@@ -5,6 +5,40 @@ const providerConfig = require("../services/providerConfigService");
 
 const telemetry = require("../services/telemetryService");
 
+/**
+ * Coba daftar model dengan konfigurasi aktif untuk memastikan
+ * key valid & baseUrl benar — sekaligus mengingatkan bila model
+ * belum dipilih. Tidak melempar; hasilnya untuk ditampilkan.
+ */
+async function verifyActive(resolved) {
+
+    if (resolved.kind === "ollama") {
+        return { ok: true, note: "Ollama lokal aktif." };
+    }
+
+    if (!resolved.model) {
+        return {
+            ok: false,
+            reason: "no_model",
+            note: `Key ${resolved.platform ?? "tersimpan"}, tapi MODEL belum dipilih. ` +
+                  "Isi kolom Model (mis. gpt-4o-mini / gemini-2.0-flash / llama-3.3-70b-versatile)."
+        };
+    }
+
+    try {
+        const models = await aiRuntime.models();
+        return {
+            ok: true,
+            note: `Terverifikasi — key valid, ${models.length} model tersedia.`,
+            models: models.slice(0, 50).map(m => m.id)
+        };
+    }
+    catch (error) {
+        return { ok: false, reason: "key_or_url", note: `Key/URL bermasalah: ${error.message}` };
+    }
+
+}
+
 class AIController {
 
     /** Konfigurasi provider untuk Settings (API key dimasking). */
@@ -47,9 +81,15 @@ class AIController {
 
             const result = aiRuntime.reconfigure();
 
+            // Verifikasi langsung: coba daftar model dengan key ini.
+            // Beri jawaban jelas — key valid? model sudah dipilih? —
+            // ketimbang pengguna menebak kenapa "tidak bekerja".
+            const verify = await verifyActive(result);
+
             return response.success(res, "Konfigurasi disimpan", {
                 ...providerConfig.describe(),
-                reconfigured: result
+                reconfigured: result,
+                verify
             });
 
         }

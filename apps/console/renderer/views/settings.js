@@ -567,7 +567,13 @@ function wireAiPanel(root, cfg) {
 
         try {
             const result = await api.request("/ai/config", { method: "POST", body });
-            toast(`AI aktif: ${result.reconfigured.platform}`, "ok");
+            const v = result.verify;
+            // Verifikasi memberi jawaban jelas: key valid? model kurang?
+            toast(
+                v?.note ? `${result.reconfigured.platform}: ${v.note}` : `AI aktif: ${result.reconfigured.platform}`,
+                v && v.ok === false ? "warn" : "ok",
+                6000
+            );
             await renderDaemonConfig(root);
             // Segarkan info provider di store agar view lain ikut update.
             document.dispatchEvent(new CustomEvent("aether:reconnect"));
