@@ -13,12 +13,15 @@ const orchestratorController = require("../../../controllers/orchestratorControl
 const homeController = require("../../../controllers/homeController");
 const visionController = require("../../../controllers/visionController");
 const peopleController = require("../../../controllers/peopleController");
+const contextController = require("../../../controllers/contextController");
 
 const router = express.Router();
 
 // ---- Dashboard & telemetri ------------------------------------
 
 router.get("/overview", telemetryController.overview);
+router.get("/context", contextController.snapshot);
+router.post("/context/brief", contextController.brief);
 router.get("/stats", telemetryController.stats);
 router.get("/logs", telemetryController.logs);
 router.get("/events", telemetryController.events);

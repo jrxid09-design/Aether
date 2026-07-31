@@ -4,6 +4,7 @@ import { icon, brandMark } from "./lib/icons.js";
 import { $, esc, pill, toast } from "./lib/ui.js";
 
 import { dashboard } from "./views/dashboard.js";
+import { awareness } from "./views/awareness.js";
 import { aether } from "./views/aether.js";
 import { chat } from "./views/chat.js";
 import { memory } from "./views/memory.js";
@@ -19,12 +20,12 @@ import { logs } from "./views/logs.js";
 import { settings } from "./views/settings.js";
 
 const VIEWS = [
-    dashboard, aether, chat, memory, models,
+    dashboard, awareness, aether, chat, memory, models,
     integrations, devices, plugins, studio, agents, home, vision, logs, settings
 ];
 
 const GROUPS = [
-    { label: "Pantau", ids: ["dashboard", "logs"] },
+    { label: "Pantau", ids: ["dashboard", "awareness", "logs"] },
     { label: "Kerja", ids: ["aether", "chat", "memory", "models", "plugins", "studio", "agents"] },
     { label: "Sistem", ids: ["home", "vision", "devices", "integrations", "settings"] }
 ];

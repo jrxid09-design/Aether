@@ -107,6 +107,8 @@ class AetherApi {
     // ---- Ringkasan & telemetri ----------------------------------
 
     overview()          { return this.request("/overview", { timeout: 25000 }); }
+    context()           { return this.request("/context", { timeout: 25000 }); }
+    contextBrief()      { return this.request("/context/brief", { method: "POST", timeout: 90000 }); }
     stats()             { return this.request("/stats"); }
     logs(limit = 200)   { return this.request(`/logs?limit=${limit}`); }
 
