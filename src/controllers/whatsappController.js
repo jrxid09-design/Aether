@@ -25,11 +25,10 @@ class WhatsAppController {
         }
     }
 
-    /** Mulai koneksi & minta pairing code. */
+    /** Mulai koneksi → QR akan muncul untuk dipindai. */
     async connect(req, res, next) {
         try {
             await whatsapp.connect();
-            await whatsapp.requestPairing();
             return response.success(res, "Menyambungkan WhatsApp", whatsapp.status());
         }
         catch (error) {

@@ -590,21 +590,18 @@ function whatsappPanel(wa) {
 
             <div class="stack">
                 ${!wa.available ? `<div class="small warn-text">Jalankan di folder proyek:
-                    <span class="mono">npm install @whiskeysockets/baileys</span> lalu mulai ulang daemon.</div>` : ""}
+                    <span class="mono">npm install @whiskeysockets/baileys qrcode</span> lalu mulai ulang daemon.</div>` : ""}
 
                 <div class="field">
-                    <label>Nomor WhatsApp (untuk pairing, format internasional)</label>
-                    <input type="text" id="wa-number" value="${esc(wa.pairNumber ?? "")}"
-                        placeholder="mis. 6281234567890 (tanpa + / spasi)">
-                    <span class="help">Nomor perangkat yang menjalankan Aether. Setelah "Hubungkan", buka
-                        WhatsApp di HP itu → <em>Perangkat Tertaut → Tautkan dengan nomor telepon</em>,
-                        lalu masukkan kode di bawah.</span>
+                    <label>Pindai QR untuk menautkan</label>
+                    <span class="help">Tekan <strong>Hubungkan</strong>, lalu di HP: WhatsApp →
+                        <em>Perangkat Tertaut → Tautkan Perangkat</em> → pindai QR di bawah.</span>
                 </div>
-
-                ${wa.pairingCode ? `<div class="panel" style="background:rgba(52,211,153,.08)">
-                    <div class="small dim">Kode pairing (berlaku singkat):</div>
-                    <div class="mono" style="font-size:26px;letter-spacing:4px">${esc(wa.pairingCode)}</div>
-                </div>` : ""}
+                <div id="wa-qr-box" style="display:${wa.qr && !wa.connected ? "block" : "none"};text-align:center;padding:8px">
+                    <img id="wa-qr" src="${wa.qr ?? ""}" alt="QR WhatsApp"
+                        style="width:260px;height:260px;background:#fff;border-radius:12px;padding:8px">
+                    <div class="small dim">QR berlaku singkat — bila kedaluwarsa, tekan Hubungkan lagi.</div>
+                </div>
 
                 <div class="field">
                     <label>Nomor pribadi yang diizinkan</label>
@@ -629,7 +626,7 @@ function whatsappPanel(wa) {
                 </div>
                 <div class="row">
                     <button class="btn primary" id="wa-save">${icon("check")} Simpan</button>
-                    <button class="btn" id="wa-connect">${icon("plug")} Hubungkan / minta kode</button>
+                    <button class="btn" id="wa-connect">${icon("plug")} Hubungkan / tampilkan QR</button>
                     <button class="btn ghost" id="wa-test" ${wa.connected ? "" : "disabled"}>${icon("send")} Kirim uji</button>
                     <button class="btn ghost danger" id="wa-logout" ${wa.connected ? "" : "disabled"}>${icon("x")} Putuskan</button>
                 </div>
@@ -860,7 +857,6 @@ function wireAiPanel(root, cfg) {
 function wireWhatsappPanel(root) {
 
     const body = () => ({
-        number: root.querySelector("#wa-number").value.trim(),
         allowed: root.querySelector("#wa-allowed").value.trim(),
         groups: root.querySelector("#wa-groups").value.trim()
     });
@@ -878,17 +874,29 @@ function wireWhatsappPanel(root) {
 
     root.querySelector("#wa-connect").addEventListener("click", async () => {
         try {
-            // Simpan dulu (nomor & izin) baru minta kode pairing.
             await api.request("/whatsapp/config", { method: "POST", body: body() });
-            const status = await api.request("/whatsapp/connect", { method: "POST", body: {} });
-            toast(
-                status.pairingCode
-                    ? `Kode pairing: ${status.pairingCode}`
-                    : (status.connected ? "Sudah tersambung" : (status.lastError ?? "Menyambungkan…")),
-                status.lastError ? "warn" : "ok",
-                8000
-            );
-            await renderDaemonConfig(root);
+            await api.request("/whatsapp/connect", { method: "POST", body: {} });
+            toast("Menyambungkan… QR akan muncul sebentar lagi.", "ok", 4000);
+
+            // Polling QR/koneksi ±30 dtk (QR muncul asinkron setelah WS siap).
+            const boxEl = root.querySelector("#wa-qr-box");
+            const imgEl = root.querySelector("#wa-qr");
+            let tries = 0;
+            const timer = setInterval(async () => {
+                tries++;
+                let s;
+                try { s = await api.request("/whatsapp/status"); }
+                catch { return; }
+                if (s.qr && !s.connected) {
+                    imgEl.src = s.qr;
+                    boxEl.style.display = "block";
+                }
+                if (s.connected || tries > 20) {
+                    clearInterval(timer);
+                    if (s.connected) toast(`WhatsApp tersambung ${s.number ?? ""}`, "ok");
+                    await renderDaemonConfig(root);
+                }
+            }, 1500);
         }
         catch (error) {
             toast(error.message, "danger", 6000);

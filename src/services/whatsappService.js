@@ -48,7 +48,8 @@ class WhatsAppService {
         this.sock = null;
         this.connected = false;
         this.me = null;                 // { number }
-        this.pairingCode = null;
+        this.qr = null;                 // data-URL QR untuk dipindai
+        this._qrcode = undefined;       // cache require malas
         this.lastError = null;
         this.startedAt = null;
 
@@ -177,17 +178,29 @@ class WhatsAppService {
         return this;
     }
 
-    async requestPairing() {
-        if (!this.sock || !this.number) return null;
+    /** require qrcode secara malas; null bila belum diinstall. */
+    qrlib() {
+        if (this._qrcode === undefined) {
+            try { this._qrcode = require("qrcode"); }
+            catch { this._qrcode = null; }
+        }
+        return this._qrcode;
+    }
+
+    /** Ubah string QR Baileys jadi data-URL PNG untuk ditampilkan Console. */
+    async renderQr(qr) {
+        const lib = this.qrlib();
+        if (!lib) {
+            this.lastError = "Paket qrcode belum diinstall (npm install qrcode).";
+            return null;
+        }
         try {
-            const code = await this.sock.requestPairingCode(this.number.replace(/\D/g, ""));
-            this.pairingCode = code;
-            telemetry.info(`[whatsapp] pairing code: ${code} (tempel di WhatsApp > Perangkat Tertaut)`);
-            return code;
+            this.qr = await lib.toDataURL(qr, { margin: 1, width: 300 });
+            telemetry.info("[whatsapp] QR siap dipindai (Perangkat Tertaut > Tautkan perangkat).");
+            return this.qr;
         }
         catch (error) {
-            this.lastError = `Gagal minta pairing code: ${error.message}`;
-            telemetry.warn(`[whatsapp] ${this.lastError}`);
+            this.lastError = `Gagal buat QR: ${error.message}`;
             return null;
         }
     }
@@ -197,19 +210,16 @@ class WhatsAppService {
 
         if (connection) this.state = connection;
 
-        // Socket siap (qr tersedia) & belum tertaut → minta pairing code
-        // SEKALI. Ini menggantikan setTimeout buta: qr baru muncul setelah
-        // WS benar-benar terbuka, jadi requestPairingCode pasti valid.
-        if (qr && this.number && !this.registered && !this.pairingRequested) {
-            this.pairingRequested = true;
-            this.requestPairing().catch(() => {});
+        // Socket siap → render QR untuk dipindai (tanpa perlu nomor).
+        if (qr && !this.registered) {
+            this.renderQr(qr).catch(() => {});
         }
 
         if (connection === "open") {
             this.connected = true;
             this.registered = true;
             this.pairingRequested = false;
-            this.pairingCode = null;
+            this.qr = null;
             this.lastError = null;
             this.reconnectAttempts = 0;
             this.lastConnectedAt = Date.now();
@@ -221,6 +231,7 @@ class WhatsAppService {
         if (connection === "close") {
             this.connected = false;
             this.pairingRequested = false;
+            this.qr = null;
 
             const DR = this.lib()?.DisconnectReason ?? {};
             const code = lastDisconnect?.error?.output?.statusCode ?? null;
@@ -251,8 +262,9 @@ class WhatsAppService {
         try { await this.sock?.logout(); } catch { /* abaikan */ }
         this.sock = null;
         this.connected = false;
+        this.registered = false;
         this.me = null;
-        this.pairingCode = null;
+        this.qr = null;
         fs.rmSync(AUTH_DIR, { recursive: true, force: true });
         return this.status();
     }
@@ -277,11 +289,9 @@ class WhatsAppService {
         this.allowed = new Set(next.allowed.map(String));
         this.groups = new Set(next.groups.map(String));
 
-        // Bila sudah tersambung, cukup update daftar izin (di atas).
-        // Bila belum tertaut & ada nomor, sambungkan untuk dapat kode.
-        if (!this.connected && this.number && this.available) {
+        // Bila belum tersambung, mulai koneksi agar QR muncul untuk dipindai.
+        if (!this.connected && this.available) {
             await this.connect();
-            await this.requestPairing();
         }
         return this.status();
     }
@@ -629,7 +639,7 @@ class WhatsAppService {
             state: this.state,
             registered: Boolean(this.registered),
             number: this.me?.number ?? null,
-            pairingCode: this.pairingCode,
+            qr: this.qr,
             pairNumber: this.number,
             allowed: [...this.allowed],
             allowedCount: this.allowed.size,
