@@ -619,6 +619,14 @@ function whatsappPanel(wa) {
                     <span class="help">Kirim <span class="mono">/id</span> di grup untuk tahu id-nya. Di grup, Aether menjawab saat di-mention (sebut <em>Aether</em>) atau di-reply.</span>
                 </div>
                 ${wa.lastError ? `<div class="small danger-text">${esc(wa.lastError)}</div>` : ""}
+                <div class="small dim" style="line-height:1.7">
+                    state: <span class="mono">${esc(wa.state ?? "idle")}</span> ·
+                    registered: <span class="mono">${wa.registered ? "ya" : "belum"}</span> ·
+                    reconnect: <span class="mono">${wa.reconnectAttempts ?? 0}</span>
+                    ${wa.waVersion ? ` · WA v${esc(wa.waVersion)}` : ""}
+                    ${wa.connectedAt ? `<br>tersambung: <span class="mono">${esc(wa.connectedAt)}</span>` : ""}
+                    ${wa.lastDisconnect ? `<br>disconnect terakhir: <span class="mono">${esc(String(wa.lastDisconnect.code ?? "?"))}</span> ${esc((wa.lastDisconnect.reason ?? "").slice(0, 60))} <span class="dim">(${esc(wa.lastDisconnect.at)})</span>` : ""}
+                </div>
                 <div class="row">
                     <button class="btn primary" id="wa-save">${icon("check")} Simpan</button>
                     <button class="btn" id="wa-connect">${icon("plug")} Hubungkan / minta kode</button>

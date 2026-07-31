@@ -52,6 +52,15 @@ class WhatsAppService {
         this.lastError = null;
         this.startedAt = null;
 
+        // Diagnostik pairing (dibaca Console).
+        this.state = "idle";            // connecting | open | close
+        this.registered = false;
+        this.pairingRequested = false;
+        this.lastDisconnect = null;     // { code, reason, at }
+        this.reconnectAttempts = 0;
+        this.lastConnectedAt = null;
+        this.waVersion = null;
+
         /** Konteks percakapan ringkas per chat (jid). */
         this.sessions = new Map();
         /** Jendela sesi grup (jid → kedaluwarsa ms). */
@@ -126,35 +135,44 @@ class WhatsAppService {
 
         if (this.sock) return this;    // sudah tersambung/menyambung
 
-        const { default: makeWASocket, useMultiFileAuthState } = baileys;
+        const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, Browsers } = baileys;
 
         fs.mkdirSync(AUTH_DIR, { recursive: true });
         const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
 
         this.saveCreds = saveCreds;
+        this.registered = Boolean(state.creds.registered);
+        this.pairingRequested = false;
+
+        // WAJIB: pakai versi WA-web terkini. Tanpa ini Baileys memakai
+        // versi bundel yang bisa usang → server WhatsApp menolak tautan
+        // ("Cannot link device") lalu mengirim loggedOut, dan registered
+        // tak pernah jadi true.
+        const { version } = await fetchLatestBaileysVersion();
+        this.waVersion = version;
 
         const sock = makeWASocket({
+            version,
             auth: state,
             logger: silentLogger,
             printQRInTerminal: false,
-            browser: ["Aether", "Chrome", "1.0"],
-            markOnlineOnConnect: false
+            browser: Browsers.ubuntu("Aether"),
+            markOnlineOnConnect: false,
+            syncFullHistory: false
         });
 
         this.sock = sock;
 
-        sock.ev.on("creds.update", saveCreds);
+        // creds.update: simpan + segarkan status registrasi.
+        sock.ev.on("creds.update", async () => {
+            await saveCreds();
+            this.registered = Boolean(sock.authState.creds.registered);
+        });
         sock.ev.on("connection.update", (u) => this.onConnection(u));
         sock.ev.on("messages.upsert", (m) => {
             this.onMessages(m).catch(err =>
                 telemetry.warn(`[whatsapp] gagal proses pesan: ${err.message}`));
         });
-
-        // Belum tertaut + punya nomor → minta pairing code.
-        if (!sock.authState.creds.registered && this.number) {
-            // Beri jeda kecil agar socket siap sebelum minta kode.
-            setTimeout(() => this.requestPairing().catch(() => {}), 3000);
-        }
 
         return this;
     }
@@ -177,29 +195,53 @@ class WhatsAppService {
     onConnection(update) {
         const { connection, lastDisconnect, qr } = update;
 
-        if (qr) {
-            // Kita pakai pairing code, bukan QR; abaikan string QR.
+        if (connection) this.state = connection;
+
+        // Socket siap (qr tersedia) & belum tertaut → minta pairing code
+        // SEKALI. Ini menggantikan setTimeout buta: qr baru muncul setelah
+        // WS benar-benar terbuka, jadi requestPairingCode pasti valid.
+        if (qr && this.number && !this.registered && !this.pairingRequested) {
+            this.pairingRequested = true;
+            this.requestPairing().catch(() => {});
         }
 
         if (connection === "open") {
             this.connected = true;
+            this.registered = true;
+            this.pairingRequested = false;
             this.pairingCode = null;
             this.lastError = null;
-            this.startedAt = Date.now();
+            this.reconnectAttempts = 0;
+            this.lastConnectedAt = Date.now();
+            this.startedAt ??= Date.now();
             this.me = { number: String(this.sock?.user?.id ?? "").split(":")[0].split("@")[0] };
             telemetry.info(`[whatsapp] tersambung sebagai ${this.me.number}`);
         }
 
         if (connection === "close") {
             this.connected = false;
-            const code = lastDisconnect?.error?.output?.statusCode;
-            const loggedOut = code === (this.lib()?.DisconnectReason?.loggedOut ?? 401);
+            this.pairingRequested = false;
+
+            const DR = this.lib()?.DisconnectReason ?? {};
+            const code = lastDisconnect?.error?.output?.statusCode ?? null;
+            this.lastDisconnect = {
+                code,
+                reason: lastDisconnect?.error?.message ?? null,
+                at: Date.now()
+            };
+
+            const loggedOut = code === (DR.loggedOut ?? 401);
             this.sock = null;
+
             if (loggedOut) {
-                telemetry.warn("[whatsapp] logout dari perangkat — perlu tautkan ulang.");
+                // Kredensial tak valid lagi — jangan reconnect loop.
+                telemetry.warn(`[whatsapp] loggedOut (${code}) — tautkan ulang dari Settings.`);
             }
             else {
-                // Sambung ulang otomatis (kredensial masih ada).
+                // Termasuk restartRequired (515) setelah pairing sukses:
+                // WAJIB reconnect untuk merampungkan sesi.
+                this.reconnectAttempts = (this.reconnectAttempts ?? 0) + 1;
+                telemetry.info(`[whatsapp] connection close (${code}) — reconnect #${this.reconnectAttempts}`);
                 setTimeout(() => this.connect().catch(() => {}), 3000);
             }
         }
@@ -584,6 +626,8 @@ class WhatsAppService {
             available: this.available,
             configured: Boolean(this.number) || this.connected,
             connected: this.connected,
+            state: this.state,
+            registered: Boolean(this.registered),
             number: this.me?.number ?? null,
             pairingCode: this.pairingCode,
             pairNumber: this.number,
@@ -592,7 +636,13 @@ class WhatsAppService {
             groups: [...this.groups],
             groupCount: this.groups.size,
             lastError: this.lastError,
+            lastDisconnect: this.lastDisconnect
+                ? { ...this.lastDisconnect, at: new Date(this.lastDisconnect.at).toISOString() }
+                : null,
+            reconnectAttempts: this.reconnectAttempts,
+            connectedAt: this.lastConnectedAt ? new Date(this.lastConnectedAt).toISOString() : null,
             startedAt: this.startedAt ? new Date(this.startedAt).toISOString() : null,
+            waVersion: this.waVersion ? this.waVersion.join(".") : null,
             note: this.available ? null : "Jalankan: npm install @whiskeysockets/baileys"
         };
     }
