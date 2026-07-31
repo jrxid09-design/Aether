@@ -7,6 +7,83 @@ const { ToolRegistry } = require("../core/tools");
 const telemetry = require("./telemetryService");
 
 /**
+ * Kurasi daftar model per platform: utamakan model GRATIS & yang
+ * benar-benar bisa dipakai untuk chat, sembunyikan model non-chat
+ * (embedding/tts/image/veo/imagen) dan buang prefix "models/" milik
+ * Google. Daftar mentah tiap platform penuh jebakan (model usang yang
+ * 404, model TTS/gambar), jadi kita saring + urutkan gratis-dulu.
+ */
+const RECOMMENDED_MODELS = {
+    // Alias "*-latest" selalu menunjuk model flash terkini (gratis).
+    google: [
+        "gemini-flash-latest",
+        "gemini-flash-lite-latest",
+        "gemini-2.0-flash",
+        "gemini-2.0-flash-lite"
+    ],
+    openrouter: [
+        "deepseek/deepseek-chat-v3-0324:free",
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "google/gemini-2.0-flash-exp:free",
+        "qwen/qwen-2.5-72b-instruct:free"
+    ],
+    groq: [
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant"
+    ],
+    openai: ["gpt-4o-mini"]
+};
+
+// Pola model BUKAN-chat (tak boleh dipilih untuk percakapan).
+const NON_CHAT_MODEL =
+    /embedding|embed|aqa|imagen|\bveo\b|-image|image-|native-audio|\btts\b|text-to-speech|whisper|learnlm|gemma-3n/i;
+
+// Model usang yang tetap muncul di /models tapi balas 404 "no longer
+// available to new users" — API tak menandainya, jadi disaring manual.
+const DEPRECATED_MODELS = new Set([
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite"
+]);
+
+function isFreeModel(platform, id) {
+    if (platform === "groq" || platform === "ollama") return true;
+    if (platform === "openrouter") return id.endsWith(":free");
+    if (platform === "google") return /flash/i.test(id) && !/pro/i.test(id);
+    return false;
+}
+
+function curateModels(platform, rawModels = []) {
+
+    // Normalisasi id (buang prefix models/ khas Google) + saring non-chat.
+    const seen = new Set();
+    const list = [];
+
+    for (const m of rawModels) {
+        const id = platform === "google" ? String(m.id).replace(/^models\//, "") : m.id;
+        if (!id || NON_CHAT_MODEL.test(id) || DEPRECATED_MODELS.has(id) || seen.has(id)) continue;
+        seen.add(id);
+        list.push({ ...m, id, name: id, free: isFreeModel(platform, id) });
+    }
+
+    const byId = new Map(list.map(m => [m.id, m]));
+
+    // Rekomendasi di paling atas (pakai entri asli bila ada, kalau tidak
+    // buat sintetis agar tetap bisa dipilih walau tak muncul di /models).
+    const rec = RECOMMENDED_MODELS[platform] ?? [];
+    const recModels = rec.map(id =>
+        byId.get(id) ?? { id, name: id, free: isFreeModel(platform, id) });
+
+    const recSet = new Set(rec);
+    const rest = list.filter(m => !recSet.has(m.id));
+
+    // Sisanya: gratis dulu, lalu alfabet.
+    rest.sort((a, b) => (b.free ? 1 : 0) - (a.free ? 1 : 0) || a.id.localeCompare(b.id));
+
+    return [...recModels, ...rest];
+
+}
+
+/**
  * Satu-satunya pemilik AIEngine untuk proses daemon.
  *
  * Tugasnya menjembatani tiga dunia: konfigurasi (env), tool
@@ -396,7 +473,12 @@ class AIRuntimeService {
 
     async models(provider) {
 
-        return this.ensure().listModels(provider);
+        const raw = await this.ensure().listModels(provider);
+
+        // Kurasi per PLATFORM (google/openrouter/…), bukan id engine.
+        const platform = this.activePlatform?.id ?? "ollama";
+
+        return curateModels(platform, raw);
 
     }
 

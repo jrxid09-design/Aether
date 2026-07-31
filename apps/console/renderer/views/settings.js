@@ -722,7 +722,7 @@ function wireAiPanel(root, cfg) {
             modelSel.innerHTML =
                 `<option value="">— pilih model —</option>` +
                 list.map(m =>
-                    `<option value="${esc(m.id)}" ${m.id === current ? "selected" : ""}>${esc(m.name ?? m.id)}</option>`
+                    `<option value="${esc(m.id)}" ${m.id === current ? "selected" : ""}>${esc(m.name ?? m.id)}${m.free ? " · free" : ""}</option>`
                 ).join("") +
                 `<option value="__manual__">✎ ketik manual…</option>`;
 

@@ -262,7 +262,7 @@ async function fillModels(select, provider) {
 
         select.innerHTML = models.map(model => `
             <option value="${esc(model.id)}" ${model.id === data.defaultModel ? "selected" : ""}>
-                ${esc(model.name ?? model.id)}
+                ${esc(model.name ?? model.id)}${model.free ? " · free" : ""}
             </option>`).join("");
 
     }

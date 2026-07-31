@@ -192,7 +192,7 @@ async function drawModel(root) {
             const list = data.models ?? [];
             select.innerHTML =
                 `<option value="">— pakai default (${esc(cfg.effective ?? "otomatis")}) —</option>` +
-                list.map(m => `<option value="${esc(m.id)}" ${m.id === cfg.model ? "selected" : ""}>${esc(m.name ?? m.id)}</option>`).join("") +
+                list.map(m => `<option value="${esc(m.id)}" ${m.id === cfg.model ? "selected" : ""}>${esc(m.name ?? m.id)}${m.free ? " · free" : ""}</option>`).join("") +
                 `<option value="__manual__">✎ ketik manual…</option>`;
             help.textContent = `${list.length} model tersedia. Pilih yang mendukung gambar.`;
         }

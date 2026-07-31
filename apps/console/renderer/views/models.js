@@ -123,6 +123,7 @@ function table(data) {
                     <td>
                         <div class="row" style="gap:8px">
                             <span class="mono">${esc(model.name ?? model.id)}</span>
+                            ${model.free ? pill("free", "ok") : ""}
                             ${isDefault ? pill("default", "ok") : ""}
                         </div>
                     </td>
