@@ -2,45 +2,42 @@ const crypto = require("node:crypto");
 
 const TerminalSession = require("./TerminalSession");
 const shells = require("./shells");
+const backends = require("./backends");
 const store = require("./terminalStore");
 const telemetry = require("../../services/telemetryService");
 
 /**
  * TerminalRuntime — manajer sesi terminal persisten milik daemon.
  *
- * Hidup di daemon (bukan Electron) supaya: (1) AI & pengguna berbagi
- * pty yang SAMA, (2) sesi bertahan meski Console ditutup, (3) jalan
- * headless. node-pty di-require MALAS (seperti baileys/qrcode) → daemon
- * tetap hidup walau paket belum diinstall.
+ * Hidup di daemon (bukan Electron): AI & pengguna berbagi pty yang
+ * sama, sesi bertahan meski Console ditutup, jalan headless. Backend
+ * pty dipilih via descriptor.target (local sekarang; Docker/SSH/Remote
+ * menyusul tanpa mengubah manajer ini).
  *
- * API bersama dipakai oleh: REST (pengguna/CLI), WebSocket (stream),
- * dan tool AI (in-process) — ketiganya bermuara ke sini.
+ * Klasifikasi terminal:
+ *   SYSTEM  — runtime inti (Hermes/OpenClaw/Ollama/Docker): tak bisa
+ *             ditutup tanpa force, boleh auto-restart, nama tetap.
+ *   PROJECT — terkait proyek/tugas; nama tetap.
+ *   USER    — dibuka pengguna; bisa rename & ditutup bebas.
  */
+
+const TYPES = ["SYSTEM", "PROJECT", "USER"];
+const RESTART_POLICIES = ["never", "on-failure", "always"];
+
 class TerminalRuntime {
 
     constructor() {
         this.sessions = new Map();
-        this._pty = undefined;
-    }
-
-    lib() {
-        if (this._pty === undefined) {
-            try { this._pty = require("node-pty"); }
-            catch { this._pty = null; }
-        }
-        return this._pty;
     }
 
     get available() {
-        return this.lib() !== null;
+        return backends.get("local").available;
     }
 
     start() {
         if (!this.available) {
             telemetry.info("[terminal] node-pty belum diinstall — runtime terminal nonaktif (npm install node-pty).");
         }
-        // v1: tidak me-respawn proses lama (ceiling terdokumentasi).
-        // Metadata tersimpan tetap bisa ditawarkan buka-ulang lewat saved().
         return this;
     }
 
@@ -52,102 +49,161 @@ class TerminalRuntime {
         this.sessions.clear();
     }
 
-    // ---- API bersama ---------------------------------------------
+    // ---- Buat & registrasi ---------------------------------------
 
-    create({ shell, cwd, name, cols = 120, rows = 30, env } = {}) {
-        const pty = this.lib();
-        if (!pty) throw new Error("node-pty belum diinstall (npm install node-pty).");
+    create(opts = {}) {
+        const target = opts.target || "local";
+        const backend = backends.get(target);
+        if (!backend.available) {
+            throw new Error(`Backend terminal '${target}' tak tersedia (node-pty belum diinstall?).`);
+        }
 
-        const sh = shells.resolve(shell);
-        const id = "t_" + crypto.randomBytes(4).toString("hex");
-        const workdir = cwd || process.env.USERPROFILE || process.env.HOME || process.cwd();
+        const sh = shells.resolve(opts.shell);
+        const type = TYPES.includes(String(opts.terminalType).toUpperCase())
+            ? String(opts.terminalType).toUpperCase() : "USER";
+        const cwd = opts.cwd || process.env.USERPROFILE || process.env.HOME || process.cwd();
+        const cols = opts.cols || 120;
+        const rows = opts.rows || 30;
 
-        const proc = pty.spawn(sh.path, sh.args, {
-            name: "xterm-256color",
-            cols, rows,
-            cwd: workdir,
-            env: { ...process.env, ...(env || {}), TERM: "xterm-256color" }
+        const descriptor = {
+            id: "t_" + crypto.randomBytes(4).toString("hex"),
+            owner: opts.owner || "user",
+            purpose: opts.purpose ? String(opts.purpose).toLowerCase() : null,
+            terminalType: type,
+            createdBy: opts.createdBy || "user",           // "user" | "ai" | "system"
+            restartPolicy: RESTART_POLICIES.includes(opts.restartPolicy) ? opts.restartPolicy : "never",
+            persistent: opts.persistent ?? (type !== "USER"),
+            target,
+            shell: sh.id,
+            createdAt: new Date().toISOString()
+        };
+
+        const pty = backend.spawn({
+            shellPath: sh.path, args: sh.args, cwd, cols, rows,
+            env: { ...process.env, ...(opts.env || {}) }
         });
 
-        const session = new TerminalSession({
-            id, name: name || sh.name, shell: sh.id, cwd: workdir, pty: proc, cols, rows
+        const session = new TerminalSession({ descriptor, name: opts.name || sh.name, pty, cwd, cols, rows });
+        session.on("exit", code => {
+            telemetry.publish("terminal:exited", { id: descriptor.id, code });
+            this._maybeRestart(session, code);
         });
-        session.on("exit", code => telemetry.publish("terminal:exited", { id, code }));
 
-        this.sessions.set(id, session);
-        telemetry.publish("terminal:created", { id, shell: sh.id, name: session.name });
+        this.sessions.set(descriptor.id, session);
+        telemetry.publish("terminal:created", {
+            id: descriptor.id, type, purpose: descriptor.purpose, name: session.name
+        });
         this.persist();
-
         return session.meta();
     }
 
-    list() {
-        return [...this.sessions.values()].map(s => s.meta());
-    }
+    // ---- Query ----------------------------------------------------
 
-    get(id) {
-        return this.sessions.get(id) || null;
-    }
+    list() { return [...this.sessions.values()].map(s => s.meta()); }
+    get(id) { return this.sessions.get(id) || null; }
 
     findByName(name) {
         const n = String(name || "").toLowerCase();
         return [...this.sessions.values()].find(s => s.name.toLowerCase() === n) || null;
     }
 
-    /**
-     * Cari-atau-buat berdasarkan nama — inti aturan AI "jangan spawn
-     * shell sementara". Kembalikan session (bukan meta) untuk dipakai
-     * internal/tool.
-     */
-    ensureSession({ name, shell, cwd } = {}) {
-        const existing = this.findByName(name);
-        if (existing && existing.status === "running") return existing;
-        const meta = this.create({ name, shell, cwd });
-        return this.get(meta.id);
+    /** Cari terminal berdasarkan PURPOSE (kunci reuse yang stabil). */
+    findByPurpose(purpose) {
+        const p = String(purpose || "").toLowerCase();
+        if (!p) return null;
+        return [...this.sessions.values()].find(s => s.descriptor.purpose === p) || null;
     }
+
+    /** Cari-atau-buat berdasarkan purpose — jalur reuse utama untuk AI. */
+    ensureByPurpose(opts = {}) {
+        const existing = this.findByPurpose(opts.purpose);
+        if (existing && existing.status === "running") return existing.meta();
+        return this.create(opts);
+    }
+
+    // ---- I/O & kontrol -------------------------------------------
 
     write(id, data) { return this.req(id).write(data); }
     signal(id, name) { return this.req(id).signal(name); }
-    resize(id, cols, rows) { return this.req(id).resize(cols, rows) && this.req(id).meta(); }
+    resize(id, cols, rows) { const s = this.req(id); s.resize(cols, rows); return s.meta(); }
     read(id) { return this.req(id).read(); }
     execute(id, command, opts) { return this.req(id).execute(command, opts); }
+    kill(id) { return this.req(id).kill(); }
 
     rename(id, name) {
         const s = this.req(id);
+        if (s.terminalType !== "USER") {
+            throw new Error(`Nama terminal ${s.terminalType} bersifat tetap — hanya terminal USER yang bisa di-rename.`);
+        }
         s.name = name;
         this.persist();
         return s.meta();
     }
 
-    kill(id) { return this.req(id).kill(); }
-
-    close(id) {
+    /** Tutup tab. Terminal SYSTEM butuh force (anti-tutup tak sengaja). */
+    close(id, { force = false } = {}) {
         const s = this.get(id);
-        if (s) {
-            try { s.kill(); } catch { /* abaikan */ }
-            this.sessions.delete(id);
-            this.persist();
+        if (!s) return true;
+        if (s.isSystem() && !force) {
+            const err = new Error(`Terminal SYSTEM '${s.name}' tidak bisa ditutup tanpa force.`);
+            err.code = "SYSTEM_PROTECTED";
+            throw err;
         }
+        try { s.kill(); } catch { /* abaikan */ }
+        this.sessions.delete(id);
+        this.persist();
         return true;
     }
 
-    /** Metadata terminal tersimpan dari sesi daemon sebelumnya (untuk buka-ulang). */
-    saved() {
-        return store.read().terminals || [];
-    }
+    // ---- Restore & introspeksi -----------------------------------
 
-    /** Buka-ulang tab tersimpan (shell baru di cwd yang sama). */
+    saved() { return store.read().terminals || []; }
+
     restore(id) {
         const meta = this.saved().find(t => t.id === id);
         if (!meta) throw new Error(`Terminal tersimpan '${id}' tidak ada.`);
-        return this.create({ shell: meta.shell, cwd: meta.cwd, name: meta.name });
+        return this.create({
+            shell: meta.shell, cwd: meta.cwd, name: meta.name,
+            purpose: meta.purpose, owner: meta.owner, terminalType: meta.terminalType,
+            createdBy: meta.createdBy, restartPolicy: meta.restartPolicy, persistent: meta.persistent
+        });
     }
 
-    availableShells() {
-        return shells.detect().map(s => ({ id: s.id, name: s.name }));
-    }
+    availableShells() { return shells.detect().map(s => ({ id: s.id, name: s.name })); }
+    backends() { return backends.list(); }
 
     // ---- internal -------------------------------------------------
+
+    _maybeRestart(session, code) {
+        const d = session.descriptor;
+        // Hanya bila masih terdaftar (bukan ditutup) & kebijakan cocok.
+        const should = this.sessions.has(d.id) && (
+            d.restartPolicy === "always" ||
+            (d.restartPolicy === "on-failure" && code !== 0)
+        );
+        if (!should) return;
+
+        // Cap anti-loop: maks 3 restart dalam 60 detik.
+        session._restarts = (session._restarts || []).filter(t => Date.now() - t < 60000);
+        if (session._restarts.length >= 3) {
+            telemetry.warn(`[terminal] ${d.id} (${session.name}) restart di-skip — loop terdeteksi.`);
+            return;
+        }
+        session._restarts.push(Date.now());
+
+        try {
+            const sh = shells.resolve(d.shell);
+            const pty = backends.get(d.target).spawn({
+                shellPath: sh.path, args: sh.args, cwd: session.cwd,
+                cols: session.cols, rows: session.rows, env: { ...process.env }
+            });
+            session.attach(pty);
+            telemetry.publish("terminal:restarted", { id: d.id, name: session.name });
+        }
+        catch (error) {
+            telemetry.warn(`[terminal] restart ${d.id} gagal: ${error.message}`);
+        }
+    }
 
     req(id) {
         const s = this.get(id);
@@ -157,7 +213,12 @@ class TerminalRuntime {
 
     persist() {
         store.write({
-            terminals: this.list().map(m => ({ id: m.id, name: m.name, shell: m.shell, cwd: m.cwd }))
+            terminals: this.list().map(m => ({
+                id: m.id, name: m.name, purpose: m.purpose, owner: m.owner,
+                terminalType: m.terminalType, createdBy: m.createdBy,
+                restartPolicy: m.restartPolicy, persistent: m.persistent,
+                target: m.target, shell: m.shell, cwd: m.cwd
+            }))
         });
     }
 

@@ -1,40 +1,47 @@
 const { EventEmitter } = require("node:events");
 
 /**
- * Satu sesi terminal = satu proses pty (node-pty) + scrollback ring.
+ * Satu sesi terminal = descriptor imutabel + state runtime + pty handle.
  *
- * Ring buffer inilah yang membuat terminal BISA DIBAGI: klien yang
- * baru attach (atau AI yang read()) memutar ulang buffer sehingga
- * semua melihat layar yang sama. Session tak me-require node-pty
- * sendiri — instance pty disuntikkan oleh TerminalRuntime agar
- * require malas terpusat di satu tempat.
+ * descriptor (Object.freeze): identitas & klasifikasi yang TAK berubah
+ *   { id, owner, purpose, terminalType, createdBy, restartPolicy,
+ *     persistent, target, shell, createdAt }
+ * mutable: name (label; rename utk USER), status, pid, cwd, cols, rows, lastUsed
  *
- * Emit:
- *   "data" (string)  — output pty (untuk WS/stream & execute)
- *   "exit" (code)    — proses berakhir
+ * Ring buffer scrollback membuat terminal BISA DIBAGI (klien baru /
+ * AI read() memutar ulang layar). attach() memasang pty baru tanpa
+ * membuang buffer → dipakai auto-restart (restartPolicy).
+ *
+ * Emit: "data"(string), "exit"(code)
  */
 
-const MAX_BUFFER = 256 * 1024;   // ponytail: ring 256KB; cukup utk 1 layar penuh + histori
+const MAX_BUFFER = 256 * 1024;
 
 class TerminalSession extends EventEmitter {
 
-    constructor({ id, name, shell, cwd, pty, cols, rows }) {
+    constructor({ descriptor, name, pty, cwd, cols, rows }) {
         super();
-        this.id = id;
-        this.name = name;
-        this.shell = shell;
+        this.descriptor = Object.freeze({ ...descriptor });
+        this.name = name;                    // label (mutable, rename utk USER)
         this.cwd = cwd;
         this.cols = cols;
         this.rows = rows;
-        this.pid = pty.pid;
-        this.status = "running";
+        this.status = "starting";
         this.exitCode = null;
-        this.startedAt = Date.now();
-        this.pty = pty;
+        this.lastUsed = Date.now();
 
         this._chunks = [];
         this._bytes = 0;
 
+        this.attach(pty);
+    }
+
+    /** Pasang (atau ganti) pty. Buffer scrollback dipertahankan. */
+    attach(pty) {
+        this.pty = pty;
+        this.pid = pty.pid;
+        this.status = "running";
+        this.exitCode = null;
         pty.onData(d => this._onData(d));
         pty.onExit(e => {
             this.status = "exited";
@@ -42,6 +49,11 @@ class TerminalSession extends EventEmitter {
             this.emit("exit", this.exitCode);
         });
     }
+
+    get id() { return this.descriptor.id; }
+    get terminalType() { return this.descriptor.terminalType; }
+    isSystem() { return this.descriptor.terminalType === "SYSTEM"; }
+    touch() { this.lastUsed = Date.now(); }
 
     _onData(data) {
         const buf = Buffer.from(data, "utf8");
@@ -53,14 +65,14 @@ class TerminalSession extends EventEmitter {
         this.emit("data", data);
     }
 
-    /** Tulis byte mentah / keystroke ke pty. */
     write(data) {
         if (this.status === "running") this.pty.write(data);
+        this.touch();
         return true;
     }
 
-    /** Sinyal: SIGINT=Ctrl+C, EOF=Ctrl+D, selain itu → kill proses. */
     signal(name) {
+        this.touch();
         if (name === "SIGINT") return this.write("\x03");
         if (name === "EOF") return this.write("\x04");
         return this.kill(name);
@@ -68,26 +80,21 @@ class TerminalSession extends EventEmitter {
 
     resize(cols, rows) {
         this.cols = cols; this.rows = rows;
-        try { this.pty.resize(cols, rows); } catch { /* proses mungkin sudah mati */ }
+        try { this.pty.resize(cols, rows); } catch { /* mungkin sudah mati */ }
         return true;
     }
 
-    /** Scrollback saat ini (untuk snapshot attach & AI read()). */
     read() {
+        this.touch();
         return Buffer.concat(this._chunks).toString("utf8");
     }
 
-    /**
-     * Jalankan perintah lalu tangkap output sampai `expect` cocok
-     * atau timeout. Inilah cara AI "tunggu sampai backend siap"
-     * secara deterministik (bukan tebak-tebakan sleep).
-     */
     execute(command, { expect, timeoutMs = 15000 } = {}) {
+        this.touch();
         return new Promise(resolve => {
             let out = "";
             let done = false;
             const re = expect ? (expect instanceof RegExp ? expect : new RegExp(expect, "i")) : null;
-
             const onData = d => { out += d; if (re && re.test(out)) finish(true); };
             const finish = matched => {
                 if (done) return;
@@ -96,31 +103,33 @@ class TerminalSession extends EventEmitter {
                 clearTimeout(timer);
                 resolve({ output: out, matched });
             };
-
             const timer = setTimeout(() => finish(false), timeoutMs);
             this.on("data", onData);
             this.write(command.endsWith("\n") ? command : command + "\r");
         });
     }
 
-    kill(signal = "SIGKILL") {
-        try { this.pty.kill(signal); } catch { /* sudah mati */ }
+    kill() {
+        // JANGAN kirim nama sinyal: node-pty di Windows melempar
+        // "Signals not supported on windows" secara asinkron (lolos
+        // try/catch → crash). kill() tanpa argumen membunuh proses di
+        // semua OS. Ctrl+C tetap lewat signal("SIGINT") → "\x03".
+        try { this.pty.kill(); } catch { /* sudah mati */ }
         this.status = "exited";
         return true;
     }
 
     meta() {
         return {
-            id: this.id,
+            ...this.descriptor,
             name: this.name,
-            shell: this.shell,
             cwd: this.cwd,
             pid: this.pid,
             status: this.status,
             exitCode: this.exitCode,
-            startedAt: new Date(this.startedAt).toISOString(),
             cols: this.cols,
-            rows: this.rows
+            rows: this.rows,
+            lastUsed: new Date(this.lastUsed).toISOString()
         };
     }
 

@@ -18,8 +18,14 @@ class TerminalController {
 
     create(req, res, next) {
         try {
-            const { shell, cwd, name, cols, rows } = req.body ?? {};
-            return response.success(res, "Terminal dibuat", terminals.create({ shell, cwd, name, cols, rows }), 201);
+            const {
+                shell, cwd, name, cols, rows,
+                owner, purpose, terminalType, createdBy, restartPolicy, persistent, target
+            } = req.body ?? {};
+            return response.success(res, "Terminal dibuat", terminals.create({
+                shell, cwd, name, cols, rows,
+                owner, purpose, terminalType, createdBy, restartPolicy, persistent, target
+            }), 201);
         }
         catch (error) { return response.error(res, error.message, 400); }
     }
@@ -75,9 +81,13 @@ class TerminalController {
 
     remove(req, res, next) {
         try {
-            return response.success(res, "Ditutup", { closed: terminals.close(req.params.id) });
+            const force = req.query.force === "true" || req.body?.force === true;
+            return response.success(res, "Ditutup", { closed: terminals.close(req.params.id, { force }) });
         }
-        catch (error) { next(error); }
+        catch (error) {
+            // Terminal SYSTEM terlindungi → 409 agar UI bisa tawarkan "force".
+            return response.error(res, error.message, error.code === "SYSTEM_PROTECTED" ? 409 : 400);
+        }
     }
 
 }
