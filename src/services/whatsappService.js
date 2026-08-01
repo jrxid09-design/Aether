@@ -337,7 +337,7 @@ class WhatsAppService {
 
         // Di grup: hanya respon bila di-mention/di-reply atau sesi aktif.
         if (isGroup) {
-            if (this.isMentioned(msg, text) || this.sessionActive(jid)) {
+            if (this.isTriggered(msg, text) || this.sessionActive(jid)) {
                 this.touchSession(jid);
             }
             else {
@@ -388,21 +388,35 @@ class WhatsAppService {
         return null;
     }
 
-    isMentioned(msg, text) {
-        const meId = this.sock?.user?.id ?? "";
-        const meNum = meId.split(":")[0].split("@")[0];
-        const ctx = msg.message?.extendedTextMessage?.contextInfo;
+    /**
+     * Apakah pesan grup ditujukan ke Aether? Cukup salah satu:
+     *  1) teks memuat kata "aether" (tanpa perlu mention/reply),
+     *  2) reply ke pesan bot, 3) mention @Aether.
+     * Deteksi nomor bot toleran (device-suffix / format lid).
+     */
+    isTriggered(msg, text) {
+        // 1) Kata pemicu — jalur utama & paling andal.
+        if (/aether/i.test(text || "")) return true;
 
-        // Reply ke pesan bot.
-        if (ctx?.participant && ctx.participant.split(":")[0].split("@")[0] === meNum) {
-            return true;
-        }
-        // Mention eksplisit.
-        if ((ctx?.mentionedJid ?? []).some(j => j.split("@")[0] === meNum)) {
-            return true;
-        }
-        // Nama disebut.
-        return /\baether\b/i.test(text);
+        const m = msg.message || {};
+        const ctx =
+            m.extendedTextMessage?.contextInfo ||
+            m.imageMessage?.contextInfo ||
+            m.videoMessage?.contextInfo ||
+            m.documentMessage?.contextInfo ||
+            m.audioMessage?.contextInfo || {};
+
+        const norm = v => String(v ?? "").split(":")[0].split("@")[0].replace(/\D/g, "");
+        const meNums = new Set(
+            [this.sock?.user?.id, this.me?.number, this.number].map(norm).filter(Boolean)
+        );
+
+        // 2) Reply ke pesan bot.
+        if (meNums.has(norm(ctx.participant))) return true;
+        // 3) Mention @Aether.
+        if ((ctx.mentionedJid ?? []).some(j => meNums.has(norm(j)))) return true;
+
+        return false;
     }
 
     stripMention(text) {
