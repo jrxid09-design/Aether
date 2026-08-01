@@ -12,6 +12,8 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
+    "aether": "node scripts/launch.js --console",
+    "aether:daemon": "node scripts/launch.js",
     "cli": "node src/cli/index.js",
     "console": "npm start --prefix apps/console",
     "console:dev": "npm run dev --prefix apps/console",

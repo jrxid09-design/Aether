@@ -49,4 +49,13 @@ function banner(version = "") {
 
 }
 
-module.exports = { c, symbols, banner };
+/** Garis pemisah ber-label, dipakai banner startup daemon/launcher. */
+function hr(label = "") {
+    if (!label) {
+        return c.dim("  " + "─".repeat(56));
+    }
+    const tail = Math.max(2, 52 - String(label).length);
+    return c.dim("  ── ") + c.accent(label) + " " + c.dim("─".repeat(tail));
+}
+
+module.exports = { c, symbols, banner, hr };

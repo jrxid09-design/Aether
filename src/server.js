@@ -71,6 +71,21 @@ function bootSubsystems() {
     logger.info(`Server listening on http://localhost:${config.port}`);
     logger.info(`Console API  : http://localhost:${config.port}/api/v1/console/overview`);
 
+    // Banner ringkas & berwarna (senada CLI) supaya `npm start` mudah dibaca.
+    try {
+        const { c, symbols, hr } = require("./cli/theme");
+        const base = `http://localhost:${config.port}`;
+        const tokenLine = process.env.AETHER_TOKEN
+            ? c.ok("aktif") : c.warn("terbuka — set AETHER_TOKEN untuk mengunci");
+        console.log("\n" + hr("Aether siap"));
+        console.log(`  ${symbols.aether} Daemon       ${c.accent(base)}`);
+        console.log(`  ${symbols.aether} Console API  ${c.muted(base + "/api/v1/console/overview")}`);
+        console.log(`  ${symbols.aether} CLI          ${c.muted("npm run cli")}`);
+        console.log(`  ${symbols.dot} Token        ${tokenLine}`);
+        console.log(hr() + "\n");
+    }
+    catch { /* banner opsional */ }
+
 }
 
 /**
