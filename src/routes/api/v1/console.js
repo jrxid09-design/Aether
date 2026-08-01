@@ -16,6 +16,7 @@ const peopleController = require("../../../controllers/peopleController");
 const contextController = require("../../../controllers/contextController");
 const automationController = require("../../../controllers/automationController");
 const roleController = require("../../../controllers/roleController");
+const terminalController = require("../../../controllers/terminalController");
 
 const router = express.Router();
 
@@ -90,6 +91,18 @@ router.get("/agents", orchestratorController.agents);
 router.post("/orchestrate", orchestratorController.orchestrate);
 
 // ---- WhatsApp --------------------------------------------------
+
+// ---- Terminal Runtime (sesi pty persisten) ---------------------
+
+router.get("/terminals", terminalController.list);
+router.post("/terminals", terminalController.create);
+router.get("/terminals/:id/output", terminalController.read);
+router.post("/terminals/:id/input", terminalController.input);
+router.post("/terminals/:id/signal", terminalController.signal);
+router.post("/terminals/:id/resize", terminalController.resize);
+router.post("/terminals/:id/execute", terminalController.execute);
+router.patch("/terminals/:id", terminalController.rename);
+router.delete("/terminals/:id", terminalController.remove);
 
 // ---- Peran pengguna (SuperAdmin/Admin/User) --------------------
 

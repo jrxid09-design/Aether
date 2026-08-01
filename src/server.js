@@ -11,6 +11,7 @@ const aiRuntime = require("./services/aiRuntimeService");
 const memory = require("./memory/services/MemoryService");
 const whatsapp = require("./services/whatsappService");
 const automation = require("./services/automationService");
+const terminals = require("./runtime/terminal/TerminalRuntime");
 const { manager: integrations } = require("./integrations");
 
 const host = process.env.HOST ?? "0.0.0.0";
@@ -61,6 +62,9 @@ function bootSubsystems() {
 
     // Lapisan proaktif: brief harian terjadwal (aktif bila diset di Settings).
     automation.start();
+
+    // Terminal Runtime (pty persisten; nonaktif diam-diam bila node-pty belum ada).
+    terminals.start();
 
     if (!process.env.AETHER_TOKEN) {
         telemetry.warn(
@@ -197,6 +201,7 @@ const shutdown = (signal) => {
     memory.stop();
     whatsapp.stop();
     automation.stop();
+    terminals.stop();
 
     if (server) {
         server.close(() => process.exit(0));

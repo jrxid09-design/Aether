@@ -21,6 +21,7 @@ userPlugins/
 configs/devices.json
 configs/automation.json
 configs/model-health.json
+configs/terminals.json
 
 # Berisi RAHASIA (API key, token bot) — jangan pernah di-commit.
 configs/providers.json
