@@ -21,7 +21,7 @@ const store = new JsonStore(
 
 // Tool yang HANYA boleh superadmin: kelola skill + tool sistem berbahaya.
 const SUPERADMIN_ONLY =
-    /create_tool|activate_tool|remove_tool|filesystem|docker|run.?command|capture.?screen|__write|__delete|__remove/i;
+    /create_tool|activate_tool|remove_tool|filesystem|docker|run.?command|capture.?screen|terminal_|__write|__delete|__remove/i;
 
 // Tool aman untuk user umum (allowlist). Selain ini, user hanya chat biasa.
 const USER_ALLOWED =

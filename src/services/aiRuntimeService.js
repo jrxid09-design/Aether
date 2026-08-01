@@ -132,6 +132,12 @@ class AIRuntimeService {
             "Kamu bebas merangkai beberapa tool berturut-turut untuk menuntaskan satu " +
             "permintaan (mis. cari dulu, hitung, lalu simpan). Utamakan menyelesaikan " +
             "tugas secara nyata dengan tool, bukan sekadar menjelaskan caranya.\n\n" +
+            "TERMINAL: untuk menjalankan proses/perintah (Hermes, Docker, npm, Python, " +
+            "build, dll) JANGAN pernah membuat shell sementara. Pakai terminal_run atau " +
+            "terminal_restart dengan `purpose` yang stabil (mis. 'hermes','docker') — " +
+            "Aether akan memakai ulang terminal yang sudah ada atau membuat bila belum ada. " +
+            "Untuk proses yang lama hidup, sertakan `expect` (regex) agar menunggu sampai " +
+            "siap. Cek terminal_list dulu bila ragu, dan terminal_read untuk memeriksa log.\n\n" +
             "SKILL (kemampuan baru): kalau pengguna memintamu MEMBUAT skill/tool/plugin/" +
             "kemampuan baru — atau meminta sesuatu yang butuh kemampuan yang belum ada — " +
             "kamu WAJIB memakai tool create_tool untuk benar-benar membuatnya. JANGAN " +
@@ -211,6 +217,9 @@ class AIRuntimeService {
 
         // Tool orang & wajah (Immich + face-match CCTV).
         builder.registerTools(require("./peopleTools").peopleTools());
+
+        // Tool Terminal Runtime (jalankan/kelola proses di pty persisten).
+        builder.registerTools(require("./terminalTools").terminalTools());
 
         this.engine = builder.build();
 
@@ -430,6 +439,10 @@ class AIRuntimeService {
         }
 
         for (const tool of require("./peopleTools").peopleTools()) {
+            registry.register(tool);
+        }
+
+        for (const tool of require("./terminalTools").terminalTools()) {
             registry.register(tool);
         }
 
