@@ -242,18 +242,19 @@ async function renderDaemonConfig(root) {
 
     try {
 
-        const [aiCfg, tg, voice, homeCfg, people, auto] = await Promise.all([
+        const [aiCfg, tg, voice, homeCfg, people, auto, rolesCfg] = await Promise.all([
             api.request("/ai/config"),
             api.request("/whatsapp/status"),
             api.voiceConfig(),
             api.homeStatus().catch(() => null),
             api.request("/people/status").catch(() => null),
-            api.request("/automation/status").catch(() => null)
+            api.request("/automation/status").catch(() => null),
+            api.request("/roles").catch(() => null)
         ]);
 
         host.innerHTML = aiPanel(aiCfg) + voicePanel(voice)
             + homePanel(homeCfg) + peoplePanel(people) + whatsappPanel(tg)
-            + automationPanel(auto);
+            + automationPanel(auto) + rolesPanel(rolesCfg);
 
         wireAiPanel(root, aiCfg);
         wireVoicePanel(root);
@@ -261,6 +262,7 @@ async function renderDaemonConfig(root) {
         wirePeoplePanel(root);
         wireWhatsappPanel(root);
         wireAutomationPanel(root);
+        wireRolesPanel(root);
 
     }
 
@@ -986,6 +988,60 @@ function wireWhatsappPanel(root) {
         }
     });
 
+}
+
+function rolesPanel(r) {
+
+    r = r ?? { superadmins: [], admins: [], enforced: false };
+
+    return `
+        <div class="panel">
+            <div class="panel-head">
+                <h2>${icon("activity")} Peran pengguna</h2>
+                <span class="push">${pill(r.enforced ? "aktif" : "belum diatur", r.enforced ? "ok" : "idle")}</span>
+            </div>
+            <div class="small muted" style="margin-bottom:10px">
+                Kelas akses lewat WhatsApp:
+                <strong>SuperAdmin</strong> — kendali penuh tanpa batas ·
+                <strong>Admin</strong> — operasional harian (tanpa kelola skill / tool sistem berbahaya) ·
+                <strong>User</strong> — anggota grup, asisten AI pribadi (chat + tool aman).
+                Console/CLI di mesin ini selalu SuperAdmin. Bila kosong, semua nomor
+                yang diizinkan diperlakukan sebagai SuperAdmin.
+            </div>
+            <div class="field">
+                <label>Nomor SuperAdmin</label>
+                <input type="text" id="role-super" value="${esc((r.superadmins ?? []).join(", "))}"
+                    placeholder="mis. 6281111, 6282222">
+            </div>
+            <div class="field">
+                <label>Nomor Admin</label>
+                <input type="text" id="role-admin" value="${esc((r.admins ?? []).join(", "))}"
+                    placeholder="mis. 6283333">
+            </div>
+            <div class="row">
+                <button class="btn primary" id="role-save">${icon("check")} Simpan peran</button>
+                <span class="small dim">selain daftar ini = User</span>
+            </div>
+        </div>`;
+
+}
+
+function wireRolesPanel(root) {
+    const btn = root.querySelector("#role-save");
+    if (!btn) return;
+    btn.addEventListener("click", async () => {
+        try {
+            await api.request("/roles", { method: "POST", body: {
+                superadmins: root.querySelector("#role-super").value.trim(),
+                admins: root.querySelector("#role-admin").value.trim()
+            }});
+            toast("Peran disimpan", "ok");
+            await renderDaemonConfig(root);
+        }
+        catch (error) {
+            toast(error.message, "danger", 6000);
+        }
+    });
 }
 
 function automationPanel(a) {

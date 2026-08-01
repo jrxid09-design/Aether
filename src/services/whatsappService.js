@@ -349,9 +349,12 @@ class WhatsAppService {
             jid, group: isGroup, preview: text.slice(0, 60)
         });
 
+        // Peran pengirim menentukan tool yang boleh dipakai Aether.
+        const role = require("./roleService").roleOf(senderJid.split("@")[0].split(":")[0]);
+
         const media = this.mediaType(msg);
         if (media) {
-            return this.handleMedia(jid, msg, media, this.stripMention(text));
+            return this.handleMedia(jid, msg, media, this.stripMention(text), role);
         }
 
         if (text.startsWith("/")) {
@@ -360,7 +363,7 @@ class WhatsAppService {
 
         if (!text) return;
 
-        return this.converse(jid, this.stripMention(text), msg);
+        return this.converse(jid, this.stripMention(text), msg, role);
     }
 
     extractText(msg) {
@@ -436,9 +439,10 @@ class WhatsAppService {
         }
     }
 
-    /** Teruskan ke otak Aether (lengkap memori & tool). */
-    async converse(jid, text, msg) {
+    /** Teruskan ke otak Aether (lengkap memori & tool sesuai peran). */
+    async converse(jid, text, msg, userRole = "superadmin") {
         const aiRuntime = require("./aiRuntimeService");
+        const roleService = require("./roleService");
         this.currentChatId = jid;
 
         const session = this.sessions.get(jid) ?? [];
@@ -448,7 +452,9 @@ class WhatsAppService {
 
         try {
             const response = await aiRuntime.chat({
-                messages: session.map(({ role, content }) => ({ role, content }))
+                messages: session.map(({ role, content }) => ({ role, content })),
+                // Batasi tool yang terlihat model sesuai peran pengirim.
+                tools: roleService.toolsFor(userRole, aiRuntime.tools())
             });
             const answer = response.content?.trim() || "(tidak ada jawaban)";
             session.push({ role: "assistant", content: answer });
@@ -463,7 +469,7 @@ class WhatsAppService {
 
     /** Media masuk: gambar/stiker → vision, dokumen teks → baca,
      *  audio (voice note) → STT, video → thumbnail. */
-    async handleMedia(jid, msg, kind, caption) {
+    async handleMedia(jid, msg, kind, caption, userRole = "superadmin") {
         this.currentChatId = jid;
         this.sock?.sendPresenceUpdate?.("composing", jid).catch(() => {});
 
@@ -477,7 +483,7 @@ class WhatsAppService {
                     mimeType: kind === "sticker" ? "image/webp" : "image/jpeg",
                     prompt: caption || undefined
                 });
-                return this.replyWithMemory(jid, caption, r.text, "gambar", msg);
+                return this.replyWithMemory(jid, caption, r.text, "gambar", msg, userRole);
             }
 
             if (kind === "video") {
@@ -500,7 +506,7 @@ class WhatsAppService {
                     const stt = require("./voiceService");
                     const { text } = await stt.transcribe(buffer, { mimeType: "audio/ogg", language: "id" });
                     if (text?.trim()) {
-                        return this.converse(jid, text.trim(), msg);
+                        return this.converse(jid, text.trim(), msg, userRole);
                     }
                 }
                 catch (error) {
@@ -521,13 +527,13 @@ class WhatsAppService {
                     const r = await vision.analyze({
                         imageBase64: buffer.toString("base64"), mimeType: mime, prompt: caption || undefined
                     });
-                    return this.replyWithMemory(jid, caption, r.text, "gambar", msg);
+                    return this.replyWithMemory(jid, caption, r.text, "gambar", msg, userRole);
                 }
                 if (mime.startsWith("text/") || /\.(txt|md|csv|json|log)$/i.test(name)) {
                     const buffer = await this.download(msg);
                     const content = buffer.toString("utf8").slice(0, 6000);
                     return this.converse(jid,
-                        `${caption || "Tolong ringkas/analisis isi berkas ini"} (${name}):\n\n${content}`, msg);
+                        `${caption || "Tolong ringkas/analisis isi berkas ini"} (${name}):\n\n${content}`, msg, userRole);
                 }
                 return this.send(jid, `Berkas "${name}" (${mime || "tipe tak dikenal"}) diterima, tapi jenis ini belum bisa kuanalisis.`, msg);
             }
@@ -540,9 +546,9 @@ class WhatsAppService {
         }
     }
 
-    async replyWithMemory(jid, caption, seen, jenis, msg) {
+    async replyWithMemory(jid, caption, seen, jenis, msg, userRole = "superadmin") {
         if (caption) {
-            return this.converse(jid, `[Aether melihat ${jenis}: ${seen}]\n\nPertanyaan: ${caption}`, msg);
+            return this.converse(jid, `[Aether melihat ${jenis}: ${seen}]\n\nPertanyaan: ${caption}`, msg, userRole);
         }
         return this.send(jid, seen, msg);
     }

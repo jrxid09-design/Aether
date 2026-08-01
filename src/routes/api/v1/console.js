@@ -15,6 +15,7 @@ const visionController = require("../../../controllers/visionController");
 const peopleController = require("../../../controllers/peopleController");
 const contextController = require("../../../controllers/contextController");
 const automationController = require("../../../controllers/automationController");
+const roleController = require("../../../controllers/roleController");
 
 const router = express.Router();
 
@@ -89,6 +90,11 @@ router.get("/agents", orchestratorController.agents);
 router.post("/orchestrate", orchestratorController.orchestrate);
 
 // ---- WhatsApp --------------------------------------------------
+
+// ---- Peran pengguna (SuperAdmin/Admin/User) --------------------
+
+router.get("/roles", roleController.status);
+router.post("/roles", roleController.saveConfig);
 
 // ---- Proaktif (brief terjadwal) --------------------------------
 

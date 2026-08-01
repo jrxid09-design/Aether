@@ -655,6 +655,17 @@ class AIRuntimeService {
 
     }
 
+    /** AITool aktif saat ini (dipakai penyaringan berdasarkan peran). */
+    tools() {
+        try {
+            const reg = this.ensure().runtime.getToolRegistry?.() ?? this.ensure().runtime.toolRegistry;
+            return reg?.all?.() ?? [];
+        }
+        catch {
+            return [];
+        }
+    }
+
     /** Sisipkan system prompt bila pemanggil belum menyediakannya. */
     withSystemPrompt(messages = []) {
 

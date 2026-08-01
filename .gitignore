@@ -26,6 +26,7 @@ configs/model-health.json
 configs/providers.json
 configs/telegram.json
 configs/whatsapp.json
+configs/roles.json
 configs/voice.json
 configs/home.json
 configs/vision.json
