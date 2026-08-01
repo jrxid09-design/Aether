@@ -27,6 +27,9 @@ fs.mkdirSync(logDir, { recursive: true });
 const logFile = path.join(logDir, `aether-${new Date().toISOString().slice(0, 10)}.log`);
 const logStream = fs.createWriteStream(logFile, { flags: "a" });
 
+// Baris bising yang tak perlu tampil di terminal (daftar per-tool tiap plugin).
+const NOISE = /^\s*(└──|├──|└─|  └─)/;
+
 const ts = () => new Date().toISOString();
 const clock = () => c.dim(new Date().toTimeString().slice(0, 8));
 
@@ -45,8 +48,11 @@ function pipe(child, tag, color) {
         if (!stream) continue;
         readline.createInterface({ input: stream }).on("line", line => {
             if (!line.trim()) return;
-            process.stdout.write(`${clock()} ${label} ${tint(line)}\n`);
+            // File log tetap lengkap untuk investigasi…
             logStream.write(`${ts()} [${tag}] ${line}\n`);
+            // …tapi terminal disaring dari kebisingan (daftar per-tool plugin).
+            if (NOISE.test(line)) return;
+            process.stdout.write(`${clock()} ${label} ${tint(line)}\n`);
         });
     }
 }
