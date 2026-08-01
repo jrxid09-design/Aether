@@ -591,6 +591,29 @@ class WhatsAppService {
         return this.allowed.size;
     }
 
+    /**
+     * Daftar grup yang nomor Aether SUDAH tergabung — supaya di Settings
+     * pengguna tinggal memilih grup mana yang diizinkan (tanpa ketik id).
+     */
+    async listGroups() {
+        if (!this.connected || !this.sock) return [];
+        try {
+            const chats = await this.sock.groupFetchAllParticipating();
+            return Object.values(chats || {})
+                .map(g => ({
+                    id: g.id,
+                    subject: g.subject || g.id,
+                    size: (g.participants || []).length,
+                    allowed: this.groups.has(String(g.id))
+                }))
+                .sort((a, b) => a.subject.localeCompare(b.subject));
+        }
+        catch (error) {
+            this.lastError = `Gagal ambil daftar grup: ${error.message}`;
+            return [];
+        }
+    }
+
     splitMessage(text, limit = 4000) {
         if (text.length <= limit) return [text];
         const chunks = [];

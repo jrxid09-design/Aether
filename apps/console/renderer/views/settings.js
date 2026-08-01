@@ -610,10 +610,19 @@ function whatsappPanel(wa) {
                     <span class="help">Kirim <span class="mono">/id</span> ke Aether untuk tahu nomormu. Pisahkan koma. Tanpa ini chat pribadi ditolak.</span>
                 </div>
                 <div class="field">
-                    <label>Id grup yang didaftarkan</label>
+                    <div class="row" style="align-items:center">
+                        <label style="flex:1">Grup tempat Aether tergabung</label>
+                        <button type="button" class="btn ghost sm" id="wa-groups-refresh" ${wa.connected ? "" : "disabled"}>${icon("refresh")} Muat grup</button>
+                    </div>
+                    <div id="wa-groups-list" class="small dim" style="margin-top:6px">
+                        ${wa.connected ? "Tekan \"Muat grup\" untuk melihat grup yang bisa diizinkan sekali klik." : "Hubungkan WhatsApp dulu untuk melihat daftar grup."}
+                    </div>
+                </div>
+                <div class="field">
+                    <label>Id grup (manual, opsional)</label>
                     <input type="text" id="wa-groups" value="${esc((wa.groups ?? []).join(", "))}"
                         placeholder="mis. 120363012345678901@g.us">
-                    <span class="help">Kirim <span class="mono">/id</span> di grup untuk tahu id-nya. Di grup, Aether menjawab saat di-mention (sebut <em>Aether</em>) atau di-reply.</span>
+                    <span class="help">Biasanya cukup pakai tombol di atas. Manual bila grup belum muncul. Di grup, Aether menjawab saat di-mention (sebut <em>Aether</em>) atau di-reply.</span>
                 </div>
                 ${wa.lastError ? `<div class="small danger-text">${esc(wa.lastError)}</div>` : ""}
                 <div class="small dim" style="line-height:1.7">
@@ -902,6 +911,57 @@ function wireWhatsappPanel(root) {
             toast(error.message, "danger", 6000);
         }
     });
+
+    // --- Daftar grup: pilih izin sekali klik ---
+    async function loadGroups() {
+        const box = root.querySelector("#wa-groups-list");
+        if (!box) return;
+        box.textContent = "Memuat grup…";
+        let data;
+        try { data = await api.request("/whatsapp/groups"); }
+        catch (error) { box.textContent = error.message; return; }
+        const groups = data.groups || [];
+        if (!groups.length) {
+            box.textContent = "Tak ada grup terdeteksi (pastikan tersambung & Aether sudah masuk grup).";
+            return;
+        }
+        box.innerHTML = groups.map(g => `
+            <div class="row" data-gid="${esc(g.id)}" style="justify-content:space-between;gap:8px;padding:5px 0;border-top:1px solid var(--line)">
+                <span class="text">${esc(g.subject)} <span class="dim">(${g.size})</span></span>
+                <button type="button" class="btn sm ${g.allowed ? "ghost danger" : "primary"}" data-allow="${g.allowed ? "0" : "1"}">
+                    ${g.allowed ? "Cabut izin" : "Izinkan akses"}
+                </button>
+            </div>`).join("");
+        box.querySelectorAll("[data-allow]").forEach(btn =>
+            btn.addEventListener("click", () =>
+                toggleGroup(btn.closest("[data-gid]").dataset.gid, btn.dataset.allow === "1")));
+    }
+
+    async function toggleGroup(jid, allow) {
+        const box = root.querySelector("#wa-groups-list");
+        // Kumpulkan grup yang saat ini diizinkan (tombol "Cabut izin") + manual.
+        const set = new Set(
+            (root.querySelector("#wa-groups").value || "").split(",").map(s => s.trim()).filter(Boolean)
+        );
+        box.querySelectorAll("[data-gid]").forEach(row => {
+            const b = row.querySelector("[data-allow]");
+            if (b && b.dataset.allow === "0") set.add(row.dataset.gid);   // sudah diizinkan
+        });
+        if (allow) set.add(jid); else set.delete(jid);
+        try {
+            await api.request("/whatsapp/config", { method: "POST", body: {
+                allowed: root.querySelector("#wa-allowed").value.trim(),
+                groups: [...set].join(", ")
+            }});
+            root.querySelector("#wa-groups").value = [...set].join(", ");
+            toast(allow ? "Grup diizinkan" : "Izin grup dicabut", "ok");
+            await loadGroups();
+        }
+        catch (error) { toast(error.message, "danger", 6000); }
+    }
+
+    const groupsBtn = root.querySelector("#wa-groups-refresh");
+    if (groupsBtn) groupsBtn.addEventListener("click", loadGroups);
 
     const testBtn = root.querySelector("#wa-test");
     if (testBtn) testBtn.addEventListener("click", async () => {

@@ -99,6 +99,7 @@ router.post("/automation/run", automationController.run);
 // ---- WhatsApp --------------------------------------------------
 
 router.get("/whatsapp/status", whatsappController.status);
+router.get("/whatsapp/groups", whatsappController.groups);
 router.post("/whatsapp/config", whatsappController.saveConfig);
 router.post("/whatsapp/connect", whatsappController.connect);
 router.post("/whatsapp/logout", whatsappController.logout);

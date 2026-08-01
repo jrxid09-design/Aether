@@ -36,6 +36,16 @@ class WhatsAppController {
         }
     }
 
+    /** Daftar grup yang nomor Aether sudah tergabung. */
+    async groups(req, res, next) {
+        try {
+            return response.success(res, "WhatsApp groups", { groups: await whatsapp.listGroups() });
+        }
+        catch (error) {
+            return response.error(res, error.message, 400);
+        }
+    }
+
     async logout(req, res, next) {
         try {
             return response.success(res, "WhatsApp logout", await whatsapp.logout());
