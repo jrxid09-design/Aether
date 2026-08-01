@@ -14,6 +14,7 @@
     <link rel="stylesheet" href="styles/tokens.css">
     <link rel="stylesheet" href="styles/layout.css">
     <link rel="stylesheet" href="styles/components.css">
+    <link rel="stylesheet" href="vendor/xterm/xterm.css">
 </head>
 <body>
 
@@ -60,6 +61,7 @@
             <section class="view" data-view="agents" id="view-agents"></section>
             <section class="view" data-view="home" id="view-home"></section>
             <section class="view" data-view="vision" id="view-vision"></section>
+            <section class="view" data-view="terminal" id="view-terminal"></section>
             <section class="view" data-view="logs" id="view-logs"></section>
             <section class="view" data-view="settings" id="view-settings"></section>
 
@@ -68,6 +70,11 @@
     </div>
 
 </div>
+
+<!-- xterm.js divendor (CSP: tanpa CDN) — set global sebelum modul app.js -->
+<script src="vendor/xterm/xterm.js"></script>
+<script src="vendor/xterm/addon-fit.js"></script>
+<script src="vendor/xterm/addon-search.js"></script>
 
 <script type="module" src="app.js"></script>
 
