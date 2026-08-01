@@ -17,6 +17,7 @@ const contextController = require("../../../controllers/contextController");
 const automationController = require("../../../controllers/automationController");
 const roleController = require("../../../controllers/roleController");
 const terminalController = require("../../../controllers/terminalController");
+const runtimeController = require("../../../controllers/runtimeController");
 
 const router = express.Router();
 
@@ -91,6 +92,11 @@ router.get("/agents", orchestratorController.agents);
 router.post("/orchestrate", orchestratorController.orchestrate);
 
 // ---- WhatsApp --------------------------------------------------
+
+// ---- Runtime API (status runtime inti utk Runtime Console) -----
+
+router.get("/runtime/status", runtimeController.status);
+router.post("/runtime/:key/restart", runtimeController.restart);
 
 // ---- Terminal Runtime (sesi pty persisten) ---------------------
 

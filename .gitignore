@@ -36,3 +36,4 @@ configs/face.json
 
 # Sesi login WhatsApp (Baileys) — kredensial perangkat, per-mesin.
 configs/wa-auth/
+configs/runtimes.json
