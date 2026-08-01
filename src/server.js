@@ -66,6 +66,14 @@ function bootSubsystems() {
     // Terminal Runtime (pty persisten; nonaktif diam-diam bila node-pty belum ada).
     terminals.start();
 
+    // Gateway WebSocket khusus I/O terminal, menempel pada server HTTP yg sama.
+    try {
+        require("./ws/terminalGateway").attach(server);
+    }
+    catch (error) {
+        logger.error(`Terminal gateway gagal: ${error.message}`);
+    }
+
     if (!process.env.AETHER_TOKEN) {
         telemetry.warn(
             "AETHER_TOKEN belum diset — bidang kendali terbuka untuk siapa pun di jaringan ini."
