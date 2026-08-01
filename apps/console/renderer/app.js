@@ -14,18 +14,18 @@ import { skills } from "./views/skills.js";
 import { agents } from "./views/agents.js";
 import { home } from "./views/home.js";
 import { vision } from "./views/vision.js";
-import { terminal } from "./views/terminal.js";
+import { runtime } from "./views/runtime.js";
 import { logs } from "./views/logs.js";
 import { settings } from "./views/settings.js";
 
 const VIEWS = [
     dashboard, awareness, companion, memory, models,
-    integrations, devices, skills, agents, home, vision, terminal, logs, settings
+    integrations, devices, skills, agents, home, vision, runtime, logs, settings
 ];
 
 const GROUPS = [
     { label: "Pantau", ids: ["dashboard", "awareness", "logs"] },
-    { label: "Kerja", ids: ["aether", "memory", "models", "skills", "agents", "terminal"] },
+    { label: "Kerja", ids: ["aether", "memory", "models", "skills", "agents", "runtime"] },
     { label: "Sistem", ids: ["home", "vision", "devices", "integrations", "settings"] }
 ];
 
