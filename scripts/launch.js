@@ -29,7 +29,7 @@ const logStream = fs.createWriteStream(logFile, { flags: "a" });
 
 // Baris bising yang tak perlu tampil di terminal: daftar per-tool tiap plugin
 // dan pengumuman "Loaded Plugin / Plugin Loaded" (tetap tersimpan di file log).
-const NOISE = /^\s*(└──|├──|└─)|Loaded Plugin\s*:|Plugin Loaded\s*:/i;
+const NOISE = /^\s*(└──|├──|└─)|Loaded Plugin\s*:|Plugin Loaded\s*:|injected env|dotenvx?/i;
 
 const ts = () => new Date().toISOString();
 const clock = () => c.dim(new Date().toTimeString().slice(0, 8));
@@ -62,7 +62,12 @@ const children = [];
 
 function launch(cmd, args, tag, color) {
     // shell hanya untuk npm (npm.cmd di Windows); `node` tak perlu → hindari DEP0190.
-    const child = spawn(cmd, args, { cwd: ROOT, shell: cmd === "npm" && process.platform === "win32" });
+    const child = spawn(cmd, args, {
+        cwd: ROOT,
+        shell: cmd === "npm" && process.platform === "win32",
+        // Launcher sudah punya banner sendiri → daemon jangan cetak banner lagi.
+        env: { ...process.env, AETHER_NO_BANNER: "1" }
+    });
     pipe(child, tag, color);
     child.on("exit", (code) => {
         process.stdout.write(`${clock()} ${color(`[${tag}]`)} ${c.muted(`berhenti (kode ${code})`)}\n`);
