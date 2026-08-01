@@ -27,8 +27,9 @@ fs.mkdirSync(logDir, { recursive: true });
 const logFile = path.join(logDir, `aether-${new Date().toISOString().slice(0, 10)}.log`);
 const logStream = fs.createWriteStream(logFile, { flags: "a" });
 
-// Baris bising yang tak perlu tampil di terminal (daftar per-tool tiap plugin).
-const NOISE = /^\s*(└──|├──|└─|  └─)/;
+// Baris bising yang tak perlu tampil di terminal: daftar per-tool tiap plugin
+// dan pengumuman "Loaded Plugin / Plugin Loaded" (tetap tersimpan di file log).
+const NOISE = /^\s*(└──|├──|└─)|Loaded Plugin\s*:|Plugin Loaded\s*:/i;
 
 const ts = () => new Date().toISOString();
 const clock = () => c.dim(new Date().toTimeString().slice(0, 8));
