@@ -326,6 +326,10 @@ class AetherApi {
 
     nasStatus()           { return this.request("/nas/status", { timeout: 15000 }); }
 
+    // ---- Files ------------------------------------------------------
+
+    files(p)              { return this.request(`/files${p ? `?path=${encodeURIComponent(p)}` : ""}`, { timeout: 15000 }); }
+
     // ---- Chat streaming --------------------------------------------
 
     /**
