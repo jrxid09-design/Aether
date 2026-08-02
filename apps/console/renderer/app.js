@@ -66,10 +66,22 @@ function buildTitlebar() {
     });
 
     $("#titlebar-actions").innerHTML = `
-        <button class="btn ghost sm" id="btn-cmdk" title="Command palette (Ctrl+K)">${icon("search")} Perintah <span class="dim" style="margin-left:6px">⌘K</span></button>
+        <button class="searchbar" id="btn-cmdk" title="Command palette (Ctrl+K)">
+            ${icon("search")}<span class="ph">Cari apa saja…</span><span class="kbd">⌘K</span>
+        </button>
+        <div class="tb-icons">
+            <button class="icon-btn" id="tb-notif" title="Log & notifikasi">${icon("bell")}</button>
+            <button class="icon-btn" id="tb-apps" title="Command palette">${icon("grid")}</button>
+            <button class="icon-btn" id="tb-runtime" title="Runtime">${icon("play")}</button>
+            <button class="icon-btn" id="tb-settings" title="Settings">${icon("gear")}</button>
+        </div>
         <button class="btn ghost sm" id="btn-connect">${icon("plug")} Hubungkan</button>`;
 
     $("#btn-cmdk").addEventListener("click", () => openCommandPalette(paletteItems()));
+    $("#tb-notif").addEventListener("click", () => navigate("logs"));
+    $("#tb-apps").addEventListener("click", () => openCommandPalette(paletteItems()));
+    $("#tb-runtime").addEventListener("click", () => navigate("runtime"));
+    $("#tb-settings").addEventListener("click", () => navigate("settings"));
 
     $("#btn-connect").addEventListener("click", () => {
 
@@ -103,12 +115,20 @@ function buildSidebar() {
         }).join("")}
     `).join("") + `
         <div class="sidebar-footer">
-            <div class="small dim" id="sidebar-status">tidak terhubung</div>
+            <button class="sidebar-assistant" id="sidebar-assistant" title="Tanya Aether (⌘K)">
+                <span class="sa-orb"></span>
+                <span class="sa-txt">
+                    <span class="sa-title">Aether Assistant</span>
+                    <span class="sa-sub" id="sidebar-status">tidak terhubung</span>
+                </span>
+            </button>
         </div>`;
 
     sidebar.querySelectorAll("[data-nav]").forEach(button => {
         button.addEventListener("click", () => navigate(button.dataset.nav));
     });
+
+    $("#sidebar-assistant")?.addEventListener("click", () => openCommandPalette(paletteItems()));
 
 }
 

@@ -87,6 +87,19 @@ export const dashboard = {
 
                 <div class="grid cols-2">
                     <div class="panel">
+                        <div class="panel-head"><h2>${icon("memory")} Memory Graph</h2>
+                            <span class="hint push" id="mc-graph-count">—</span></div>
+                        <div id="mc-graph"><div class="empty">${icon("memory")}<div>Memuat…</div></div></div>
+                    </div>
+                    <div class="panel">
+                        <div class="panel-head"><h2>${icon("activity")} AI Activity</h2>
+                            <span class="hint push">${state.connected ? "siaga" : "offline"}</span></div>
+                        ${aiRadial(state)}
+                    </div>
+                </div>
+
+                <div class="grid cols-2">
+                    <div class="panel">
                         <div class="panel-head"><h2>${icon("cpu")} Monitor Sumber Daya</h2>
                             <span class="hint push">${esc(o.stats.host.cpuCount)} core · ${bytes(o.stats.memory.total)}</span></div>
                         ${resourceMonitor(o, state.history)}
@@ -117,6 +130,7 @@ export const dashboard = {
 
         enrichAgents(root);
         enrichProposals(root);
+        enrichGraph(root);
         enrichHome(root);
         enrichCctv(root);
     },
@@ -252,6 +266,63 @@ function resourceMonitor(o, history) {
 
 function cctvSkeleton() {
     return Array.from({ length: 4 }, () => `<div class="cctv-cell"><span class="ph">${icon("camera")}</span></div>`).join("");
+}
+
+const AI_STAGES = ["Berpikir", "Menalar", "Merencana", "Memanggil tool", "Menyusun", "Selesai"];
+
+function aiRadial(state) {
+    const on = state.connected;
+    return `
+        <div class="ai-radial">
+            <div class="ai-orb ${on ? "live" : ""}">
+                <span class="ring r1"></span><span class="ring r2"></span><span class="core"></span>
+            </div>
+            <div class="ai-stages">
+                ${AI_STAGES.map((s, i) => `<div class="st"><span class="d t${i}"></span>${esc(s)}</div>`).join("")}
+            </div>
+        </div>
+        <div class="small dim" style="margin-top:6px">${on ? "Aether siaga — memproses saat ada permintaan." : "Tak terhubung ke daemon."}</div>`;
+}
+
+// ---- Memory Graph (entitas nyata) -----------------------------------
+
+function graphSvg(nodes) {
+    const cx = 150, cy = 115, r = 80;
+    const edges = [], dots = [];
+    nodes.forEach((n, i) => {
+        const a = (Math.PI * 2 * i) / nodes.length - Math.PI / 2;
+        const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
+        edges.push(`<line x1="${cx}" y1="${cy}" x2="${x.toFixed(0)}" y2="${y.toFixed(0)}" class="g-edge"/>`);
+        dots.push(`<circle cx="${x.toFixed(0)}" cy="${y.toFixed(0)}" r="6" class="g-node"/>
+            <text x="${x.toFixed(0)}" y="${(y + (Math.sin(a) >= 0 ? 20 : -12)).toFixed(0)}" class="g-nlbl" text-anchor="middle">${esc(shortLabel(n))}</text>`);
+    });
+    return `<svg viewBox="0 0 300 230" class="mem-graph">
+        ${edges.join("")}
+        <circle cx="${cx}" cy="${cy}" r="18" class="g-center"/>
+        <text x="${cx}" y="${cy + 4}" class="g-lbl" text-anchor="middle">Kamu</text>
+        ${dots.join("")}
+    </svg>`;
+}
+
+function shortLabel(s) {
+    const t = String(s);
+    return t.length > 12 ? t.slice(0, 11) + "…" : t;
+}
+
+async function enrichGraph(root) {
+    const host = root.querySelector("#mc-graph");
+    try {
+        const r = await api.entities({ limit: 8 });
+        const names = (r.entities ?? []).map(e => e.name).filter(Boolean);
+        root.querySelector("#mc-graph-count").textContent = `${names.length} entitas`;
+        host.innerHTML = names.length
+            ? graphSvg(names.slice(0, 8))
+            : `<div class="empty">${icon("memory")}<div>Belum ada entitas — Aether menautkannya saat kamu mengobrol.</div></div>`;
+    }
+    catch {
+        host.innerHTML = `<div class="empty">${icon("memory")}<div>Graph tak tersedia.</div></div>`;
+        root.querySelector("#mc-graph-count").textContent = "—";
+    }
 }
 
 function disconnected(state) {
