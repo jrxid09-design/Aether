@@ -1,5 +1,6 @@
 const memory = require("../services/MemoryService");
 const store = require("../stores/MemoryStore");
+const edges = require("../graph/EdgeStore");
 const types = require("./types");
 const stm = require("../stm/WorkingSet");
 
@@ -61,6 +62,15 @@ class MemoryEngine {
     async forget(id) {
         return store.update(id, { validUntil: new Date().toISOString() });
     }
+
+    // ---- Knowledge Graph (subsistem 4) ---------------------------
+    // Sisi bi-temporal. link/unlink kelak dapat dialihkan ke PROPOSAL
+    // untuk penulis non-Aether lewat Governance (subsistem 7).
+
+    get edges() { return edges; }
+    link(edge) { return edges.link(edge); }
+    unlink(edge) { return edges.unlink(edge); }
+    neighbors(node, opts) { return edges.neighbors(node, opts); }
 
     // ---- Tulis ---------------------------------------------------
     // Subsistem 1: commit langsung (perilaku sekarang dipertahankan).
