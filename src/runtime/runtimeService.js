@@ -153,6 +153,21 @@ async function restart(key) {
 
     const res = await terminals.execute(id, command, { expect, timeoutMs: 30000 });
     telemetry.publish("runtime:restarted", { key, terminal: id, ready: res.matched });
+
+    // Ingat kejadian runtime (tier auto → commit langsung). Best-effort:
+    // kegagalan memori tak boleh menggagalkan restart.
+    try {
+        const engine = require("../memory/core/MemoryEngine");
+        await engine.remember(
+            `Runtime ${r.label} direstart via '${command}' — ${res.matched ? "siap" : "belum terkonfirmasi siap"}.`,
+            { type: "runtime" },
+            engine.context({ writer: "runtime", scope: key })
+        );
+    }
+    catch (error) {
+        telemetry.warn(`[runtime] catat memori restart gagal: ${error.message}`);
+    }
+
     return { runtime: key, terminal: id, ready: res.matched };
 }
 
