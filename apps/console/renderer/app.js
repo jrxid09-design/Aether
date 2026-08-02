@@ -63,7 +63,10 @@ function buildTitlebar() {
     });
 
     $("#titlebar-actions").innerHTML = `
+        <button class="btn ghost sm" id="btn-cmdk" title="Command palette (Ctrl+K)">${icon("search")} Perintah <span class="dim" style="margin-left:6px">⌘K</span></button>
         <button class="btn ghost sm" id="btn-connect">${icon("plug")} Hubungkan</button>`;
+
+    $("#btn-cmdk").addEventListener("click", () => openCommandPalette(paletteItems()));
 
     $("#btn-connect").addEventListener("click", () => {
 
