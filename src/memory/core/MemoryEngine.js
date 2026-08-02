@@ -1,4 +1,5 @@
 const memory = require("../services/MemoryService");
+const store = require("../stores/MemoryStore");
 const types = require("./types");
 const stm = require("../stm/WorkingSet");
 
@@ -45,6 +46,20 @@ class MemoryEngine {
     observe(scopeOrCtx, event) {
         const scope = (scopeOrCtx && typeof scopeOrCtx === "object") ? scopeOrCtx.scope : scopeOrCtx;
         return stm.observe(scope, event);
+    }
+
+    // ---- Long-Term Memory (subsistem 3) --------------------------
+    // Substrat durabel = MemoryStore: supersede-not-delete, bi-temporal
+    // (occurred_at/valid_until). Facade menyediakan akses baca +
+    // "forget" LUNAK (kedaluwarsakan, bukan hapus) demi aturan:
+    // JANGAN pernah menghapus memori tanpa persetujuan eksplisit.
+
+    ltmGet(id) { return store.get(id); }
+    ltmList(opts) { return store.list(opts); }
+
+    /** Lupakan lunak: set valid_until=now agar hilang dari recall, data tetap. */
+    async forget(id) {
+        return store.update(id, { validUntil: new Date().toISOString() });
     }
 
     // ---- Tulis ---------------------------------------------------
