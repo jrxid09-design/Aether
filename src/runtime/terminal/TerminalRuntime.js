@@ -88,7 +88,8 @@ class TerminalRuntime {
 
         const pty = backend.spawn({
             shellPath, args: shellArgs, cwd, cols, rows,
-            env: { ...process.env, ...(opts.env || {}) }
+            env: { ...process.env, ...(opts.env || {}) },
+            useConpty: elevated ? true : undefined   // gsudo butuh ConPTY
         });
 
         const session = new TerminalSession({ descriptor, name: opts.name || sh.name, pty, cwd, cols, rows });
@@ -205,7 +206,8 @@ class TerminalRuntime {
             if (d.elevated) { const e = shells.elevate(sh.path, sh.args); if (e) { shellPath = e.path; shellArgs = e.args; } }
             const pty = backends.get(d.target).spawn({
                 shellPath, args: shellArgs, cwd: session.cwd,
-                cols: session.cols, rows: session.rows, env: { ...process.env }
+                cols: session.cols, rows: session.rows, env: { ...process.env },
+                useConpty: d.elevated ? true : undefined
             });
             session.attach(pty);
             telemetry.publish("terminal:restarted", { id: d.id, name: session.name });

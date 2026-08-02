@@ -26,7 +26,7 @@ module.exports = {
     },
 
     /** @returns handle mirip-pty (node-pty IPty). */
-    spawn({ shellPath, args = [], cwd, cols = 120, rows = 30, env = {} }) {
+    spawn({ shellPath, args = [], cwd, cols = 120, rows = 30, env = {}, useConpty } = {}) {
         const pty = lib();
         if (!pty) throw new Error("node-pty belum diinstall (npm install node-pty).");
         const opts = {
@@ -34,10 +34,13 @@ module.exports = {
             cols, rows, cwd,
             env: { ...env, TERM: "xterm-256color" }
         };
-        // Windows: pakai winpty (bukan ConPTY). ConPTY menjalankan
-        // helper "conpty_console_list_agent" saat kill yang gagal
-        // ("AttachConsole failed") ketika daemon headless → spam stderr.
-        if (process.platform === "win32") opts.useConpty = false;
+        // Windows: default winpty (ConPTY memicu spam "AttachConsole failed"
+        // saat kill di daemon headless). TAPI elevasi gsudo butuh ConPTY —
+        // winpty gagal CreateProcess gsudo. Jadi pemanggil boleh minta ConPTY
+        // khusus (mis. terminal admin).
+        if (process.platform === "win32") {
+            opts.useConpty = typeof useConpty === "boolean" ? useConpty : false;
+        }
         return pty.spawn(shellPath, args, opts);
     }
 
