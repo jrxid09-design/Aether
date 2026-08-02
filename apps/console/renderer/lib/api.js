@@ -206,6 +206,7 @@ class AetherApi {
     memoryProposals()      { return this.request("/memory/proposals"); }
     approveProposal(id)    { return this.request(`/memory/proposals/${id}/approve`, { method: "POST" }); }
     rejectProposal(id)     { return this.request(`/memory/proposals/${id}/reject`, { method: "POST" }); }
+    memoryAudit()          { return this.request("/memory/audit"); }
 
     embeddingStatus()   { return this.request("/memory/embeddings"); }
 

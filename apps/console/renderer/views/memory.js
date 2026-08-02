@@ -41,6 +41,8 @@ export const memory = {
                 <div class="tabs" id="mem-tabs">
                     ${tab("browse", "Jelajah", "box")}
                     ${tab("search", "Cari", "activity")}
+                    ${tab("proposals", "Usulan", "brain")}
+                    ${tab("audit", "Audit", "activity")}
                     ${tab("entities", "Entitas", "link")}
                     ${tab("documents", "Dokumen", "terminal")}
                 </div>
@@ -239,6 +241,8 @@ async function open(panel, tabId, root) {
 
         if (tabId === "browse")    return await drawBrowse(panel, root);
         if (tabId === "search")    return await drawSearch(panel, root);
+        if (tabId === "proposals") return await drawProposals(panel, root);
+        if (tabId === "audit")     return await drawAudit(panel);
         if (tabId === "entities")  return await drawEntities(panel, root);
         if (tabId === "documents") return await drawDocuments(panel, root);
 
@@ -252,6 +256,79 @@ async function open(panel, tabId, root) {
 
     }
 
+}
+
+// ---- Usulan (governance) --------------------------------------------
+
+async function drawProposals(panel, root) {
+
+    const { items } = await api.memoryProposals();
+
+    panel.innerHTML = `
+        <div class="panel">
+            <div class="panel-head">
+                <h2>${icon("brain")} Usulan memori menunggu persetujuan</h2>
+                <span class="hint push">${items.length} pending</span>
+            </div>
+            <p class="small dim" style="margin:-6px 0 12px">
+                Aether tak pernah menyimpan memori jangka panjang ber-tier "ask" tanpa persetujuanmu.
+            </p>
+            ${items.length === 0
+                ? `<div class="empty">${icon("check")}<div>Tak ada usulan menunggu.</div></div>`
+                : items.map(p => `
+                    <div class="proposal" data-id="${esc(p.id)}">
+                        <span class="ic">${icon("brain")}</span>
+                        <div>
+                            <div class="ttl">${esc(p.memoryType ?? p.kind ?? "memori")}
+                                <span class="tag" style="margin-left:6px">${esc(p.writer ?? "aether")}</span></div>
+                            <div class="desc">${esc(p.payload?.content ?? "—")}</div>
+                            ${p.reason ? `<div class="small dim" style="margin-bottom:6px">alasan: ${esc(p.reason)}</div>` : ""}
+                            <div class="acts">
+                                <button class="btn primary sm" data-approve>${icon("check")} Setujui</button>
+                                <button class="btn ghost sm" data-reject>${icon("x")} Tolak</button>
+                            </div>
+                        </div>
+                    </div>`).join("")}
+        </div>`;
+
+    panel.querySelectorAll(".proposal").forEach(node => {
+        const id = node.dataset.id;
+        node.querySelector("[data-approve]")?.addEventListener("click", async () => {
+            try { await api.approveProposal(id); toast("Usulan disetujui & disimpan", "ok"); await drawStats(root); await drawProposals(panel, root); }
+            catch (e) { toast(e.message, "danger"); }
+        });
+        node.querySelector("[data-reject]")?.addEventListener("click", async () => {
+            try { await api.rejectProposal(id); toast("Usulan ditolak", "ok"); await drawProposals(panel, root); }
+            catch (e) { toast(e.message, "danger"); }
+        });
+    });
+}
+
+// ---- Audit ----------------------------------------------------------
+
+const AUDIT_TONE = { approve: "ok", commit: "ok", propose: "idle", reject: "warn", rollback: "danger", forget: "danger" };
+
+async function drawAudit(panel) {
+
+    const { items } = await api.memoryAudit();
+
+    panel.innerHTML = `
+        <div class="panel flush">
+            <div class="panel-head" style="padding:16px 18px 0">
+                <h2>${icon("activity")} Jejak audit memori</h2>
+                <span class="hint push">${items.length} entri</span>
+            </div>
+            ${items.length === 0
+                ? `<div class="empty">${icon("activity")}<div>Belum ada aktivitas memori.</div></div>`
+                : `<div class="scroll-x" style="padding:10px 0"><table class="table">
+                    <thead><tr><th>Aksi</th><th>Oleh</th><th>Target</th><th>Waktu</th></tr></thead>
+                    <tbody>${items.map(a => `<tr>
+                        <td>${pill(esc(a.action), AUDIT_TONE[a.action] ?? "idle")}</td>
+                        <td class="small">${esc(a.actor ?? "—")}</td>
+                        <td class="mono small">${esc(a.target ?? "—")}</td>
+                        <td class="small dim">${esc(relativeTime(a.at))}</td>
+                    </tr>`).join("")}</tbody></table></div>`}
+        </div>`;
 }
 
 async function drawBrowse(panel, root) {
