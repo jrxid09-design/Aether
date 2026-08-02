@@ -307,6 +307,16 @@ class AetherApi {
     removeSensor(id)      { return this.request(`/devices/sensors/${encodeURIComponent(id)}`, { method: "DELETE" }); }
     sensorReadings()      { return this.request("/devices/sensors/readings", { timeout: 20000 }); }
 
+    // ---- Keluarga & Privasi ----------------------------------------
+
+    exposureStatus()      { return this.request("/exposure"); }
+    exposureConfig(apiKey){ return this.request("/exposure/config", { method: "POST", body: { apiKey } }); }
+    exposureCheck(account){ return this.request("/exposure/check", { method: "POST", body: { account }, timeout: 30000 }); }
+
+    familyLocations()     { return this.request("/family/location"); }
+    familyRegister(name)  { return this.request("/family/location/register", { method: "POST", body: { name } }); }
+    familyRevoke(id)      { return this.request(`/family/location/${encodeURIComponent(id)}/revoke`, { method: "POST" }); }
+
     // ---- Chat streaming --------------------------------------------
 
     /**

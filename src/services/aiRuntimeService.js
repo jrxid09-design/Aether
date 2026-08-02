@@ -446,6 +446,10 @@ class AIRuntimeService {
             registry.register(tool);
         }
 
+        for (const tool of require("./familyTools").familyTools()) {
+            registry.register(tool);
+        }
+
         this.engine.runtime.setToolRegistry(registry);
 
         return registry.all().length;
