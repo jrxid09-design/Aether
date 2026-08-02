@@ -1502,6 +1502,37 @@ input[type="range"]::-webkit-slider-thumb {
 .statusbar .push { margin-left: auto; }
 
 /* =========================================================
+   Floating Assistant (orb)
+   ========================================================= */
+.fab-assistant {
+    position: fixed;
+    right: 22px;
+    bottom: calc(var(--statusbar-h) + 18px);
+    z-index: 150;
+    width: 54px; height: 54px;
+    border-radius: 50%;
+    border: 1px solid var(--line-strong);
+    background: radial-gradient(circle at 50% 40%, rgba(124,140,255,0.35), rgba(19,23,38,0.9) 70%);
+    box-shadow: var(--shadow-float), 0 0 0 1px rgba(124,140,255,0.25);
+    cursor: pointer;
+    display: grid; place-items: center;
+    transition: transform var(--fast), box-shadow var(--base);
+}
+.fab-assistant:hover { transform: translateY(-2px) scale(1.05); box-shadow: var(--shadow-float), var(--glow-accent); }
+.fab-assistant:active { transform: translateY(0) scale(0.98); }
+.fab-assistant .orb {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: var(--accent-gradient);
+    box-shadow: 0 0 16px rgba(124,140,255,0.9);
+    animation: orb-breathe 3.2s var(--ease) infinite;
+}
+@keyframes orb-breathe {
+    0%, 100% { transform: scale(1);   opacity: 0.9; }
+    50%      { transform: scale(1.18); opacity: 1; }
+}
+
+/* =========================================================
    Command palette (⌘K)
    ========================================================= */
 .cmdk-scrim {

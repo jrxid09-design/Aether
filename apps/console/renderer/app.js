@@ -502,6 +502,9 @@ async function main() {
         }
     });
 
+    // Floating Assistant → buka command palette.
+    $("#fab-assistant")?.addEventListener("click", () => openCommandPalette(paletteItems()));
+
     const saved = await window.aether.settings.get();
 
     store.set({ settings: saved });
