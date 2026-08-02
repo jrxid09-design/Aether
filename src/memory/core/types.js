@@ -32,8 +32,12 @@ const MEMORY_TYPES = {
 
 const DEFAULT_TYPE = "semantic";
 
+// Alias tipe penyimpanan lama → kunci taksonomi (mis. tool AI kirim "preference").
+const ALIASES = { preference: "preferences" };
+
 function resolve(type) {
-    const key = String(type || "").toLowerCase();
+    let key = String(type || "").toLowerCase();
+    if (ALIASES[key]) key = ALIASES[key];
     return MEMORY_TYPES[key] ? key : DEFAULT_TYPE;
 }
 

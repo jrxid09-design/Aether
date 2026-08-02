@@ -3,6 +3,7 @@ const { AITool } = require("../../ai/tools");
 const MemoryService = require("../services/MemoryService");
 const DocumentService = require("../services/DocumentService");
 const EntityStore = require("../stores/EntityStore");
+const MemoryEngine = require("../core/MemoryEngine");
 
 const { truncate } = require("../util/text");
 
@@ -25,7 +26,9 @@ function memoryTools() {
                 "Simpan informasi ke memori jangka panjang Aether. Pakai ini ketika pengguna " +
                 "menyampaikan fakta tentang dirinya, rumahnya, perangkatnya, kebiasaannya, " +
                 "atau project yang sedang dikerjakan — sesuatu yang berguna diingat di " +
-                "percakapan berikutnya. Jangan dipakai untuk basa-basi atau hal sekali pakai.",
+                "percakapan berikutnya. Jangan dipakai untuk basa-basi atau hal sekali pakai. " +
+                "Catatan: fakta pribadi (identitas/preferensi/semantik/prosedur) TIDAK langsung " +
+                "tersimpan — diusulkan dan menunggu persetujuan pengguna. Sampaikan itu apa adanya.",
 
             parameters: {
                 type: "object",
@@ -54,19 +57,29 @@ function memoryTools() {
 
             execute: async ({ content, type, importance, entities }) => {
 
-                const memory = await MemoryService.remember({
+                // Lewat facade → digerbang Governance: tier "ask" jadi proposal,
+                // tier "auto" (episodic) commit langsung.
+                const result = await MemoryEngine.remember(
                     content,
-                    type: type ?? "semantic",
-                    importance: importance ?? 0.6,
-                    source: "chat",
-                    entities: Array.isArray(entities) ? entities : []
-                });
+                    { type: type ?? "semantic", importance, entities: Array.isArray(entities) ? entities : [] },
+                    MemoryEngine.context({ writer: "chat" })
+                );
+
+                if (result && result.status === "pending") {
+                    return {
+                        saved: false,
+                        proposed: true,
+                        proposalId: result.proposal.id,
+                        status: "pending",
+                        note: "Diusulkan ke memori jangka panjang, menunggu persetujuan pengguna sebelum disimpan permanen."
+                    };
+                }
 
                 return {
                     saved: true,
-                    id: memory.id,
-                    reinforced: memory.reinforced,
-                    entities: memory.entities.map(entity => entity.name)
+                    id: result.id,
+                    reinforced: result.reinforced,
+                    entities: (result.entities || []).map(entity => entity.name ?? entity)
                 };
 
             }
@@ -136,8 +149,9 @@ function memoryTools() {
             name: "memory_forget",
 
             description:
-                "Hapus satu memori berdasarkan id. Pakai hanya bila pengguna secara " +
-                "eksplisit meminta melupakan sesuatu, atau memori itu terbukti salah.",
+                "Lupakan satu memori berdasarkan id. Pakai hanya bila pengguna secara " +
+                "eksplisit meminta melupakan sesuatu, atau memori itu terbukti salah. " +
+                "Ini melupakan LUNAK: memori disembunyikan dari recall tapi datanya tetap ada.",
 
             parameters: {
                 type: "object",
@@ -147,9 +161,13 @@ function memoryTools() {
                 required: ["id"]
             },
 
-            execute: async ({ id }) => ({
-                forgotten: await MemoryService.forget(Number(id))
-            })
+            execute: async ({ id }) => {
+                await MemoryEngine.forget(Number(id));
+                return {
+                    forgotten: true, soft: true,
+                    note: "Dilupakan lunak — hilang dari recall, data tetap tersimpan dan bisa dipulihkan."
+                };
+            }
 
         }),
 
