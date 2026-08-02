@@ -1,5 +1,6 @@
 const memory = require("../services/MemoryService");
 const types = require("./types");
+const stm = require("../stm/WorkingSet");
 
 /**
  * MemoryEngine — pintu tunggal Memory Engine Aether (Aether Core).
@@ -34,6 +35,17 @@ class MemoryEngine {
     search(query, opts) { return memory.recall(query, opts); }
     buildContext(query, opts) { return memory.buildContext(query, opts); }
     stats() { return memory.stats(); }
+
+    // ---- Short-Term Memory (subsistem 2) -------------------------
+    // Working set dalam-proses; bebas ditulis (tak butuh persetujuan).
+
+    get stm() { return stm; }
+
+    /** Catat kejadian ke STM. scope diambil dari ctx.scope bila ada. */
+    observe(scopeOrCtx, event) {
+        const scope = (scopeOrCtx && typeof scopeOrCtx === "object") ? scopeOrCtx.scope : scopeOrCtx;
+        return stm.observe(scope, event);
+    }
 
     // ---- Tulis ---------------------------------------------------
     // Subsistem 1: commit langsung (perilaku sekarang dipertahankan).
