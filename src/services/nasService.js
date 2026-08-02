@@ -88,30 +88,61 @@ async function volumes() {
     catch { return []; }
 }
 
+// smartctl sering TIDAK ada di PATH (smartmontools memasang ke Program Files).
+// Cari di lokasi umum dulu, baru andalkan PATH.
+let _smartctl;
+function resolveSmartctl() {
+    if (_smartctl !== undefined) return _smartctl;
+    const known = process.platform === "win32" ? [
+        "C:\\Program Files\\smartmontools\\bin\\smartctl.exe",
+        "C:\\Program Files (x86)\\smartmontools\\bin\\smartctl.exe",
+        "C:\\ProgramData\\chocolatey\\bin\\smartctl.exe"
+    ] : ["/usr/sbin/smartctl", "/usr/local/sbin/smartctl", "/opt/homebrew/sbin/smartctl"];
+    for (const c of known) { try { if (fsx.existsSync(c)) { _smartctl = c; return c; } } catch { /* lanjut */ } }
+    _smartctl = "smartctl";   // fallback: andalkan PATH
+    return _smartctl;
+}
+
 async function smart() {
+    const bin = resolveSmartctl();
+
+    let scan;
     try {
-        const scan = await pexec("smartctl", ["--scan", "-j"], OPTS);
-        const devices = JSON.parse(scan.stdout).devices || [];
-        const out = [];
-        for (const d of devices) {
-            try {
-                const r = await pexec("smartctl", ["-Hij", d.name], OPTS);
-                const j = JSON.parse(r.stdout);
-                out.push({
-                    device: d.name,
-                    model: j.model_name ?? null,
-                    health: j.smart_status?.passed === true ? "PASSED" : (j.smart_status ? "FAILED" : "?"),
-                    tempC: j.temperature?.current ?? null,
-                    capacity: j.user_capacity?.bytes ?? null
-                });
-            }
-            catch { /* satu disk gagal — lewati */ }
+        scan = await pexec(bin, ["--scan", "-j"], OPTS);
+    }
+    catch (e) {
+        return {
+            available: false, devices: [],
+            reason: e.code === "ENOENT"
+                ? "smartctl tak ditemukan. Install smartmontools atau pastikan smartctl.exe ada."
+                : "smartctl gagal dijalankan — di Windows pembacaan SMART butuh hak Administrator. Jalankan Aether sebagai Administrator."
+        };
+    }
+
+    let devices = [];
+    try { devices = JSON.parse(scan.stdout).devices || []; } catch { /* output tak terduga */ }
+
+    const out = [];
+    for (const d of devices) {
+        try {
+            const r = await pexec(bin, ["-Hij", d.name], OPTS);
+            const j = JSON.parse(r.stdout);
+            out.push({
+                device: d.name,
+                model: j.model_name ?? null,
+                health: j.smart_status?.passed === true ? "PASSED" : (j.smart_status ? "FAILED" : "?"),
+                tempC: j.temperature?.current ?? null,
+                capacity: j.user_capacity?.bytes ?? null
+            });
         }
-        return { available: true, devices: out };
+        catch { /* satu disk gagal — lewati */ }
     }
-    catch {
-        return { available: false, devices: [], reason: "smartctl tidak ditemukan (install smartmontools untuk data SMART)." };
+
+    // Disk terdeteksi tapi atribut tak terbaca = hampir selalu soal hak admin.
+    if (devices.length && out.length === 0) {
+        return { available: false, devices: [], reason: "Disk terdeteksi tapi SMART tak terbaca — jalankan Aether sebagai Administrator." };
     }
+    return { available: true, devices: out, bin };
 }
 
 async function docker() {
