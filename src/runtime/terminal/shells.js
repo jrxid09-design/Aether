@@ -72,9 +72,20 @@ function findOnPath(exe) {
  * di pty). Kembalikan { path, args } terbungkus, atau null bila tak bisa
  * (mis. Windows tanpa gsudo → daemon harus dijalankan sebagai Admin).
  */
+function firstExisting(paths) {
+    for (const p of paths) if (exists(p)) return p;
+    return null;
+}
+
 function elevate(shellPath, args = []) {
     if (WIN) {
-        const gsudo = findOnPath("gsudo");
+        // PATH daemon sering basi setelah `winget install` (gsudo belum
+        // terlihat sampai proses direstart), jadi cek juga lokasi bakunya.
+        const gsudo = findOnPath("gsudo") || firstExisting([
+            `${process.env.ProgramFiles || "C:\\Program Files"}\\gsudo\\current\\gsudo.exe`,
+            `${process.env["ProgramFiles(x86)"] || "C:\\Program Files (x86)"}\\gsudo\\current\\gsudo.exe`,
+            `${process.env.LOCALAPPDATA || ""}\\Microsoft\\WinGet\\Links\\gsudo.exe`
+        ]);
         return gsudo ? { path: gsudo, args: [shellPath, ...args] } : null;
     }
     const sudo = findOnPath("sudo");
