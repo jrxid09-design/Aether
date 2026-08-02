@@ -19,6 +19,7 @@ const roleController = require("../../../controllers/roleController");
 const terminalController = require("../../../controllers/terminalController");
 const runtimeController = require("../../../controllers/runtimeController");
 const exposureController = require("../../../controllers/exposureController");
+const nasController = require("../../../controllers/nasController");
 
 const router = express.Router();
 
@@ -200,5 +201,9 @@ router.get("/family/location", exposureController.members);
 router.post("/family/location/register", exposureController.register);
 router.post("/family/location/update", exposureController.updateLocation);
 router.post("/family/location/:id/revoke", exposureController.revoke);
+
+// ---- NAS (penyimpanan & host, data nyata) ----------------------
+
+router.get("/nas/status", nasController.status);
 
 module.exports = router;

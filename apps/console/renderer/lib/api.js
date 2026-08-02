@@ -322,6 +322,10 @@ class AetherApi {
     familyRegister(name)  { return this.request("/family/location/register", { method: "POST", body: { name } }); }
     familyRevoke(id)      { return this.request(`/family/location/${encodeURIComponent(id)}/revoke`, { method: "POST" }); }
 
+    // ---- NAS --------------------------------------------------------
+
+    nasStatus()           { return this.request("/nas/status", { timeout: 15000 }); }
+
     // ---- Chat streaming --------------------------------------------
 
     /**
