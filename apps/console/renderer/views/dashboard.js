@@ -34,6 +34,7 @@ export const dashboard = {
         }
 
         const o = state.overview;
+        const name = state.settings?.name || "Yansiska";
 
         root.innerHTML = `
             <div class="stack">
@@ -41,7 +42,7 @@ export const dashboard = {
                 <div class="mc-top">
                     <div class="panel greet">
                         <span class="hello">${greeting()},</span>
-                        <h1>Selamat datang<span class="dot">.</span></h1>
+                        <h1>${esc(name)}<span class="dot">.</span></h1>
                         <p>Aether siap membantumu mengelola sistem, data, agent, dan rumah.</p>
                     </div>
                     ${healthHero(o)}
@@ -53,21 +54,18 @@ export const dashboard = {
 
                 ${metricsRow(o, state.history)}
 
-                <div class="panel" style="padding:0" id="mc-chat-panel">
-                    <div class="panel-head" style="padding:14px 18px 2px">
-                        <h2>${icon("chat")} Chat dengan Aether</h2>
-                        <span class="hint push">alur nyata: intent → planner → tool → jawaban</span>
+                <div class="mc-bento">
+                    <div class="bcol">
+                        <div class="panel" style="padding:0" id="mc-chat-panel">
+                            <div class="panel-head" style="padding:14px 18px 2px">
+                                <h2>${icon("chat")} Chat dengan Aether</h2>
+                                <span class="hint push">intent → planner → tool → jawaban</span>
+                            </div>
+                            <div id="mc-chat"></div>
+                        </div>
                     </div>
-                    <div id="mc-chat"></div>
-                </div>
 
-                <div class="grid cols-2">
-                    <div class="panel">
-                        <div class="panel-head"><h2>${icon("activity")} Aliran Aktivitas AI</h2>
-                            <span class="hint push">langsung</span></div>
-                        <div id="mc-flow">${flow(state.logs)}</div>
-                    </div>
-                    <div class="stack">
+                    <div class="bcol">
                         <div class="panel">
                             <div class="panel-head"><h2>${icon("server")} Status Sistem</h2>
                                 <span class="hint push">${o.integrations.summary.online}/${o.integrations.summary.enabled} online</span></div>
@@ -78,52 +76,56 @@ export const dashboard = {
                                 <span class="hint push" id="mc-agents-count">—</span></div>
                             <div id="mc-agents"><div class="empty">${icon("activity")}<div>Memuat…</div></div></div>
                         </div>
+                        <div class="panel">
+                            <div class="panel-head"><h2>${icon("activity")} AI Activity</h2>
+                                <span class="hint push">${state.connected ? "siaga" : "offline"}</span></div>
+                            ${aiRadial(state)}
+                        </div>
+                    </div>
+
+                    <div class="bcol">
+                        <div class="panel">
+                            <div class="panel-head"><h2>${icon("bell")} Notifikasi</h2>
+                                <span class="hint push">${state.logs.length} entri</span></div>
+                            ${notifications(state.logs)}
+                        </div>
+                        <div class="panel">
+                            <div class="panel-head"><h2>${icon("memory")} Memory Graph</h2>
+                                <span class="hint push" id="mc-graph-count">—</span></div>
+                            <div id="mc-graph"><div class="empty">${icon("memory")}<div>Memuat…</div></div></div>
+                        </div>
+                        <div class="panel">
+                            <div class="panel-head"><h2>${icon("memory")} Usulan Memori</h2>
+                                <span class="hint push" id="mc-prop-count">—</span></div>
+                            <div id="mc-proposals"><div class="empty">${icon("memory")}<div>Memuat…</div></div></div>
+                        </div>
                     </div>
                 </div>
 
                 <div class="grid cols-2">
                     <div class="panel">
-                        <div class="panel-head"><h2>${icon("memory")} Usulan Memori</h2>
-                            <span class="hint push" id="mc-prop-count">—</span></div>
-                        <div id="mc-proposals"><div class="empty">${icon("memory")}<div>Memuat…</div></div></div>
+                        <div class="panel-head"><h2>${icon("activity")} Aliran Aktivitas AI</h2>
+                            <span class="hint push">langsung</span></div>
+                        <div id="mc-flow">${flow(state.logs)}</div>
                     </div>
-                    <div class="panel">
-                        <div class="panel-head"><h2>${icon("activity")} Notifikasi</h2>
-                            <span class="hint push">${state.logs.length} entri</span></div>
-                        ${notifications(state.logs)}
-                    </div>
-                </div>
-
-                <div class="grid cols-2">
-                    <div class="panel">
-                        <div class="panel-head"><h2>${icon("memory")} Memory Graph</h2>
-                            <span class="hint push" id="mc-graph-count">—</span></div>
-                        <div id="mc-graph"><div class="empty">${icon("memory")}<div>Memuat…</div></div></div>
-                    </div>
-                    <div class="panel">
-                        <div class="panel-head"><h2>${icon("activity")} AI Activity</h2>
-                            <span class="hint push">${state.connected ? "siaga" : "offline"}</span></div>
-                        ${aiRadial(state)}
-                    </div>
-                </div>
-
-                <div class="grid cols-2">
                     <div class="panel">
                         <div class="panel-head"><h2>${icon("cpu")} Monitor Sumber Daya</h2>
                             <span class="hint push">${esc(o.stats.host.cpuCount)} core · ${bytes(o.stats.memory.total)}</span></div>
                         ${resourceMonitor(o, state.history)}
                     </div>
+                </div>
+
+                <div class="grid cols-2">
                     <div class="panel">
                         <div class="panel-head"><h2>${icon("home")} Smart Home</h2>
                             <span class="hint push" id="mc-home-count">—</span></div>
                         <div id="mc-home"><div class="empty">${icon("home")}<div>Memuat…</div></div></div>
                     </div>
-                </div>
-
-                <div class="panel">
-                    <div class="panel-head"><h2>${icon("camera")} CCTV</h2>
-                        <span class="hint push" id="mc-cctv-count">—</span></div>
-                    <div id="mc-cctv" class="cctv-grid">${cctvSkeleton()}</div>
+                    <div class="panel">
+                        <div class="panel-head"><h2>${icon("camera")} CCTV</h2>
+                            <span class="hint push" id="mc-cctv-count">—</span></div>
+                        <div id="mc-cctv" class="cctv-grid">${cctvSkeleton()}</div>
+                    </div>
                 </div>
 
             </div>`;
