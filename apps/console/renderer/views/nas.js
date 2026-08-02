@@ -74,6 +74,8 @@ async function draw(root) {
             </div>
         </div>
 
+        ${smbPanel(s, pool)}
+
         <div class="panel">
             <div class="panel-head"><h2>${icon("terminal")} Docker Containers</h2>
                 <span class="hint push">${s.docker.available ? s.docker.containers.length : "—"}</span></div>
@@ -135,6 +137,27 @@ function appCenter(immich, pool) {
                 <div class="dim">1. Install app <strong>Immich</strong> dari App Store.
                 2. Server URL: <span class="mono">http://${esc(lastIp)}:2283</span>.
                 3. Login, aktifkan <em>Backup</em> → foto &amp; video otomatis masuk NAS.</div>
+            </div>
+        </div>`;
+}
+
+function smbPanel(s, pool) {
+    const sh = s.smb || {};
+    const cmd = `powershell -ExecutionPolicy Bypass -File deploy\\nas\\share-smb.ps1 -Pool "${pool || "D:\\AetherNAS"}"`;
+    return `
+        <div class="panel">
+            <div class="panel-head"><h2>${icon("folder")} Akses File (SMB) — iPhone &amp; perangkat lain</h2>
+                <span class="push">${pill(sh.shared ? "Aktif" : "Belum aktif", sh.shared ? "ok" : "idle")}</span></div>
+            ${sh.shared
+                ? `<div class="small">Share aktif: <span class="mono">\\\\${esc(lastIp)}\\${esc(sh.name)}</span> → <span class="mono">${esc(sh.path || pool || "")}</span></div>`
+                : `<div class="small dim" style="margin-bottom:6px">Jalankan sekali sebagai <strong>Administrator</strong> di PC rumah untuk mengaktifkan share:</div>
+                   <div class="code-view" id="smb-cmd">${esc(cmd)}</div>
+                   <button class="btn sm" id="smb-copy" style="margin-top:8px">${icon("copy")} Salin perintah</button>`}
+            <div class="divider"></div>
+            <div class="small">
+                <div style="font-weight:600;margin-bottom:4px">${icon("chat")} Dari iPhone (tanpa app tambahan)</div>
+                <div class="dim">App <strong>Files</strong> → titik-tiga (…) → <em>Connect to Server</em> →
+                    <span class="mono">smb://${esc(lastIp)}/${esc(sh.name || "AetherNAS")}</span> → login akun Windows.</div>
             </div>
         </div>`;
 }
@@ -205,5 +228,10 @@ function wire(root, s) {
     });
     root.querySelector("#immich-open")?.addEventListener("click", () => {
         window.open(`http://${lastIp}:2283`, "_blank");
+    });
+
+    root.querySelector("#smb-copy")?.addEventListener("click", () => {
+        const cmd = root.querySelector("#smb-cmd")?.textContent ?? "";
+        navigator.clipboard.writeText(cmd).then(() => toast("Perintah disalin", "ok"));
     });
 }

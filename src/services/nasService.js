@@ -130,9 +130,25 @@ function network() {
     return out;
 }
 
+/** Status share SMB "AetherNAS" (akses file dari iPhone/perangkat lain). */
+async function smb() {
+    const name = "AetherNAS";
+    if (process.platform !== "win32") return { supported: false, shared: false, name };
+    try {
+        const { stdout } = await pexec("powershell", [
+            "-NoProfile", "-NonInteractive", "-Command",
+            `Get-SmbShare -Name '${name}' -ErrorAction SilentlyContinue | Select-Object Name,Path | ConvertTo-Json -Compress`
+        ], OPTS);
+        if (!stdout.trim()) return { supported: true, shared: false, name };
+        const j = JSON.parse(stdout);
+        return { supported: true, shared: true, name: j.Name, path: j.Path };
+    }
+    catch { return { supported: true, shared: false, name }; }
+}
+
 class NasService {
     async status() {
-        const [vols, sm, dk] = await Promise.all([volumes(), smart(), docker()]);
+        const [vols, sm, dk, sh] = await Promise.all([volumes(), smart(), docker(), smb()]);
         const cfg = config();
         // Tandai volume mana yang jadi pool NAS.
         const poolMount = cfg.pool ? (vols.find(v => cfg.pool.toUpperCase().startsWith(v.mount.toUpperCase()))?.mount ?? null) : null;
@@ -144,6 +160,7 @@ class NasService {
             volumes: vols,
             smart: sm,
             docker: dk,
+            smb: sh,
             network: network(),
             at: new Date().toISOString()
         };
