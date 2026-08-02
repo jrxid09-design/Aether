@@ -4,6 +4,7 @@ const edges = require("../graph/EdgeStore");
 const retriever = require("../retrieval/Retriever");
 const consolidator = require("../consolidation/Consolidator");
 const governor = require("../governance/Governor");
+const miner = require("../improve/PatternMiner");
 const types = require("./types");
 const stm = require("../stm/WorkingSet");
 
@@ -120,6 +121,11 @@ class MemoryEngine {
     reject(id, opts) { return governor.reject(id, opts); }
     rollback(memoryId, opts) { return governor.rollback(memoryId, opts); }
     auditLog(opts) { return governor.audit(opts); }
+
+    // ---- Self-Improvement (subsistem 10) -------------------------
+    // Tambang pola → USULKAN prosedur. SELALU proposal, tak pernah otomatis.
+
+    suggest(opts) { return miner.suggest(opts); }
 
 }
 
