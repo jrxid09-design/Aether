@@ -28,7 +28,7 @@ export function runtimeStatusPanel({ onOpenTerminal } = {}) {
         if (!rootEl) return;
         const grid = rootEl.querySelector("#rs-grid");
         try {
-            const { runtimes } = (await api.request("/runtime/status")).data;
+            const { runtimes } = await api.request("/runtime/status");
             grid.innerHTML = runtimes.map(card).join("");
             grid.querySelectorAll("[data-restart]").forEach(b =>
                 b.addEventListener("click", () => restart(b.dataset.restart)));
@@ -64,7 +64,7 @@ export function runtimeStatusPanel({ onOpenTerminal } = {}) {
     async function restart(key) {
         toast(`Merestart ${key}…`, "ok", 2000);
         try {
-            const r = (await api.request(`/runtime/${key}/restart`, { method: "POST", body: {} })).data;
+            const r = await api.request(`/runtime/${key}/restart`, { method: "POST", body: {} });
             toast(r.ready ? `${key} siap ✅` : `${key} dijalankan (cek terminal)`, r.ready ? "ok" : "warn", 5000);
             await load();
         }

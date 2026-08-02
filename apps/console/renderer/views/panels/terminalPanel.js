@@ -30,6 +30,8 @@ export function terminalPanel() {
         host.innerHTML = `
             <div class="row wrap" style="gap:8px;margin-bottom:8px">
                 <select id="tp-shell" style="width:130px"></select>
+                <label class="switch" title="Buka sebagai Administrator (butuh gsudo/sudo atau daemon admin)">
+                    <input type="checkbox" id="tp-admin"><span class="track"></span><span>Admin</span></label>
                 <button class="btn primary sm" id="tp-new">${icon("plus")} Baru</button>
                 <input type="text" id="tp-search" placeholder="cari output…" style="width:150px">
                 <button class="btn ghost sm" id="tp-clear">Bersihkan</button>
@@ -49,7 +51,7 @@ export function terminalPanel() {
         if (typeof window.Terminal !== "function") { $("#tp-host").innerHTML = `<div class="empty danger-text">xterm.js gagal dimuat.</div>`; return; }
 
         let data;
-        try { data = (await terminalApi.list()).data; }
+        try { data = await terminalApi.list(); }
         catch (e) { toast(`Terminal: ${e.message}`, "danger"); return; }
 
         if (!data.available) {
@@ -62,7 +64,15 @@ export function terminalPanel() {
         if (!tabs.size) showEmpty(true);
 
         $("#tp-new").addEventListener("click", async () => {
-            try { open((await terminalApi.create({ shell: $("#tp-shell").value, terminalType: "USER" })).data); }
+            try {
+                const meta = await terminalApi.create({
+                    shell: $("#tp-shell").value, terminalType: "USER", elevated: $("#tp-admin")?.checked
+                });
+                open(meta);
+                if ($("#tp-admin")?.checked && !meta.elevated) {
+                    toast("Terminal admin tak tersedia (butuh gsudo / daemon sebagai Administrator). Dibuka terminal biasa.", "warn", 6000);
+                }
+            }
             catch (e) { toast(e.message, "danger"); }
         });
         $("#tp-clear").addEventListener("click", () => tabs.get(activeId)?.term.clear());
@@ -140,7 +150,7 @@ export function terminalPanel() {
         const t = tabs.get(id); if (!t) return;
         const name = window.prompt("Nama terminal:", t.meta.name);
         if (!name || name === t.meta.name) return;
-        try { t.meta = (await terminalApi.rename(id, name)).data; renderTabs(); }
+        try { t.meta = await terminalApi.rename(id, name); renderTabs(); }
         catch (e) { toast(e.message, "danger"); }
     }
 

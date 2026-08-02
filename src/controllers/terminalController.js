@@ -20,11 +20,11 @@ class TerminalController {
         try {
             const {
                 shell, cwd, name, cols, rows,
-                owner, purpose, terminalType, createdBy, restartPolicy, persistent, target
+                owner, purpose, terminalType, createdBy, restartPolicy, persistent, target, elevated
             } = req.body ?? {};
             return response.success(res, "Terminal dibuat", terminals.create({
                 shell, cwd, name, cols, rows,
-                owner, purpose, terminalType, createdBy, restartPolicy, persistent, target
+                owner, purpose, terminalType, createdBy, restartPolicy, persistent, target, elevated
             }), 201);
         }
         catch (error) { return response.error(res, error.message, 400); }

@@ -53,4 +53,32 @@ function resolve(shellId) {
         : { id: "bash", name: "bash", path: "/bin/bash", args: [] });
 }
 
-module.exports = { detect, resolve, isWindows: WIN };
+/** Cari executable di PATH (untuk mendeteksi gsudo/sudo). */
+function findOnPath(exe) {
+    const dirs = String(process.env.PATH || "").split(WIN ? ";" : ":");
+    const names = WIN ? [exe, exe + ".exe", exe + ".cmd"] : [exe];
+    for (const dir of dirs) {
+        for (const n of names) {
+            const p = `${dir}${WIN ? "\\" : "/"}${n}`;
+            if (exists(p)) return p;
+        }
+    }
+    return null;
+}
+
+/**
+ * Bungkus shell agar berjalan elevated bila memungkinkan.
+ * Windows: gsudo (bila terpasang). POSIX: sudo (prompt password tampil
+ * di pty). Kembalikan { path, args } terbungkus, atau null bila tak bisa
+ * (mis. Windows tanpa gsudo → daemon harus dijalankan sebagai Admin).
+ */
+function elevate(shellPath, args = []) {
+    if (WIN) {
+        const gsudo = findOnPath("gsudo");
+        return gsudo ? { path: gsudo, args: [shellPath, ...args] } : null;
+    }
+    const sudo = findOnPath("sudo");
+    return sudo ? { path: sudo, args: [shellPath, ...args] } : null;
+}
+
+module.exports = { detect, resolve, elevate, isWindows: WIN };

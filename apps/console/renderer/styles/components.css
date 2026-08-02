@@ -1159,3 +1159,47 @@ input[type="range"]::-webkit-slider-thumb {
 
 .term-pane .xterm,
 .term-pane .xterm .xterm-viewport { height: 100% !important; }
+
+/* ---- Runtime Console: Logs / Events --------------------------------- */
+
+.rc-logs-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line);
+}
+.rc-logs-head .rc-filter { margin-left: auto; width: 200px; }
+
+.rc-logs {
+    max-height: 60vh;
+    overflow: auto;
+    padding: 2px 0;
+    font-family: Consolas, "Cascadia Mono", monospace;
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.rc-log {
+    display: grid;
+    grid-template-columns: 64px 56px 1fr;
+    gap: 10px;
+    padding: 3px 14px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.rc-log:hover { background: rgba(133, 162, 255, 0.06); }
+.rc-log .time { color: var(--text-dim); }
+.rc-log .lvl {
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    align-self: center;
+    color: var(--text-dim);
+}
+.rc-log .msg { color: var(--text); }
+.rc-log.error .lvl { color: var(--danger); }
+.rc-log.error .msg { color: #ffc9d2; }
+.rc-log.warn .lvl { color: var(--warn); }
+.rc-log.event .lvl { color: var(--accent-2, #7c8cff); }

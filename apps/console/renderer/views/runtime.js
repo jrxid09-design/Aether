@@ -13,21 +13,44 @@ import { runtimeStatusPanel } from "./panels/runtimeStatusPanel.js";
 
 let mounted = null;
 
-/** Panel Logs/Events sederhana dari store (SSE) — reuse aliran yang ada. */
+/** Panel Logs/Events dari store (SSE): kolom rapi, warna per level, saring. */
 function logPanel(eventsOnly) {
-    let el = null, timer = null;
+    let list = null, filterEl = null, countEl = null, timer = null;
+
     const draw = () => {
-        if (!el) return;
-        const logs = (store.get().logs || [])
+        if (!list) return;
+        const q = (filterEl?.value || "").toLowerCase();
+        const rows = (store.get().logs || [])
             .filter(l => eventsOnly ? l.level === "event" : l.level !== "event")
-            .slice(-300).reverse();
-        el.innerHTML = logs.length
-            ? logs.map(l => `<div class="log-line ${l.level === "error" ? "error" : l.level === "warn" ? "warn" : ""}">
-                <span class="t dim">${esc(clockTime(l.time))}</span> <span class="m">${esc(l.message)}</span></div>`).join("")
-            : `<div class="empty">${icon("activity")}<div>Belum ada ${eventsOnly ? "event" : "log"}.</div></div>`;
+            .filter(l => !q || String(l.message).toLowerCase().includes(q))
+            .slice(-500).reverse();
+
+        if (countEl) countEl.textContent = `${rows.length} ${eventsOnly ? "event" : "baris"}`;
+
+        list.innerHTML = rows.length
+            ? rows.map(l => {
+                const lvl = l.level || "info";
+                return `<div class="rc-log ${esc(lvl)}"><span class="time">${esc(clockTime(l.time))}</span>` +
+                    `<span class="lvl">${esc(lvl)}</span><span class="msg">${esc(l.message)}</span></div>`;
+            }).join("")
+            : `<div class="empty">${icon(eventsOnly ? "activity" : "box")}<div>Belum ada ${eventsOnly ? "event" : "log"}.</div></div>`;
     };
+
     return {
-        render(host) { host.innerHTML = `<div class="panel flush"><div id="rc-ls" style="max-height:66vh;overflow:auto;padding:12px"></div></div>`; el = host.querySelector("#rc-ls"); },
+        render(host) {
+            host.innerHTML = `
+                <div class="panel flush">
+                    <div class="rc-logs-head">
+                        <span class="small dim" id="rc-count"></span>
+                        <input type="text" id="rc-filter" class="rc-filter" placeholder="saring ${eventsOnly ? "event" : "log"}…">
+                    </div>
+                    <div class="rc-logs" id="rc-ls"></div>
+                </div>`;
+            list = host.querySelector("#rc-ls");
+            filterEl = host.querySelector("#rc-filter");
+            countEl = host.querySelector("#rc-count");
+            filterEl.addEventListener("input", draw);
+        },
         mount() { draw(); timer = setInterval(draw, 1500); },
         unmount() { if (timer) clearInterval(timer); timer = null; }
     };

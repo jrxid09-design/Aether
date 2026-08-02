@@ -65,6 +65,13 @@ class TerminalRuntime {
         const cols = opts.cols || 120;
         const rows = opts.rows || 30;
 
+        // Elevasi (Admin) opsional & best-effort: gsudo (Win) / sudo (POSIX).
+        let shellPath = sh.path, shellArgs = sh.args, elevated = false;
+        if (opts.elevated) {
+            const e = shells.elevate(sh.path, sh.args);
+            if (e) { shellPath = e.path; shellArgs = e.args; elevated = true; }
+        }
+
         const descriptor = {
             id: "t_" + crypto.randomBytes(4).toString("hex"),
             owner: opts.owner || "user",
@@ -75,11 +82,12 @@ class TerminalRuntime {
             persistent: opts.persistent ?? (type !== "USER"),
             target,
             shell: sh.id,
+            elevated,
             createdAt: new Date().toISOString()
         };
 
         const pty = backend.spawn({
-            shellPath: sh.path, args: sh.args, cwd, cols, rows,
+            shellPath, args: shellArgs, cwd, cols, rows,
             env: { ...process.env, ...(opts.env || {}) }
         });
 
@@ -193,8 +201,10 @@ class TerminalRuntime {
 
         try {
             const sh = shells.resolve(d.shell);
+            let shellPath = sh.path, shellArgs = sh.args;
+            if (d.elevated) { const e = shells.elevate(sh.path, sh.args); if (e) { shellPath = e.path; shellArgs = e.args; } }
             const pty = backends.get(d.target).spawn({
-                shellPath: sh.path, args: sh.args, cwd: session.cwd,
+                shellPath, args: shellArgs, cwd: session.cwd,
                 cols: session.cols, rows: session.rows, env: { ...process.env }
             });
             session.attach(pty);
