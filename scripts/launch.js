@@ -29,7 +29,7 @@ const logStream = fs.createWriteStream(logFile, { flags: "a" });
 
 // Baris bising yang tak perlu tampil di terminal: daftar per-tool tiap plugin
 // dan pengumuman "Loaded Plugin / Plugin Loaded" (tetap tersimpan di file log).
-const NOISE = /^\s*(└──|├──|└─)|Loaded Plugin\s*:|Plugin Loaded\s*:|injected env|dotenvx?/i;
+const NOISE = /^\s*(└──|├──|└─)|Loaded Plugin\s*:|Plugin Loaded\s*:|injected env|dotenvx?|DEP0190|DeprecationWarning|trace-deprecation/i;
 
 const ts = () => new Date().toISOString();
 const clock = () => c.dim(new Date().toTimeString().slice(0, 8));

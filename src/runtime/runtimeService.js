@@ -41,11 +41,17 @@ function pidusageLib() {
 async function metrics(pid) {
     const lib = pidusageLib();
     if (!lib || !pid) return { cpu: null, memory: null };
+    // pidusage spawn `wmic`/pwsh dengan shell:true+args di Windows → memicu
+    // DEP0190. Bungkam HANYA di sekitar pemanggilan ini (spawn terjadi sinkron
+    // saat lib() dipanggil), lalu kembalikan nilai semula.
+    const prev = process.noDeprecation;
+    process.noDeprecation = true;
     try {
         const s = await lib(pid);
         return { cpu: Math.round(s.cpu), memory: Math.round(s.memory / 1048576) }; // %, MB
     }
     catch { return { cpu: null, memory: null }; }
+    finally { process.noDeprecation = prev; }
 }
 
 /** Peta kesehatan by id dari agentHub (+ integrations bila ada). */
