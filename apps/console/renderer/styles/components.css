@@ -1365,6 +1365,17 @@ input[type="range"]::-webkit-slider-thumb {
 .flow .step[data-tone="warn"] .node { color: var(--warn);   border-color: rgba(251,191,36,0.45); }
 .flow .step[data-tone="acc"]  .node { color: var(--accent-3); border-color: rgba(192,132,252,0.45); }
 
+/* Alur di dalam gelembung chat: lebih rapat, berkartu tipis. */
+.chat-flow {
+    margin: 0 0 8px;
+    padding: 6px 12px;
+    background: var(--bg-inset);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+}
+.chat-flow .step { padding: 4px 0; grid-template-columns: 20px 1fr; }
+.chat-flow .step::before { top: 22px; bottom: -4px; }
+
 /* Baris agent: tile + nama + status + latensi + spark. */
 .agentrow {
     display: grid;

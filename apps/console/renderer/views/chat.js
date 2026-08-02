@@ -113,6 +113,11 @@ export const chat = {
             if (message && message.role === "assistant") {
                 message.streaming = false;
                 message.note = note ?? message.note;
+                if (Array.isArray(message.flow) && message.flow.length) {
+                    message.flow.push(message.error
+                        ? { tone: "warn", icon: "x", lbl: "Gagal" }
+                        : { tone: "ok", icon: "check", lbl: "Selesai" });
+                }
             }
 
             store.get().chat.streaming = false;
@@ -170,8 +175,13 @@ export const chat = {
                 role: "assistant",
                 content: "",
                 time: new Date().toISOString(),
-                streaming: true
+                streaming: true,
+                flow: [],          // langkah nyata: intent → model → tool → selesai
+                _seen: new Set()
             };
+
+            // Langkah pertama: maksud diterima (selalu benar, dari input user).
+            assistant.flow.push({ tone: "acc", icon: "chat", lbl: "Maksud diterima" });
 
             conversation.messages.push(assistant);
             conversation.streaming = true;
@@ -194,16 +204,41 @@ export const chat = {
                     },
                     ({ event, data }) => {
 
-                        if (event === "chunk" && data.delta) {
+                        if (event === "start") {
 
-                            assistant.content += data.delta;
+                            // Planner memilih model/provider.
+                            assistant.flow.push({
+                                tone: "acc", icon: "cpu",
+                                lbl: "Planner menyiapkan model",
+                                sub: shortModel(data.model) + (data.provider ? ` · ${data.provider}` : "")
+                            });
+                            rerenderStreaming();
 
-                            if (streamingBubble) {
-                                streamingBubble.innerHTML =
-                                    markdown(assistant.content);
+                        }
+
+                        else if (event === "chunk") {
+
+                            // Tool yang dipanggil model → langkah eksekusi nyata.
+                            if (Array.isArray(data.toolCalls) && data.toolCalls.length) {
+                                for (const tc of data.toolCalls) {
+                                    const name = tc.function?.name ?? tc.name ?? "tool";
+                                    const key = tc.id ?? name;
+                                    if (assistant._seen.has(key)) continue;
+                                    assistant._seen.add(key);
+                                    assistant.flow.push({ tone: "ok", icon: "tool", lbl: `Menjalankan ${name}` });
+                                }
+                                rerenderStreaming();
                             }
 
-                            scrollToEnd();
+                            if (data.delta) {
+                                if (!assistant._answering) {
+                                    assistant._answering = true;
+                                    assistant.flow.push({ tone: "ok", icon: "activity", lbl: "Menyusun jawaban" });
+                                }
+                                assistant.content += data.delta;
+                                if (streamingBubble) streamingBubble.innerHTML = markdown(assistant.content);
+                                scrollToEnd();
+                            }
 
                         }
 
@@ -321,7 +356,8 @@ function renderMessages() {
         return `
             <div class="msg ${esc(role)}">
                 <div class="avatar">${avatar}</div>
-                <div>
+                <div style="min-width:0">
+                    ${role === "assistant" ? flowStrip(message) : ""}
                     <div class="bubble ${message.streaming ? "typing" : ""}">${body}</div>
                     ${footnote ? `<div class="footnote">${esc(footnote)}</div>` : ""}
                 </div>
@@ -331,6 +367,33 @@ function renderMessages() {
 
     scrollToEnd();
 
+}
+
+/** Strip alur nyata sebuah jawaban: maksud → model → tool → jawaban → selesai. */
+function flowStrip(message) {
+
+    if (!Array.isArray(message.flow) || message.flow.length === 0) {
+        return "";
+    }
+
+    return `<div class="flow chat-flow">${message.flow.map(s => `
+        <div class="step" data-tone="${esc(s.tone ?? "ok")}">
+            <span class="node">${icon(s.icon ?? "check")}</span>
+            <div><div class="lbl">${esc(s.lbl)}</div>${s.sub ? `<div class="sub">${esc(s.sub)}</div>` : ""}</div>
+        </div>`).join("")}</div>`;
+
+}
+
+function shortModel(name) {
+    if (!name) return "—";
+    const s = String(name).split("/").pop();
+    return s.length > 20 ? s.slice(0, 19) + "…" : s;
+}
+
+/** Render ulang saat streaming lalu ambil kembali gelembung terakhir. */
+function rerenderStreaming() {
+    renderMessages();
+    streamingBubble = scrollHost?.querySelector(".msg:last-child .bubble") ?? null;
 }
 
 function scrollToEnd() {
