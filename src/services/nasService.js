@@ -1,9 +1,41 @@
 const os = require("node:os");
+const fsx = require("node:fs");
+const path = require("node:path");
+const crypto = require("node:crypto");
 const { execFile } = require("node:child_process");
 const { promisify } = require("node:util");
+const JsonStore = require("../core/config/JsonStore");
 
 const pexec = promisify(execFile);
 const OPTS = { timeout: 8000, windowsHide: true, maxBuffer: 1024 * 1024 };
+
+// Konfigurasi NAS per-mesin (disk pool + rahasia Immich). Gitignored.
+const cfgStore = new JsonStore(
+    path.join(__dirname, "..", "..", "configs", "nas.json"),
+    { pool: null, immich: {} }
+);
+
+/** Baca config; buat DB password Immich sekali bila belum ada. */
+function config() {
+    const c = cfgStore.read();
+    if (!c.immich || !c.immich.dbPassword) {
+        cfgStore.write({ immich: { ...(c.immich || {}), dbPassword: crypto.randomBytes(12).toString("hex") } });
+    }
+    return cfgStore.read();
+}
+
+/** Set disk pool NAS (folder di salah satu disk). Validasi keberadaannya. */
+function setConfig({ pool } = {}) {
+    if (pool !== undefined && pool !== null) {
+        const p = String(pool);
+        if (!fsx.existsSync(p)) {
+            try { fsx.mkdirSync(p, { recursive: true }); }
+            catch { throw new Error(`Folder pool tak bisa dibuat: ${p}`); }
+        }
+        cfgStore.write({ pool: p });
+    }
+    return config();
+}
 
 /**
  * nasService — status penyimpanan & host untuk view NAS.
@@ -101,9 +133,14 @@ function network() {
 class NasService {
     async status() {
         const [vols, sm, dk] = await Promise.all([volumes(), smart(), docker()]);
+        const cfg = config();
+        // Tandai volume mana yang jadi pool NAS.
+        const poolMount = cfg.pool ? (vols.find(v => cfg.pool.toUpperCase().startsWith(v.mount.toUpperCase()))?.mount ?? null) : null;
         return {
             host: os.hostname(),
             platform: `${os.platform()} ${os.release()}`,
+            pool: cfg.pool,
+            poolMount,
             volumes: vols,
             smart: sm,
             docker: dk,
@@ -111,6 +148,9 @@ class NasService {
             at: new Date().toISOString()
         };
     }
+
+    config() { return config(); }
+    setConfig(patch) { return setConfig(patch); }
 }
 
 module.exports = new NasService();

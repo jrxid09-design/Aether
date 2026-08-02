@@ -206,6 +206,11 @@ router.post("/family/location/:id/revoke", exposureController.revoke);
 // ---- NAS (penyimpanan & host, data nyata) ----------------------
 
 router.get("/nas/status", nasController.status);
+router.get("/nas/config", nasController.config);
+router.post("/nas/config", nasController.setConfig);
+router.get("/nas/immich", nasController.immichStatus);
+router.post("/nas/immich/up", nasController.immichUp);
+router.post("/nas/immich/down", nasController.immichDown);
 
 // ---- Files (penjelajah berkas lokal, read-only) ----------------
 

@@ -41,3 +41,7 @@ configs/runtimes.json
 # RAHASIA & data pribadi keluarga — jangan pernah di-commit.
 configs/exposure.json
 configs/family-location.json
+
+# NAS: disk pool + rahasia DB Immich per-mesin.
+configs/nas.json
+deploy/immich/.env

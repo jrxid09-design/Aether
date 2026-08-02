@@ -325,6 +325,11 @@ class AetherApi {
     // ---- NAS --------------------------------------------------------
 
     nasStatus()           { return this.request("/nas/status", { timeout: 15000 }); }
+    nasConfig()           { return this.request("/nas/config"); }
+    nasSetConfig(pool)    { return this.request("/nas/config", { method: "POST", body: { pool } }); }
+    immichStatus()        { return this.request("/nas/immich", { timeout: 15000 }); }
+    immichUp()            { return this.request("/nas/immich/up", { method: "POST", timeout: 20000 }); }
+    immichDown()          { return this.request("/nas/immich/down", { method: "POST", timeout: 70000 }); }
 
     // ---- Files ------------------------------------------------------
 
