@@ -1,6 +1,7 @@
 const memory = require("../services/MemoryService");
 const store = require("../stores/MemoryStore");
 const edges = require("../graph/EdgeStore");
+const retriever = require("../retrieval/Retriever");
 const types = require("./types");
 const stm = require("../stm/WorkingSet");
 
@@ -71,6 +72,11 @@ class MemoryEngine {
     link(edge) { return edges.link(edge); }
     unlink(edge) { return edges.unlink(edge); }
     neighbors(node, opts) { return edges.neighbors(node, opts); }
+
+    // ---- Retrieval (subsistem 5) ---------------------------------
+    // Recall hibrida + perluasan graf → {items, edges, strategies}.
+
+    retrieve(query, opts) { return retriever.retrieve(query, opts); }
 
     // ---- Tulis ---------------------------------------------------
     // Subsistem 1: commit langsung (perilaku sekarang dipertahankan).
