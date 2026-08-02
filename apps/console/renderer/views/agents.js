@@ -153,17 +153,24 @@ async function drawHealth(root) {
 
         const { agents: list } = await api.agents();
 
+        const kindIcon = k => k === "reasoner" ? "orb" : k === "actuator" ? "tool" : "activity";
+
         host.innerHTML = list.map(a => `
-            <div class="stat">
-                <div class="label">${icon(a.kind === "reasoner" ? "orb" : a.kind === "actuator" ? "tool" : "activity")} ${esc(a.label)}</div>
-                <div class="value" style="font-size:16px">${pill(a.online ? "siap" : "offline", a.online ? "ok" : "danger")}</div>
-                <div class="meta">${esc(a.description ?? "")}</div>
+            <div class="panel agent-card">
+                <div class="top">
+                    <span class="tile">${icon(kindIcon(a.kind))}</span>
+                    <div style="flex:1;min-width:0">
+                        <div class="row" style="gap:8px">
+                            <span class="nm">${esc(a.label)}</span>
+                            ${pill(a.online ? "online" : "offline", a.online ? "ok" : "idle")}
+                        </div>
+                        <div class="rl">${esc(a.kind ?? "agent")}</div>
+                    </div>
+                </div>
+                ${a.description ? `<div class="desc">${esc(a.description)}</div>` : ""}
                 ${(a.skills ?? []).length ? `
-                    <div class="small dim" style="margin:8px 0 4px">Skill</div>
-                    <div class="row wrap" style="gap:5px">
-                        ${a.skills.map(s => `<span class="tag">${esc(s)}</span>`).join("")}
-                    </div>` : ""}
-                <div class="meta dim" style="margin-top:8px">${esc(a.detail ?? "")}</div>
+                    <div class="skills">${a.skills.map(s => `<span class="tag">${esc(s)}</span>`).join("")}</div>` : ""}
+                ${a.detail ? `<div class="small dim">${esc(a.detail)}</div>` : ""}
             </div>`).join("")
             + `<div class="panel" style="grid-column:1/-1">
                 <div class="small muted">${icon("activity")}
