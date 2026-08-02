@@ -4,6 +4,7 @@ const MemoryService = require("../memory/services/MemoryService");
 const DocumentService = require("../memory/services/DocumentService");
 const EntityStore = require("../memory/stores/EntityStore");
 const EmbeddingService = require("../memory/services/EmbeddingService");
+const MemoryEngine = require("../memory/core/MemoryEngine");
 
 class MemoryController {
 
@@ -416,6 +417,56 @@ class MemoryController {
             next(error);
         }
 
+    }
+
+    // ---- Governance (proposal memori ask-tier) --------------------
+
+    async proposals(req, res, next) {
+        try {
+            return response.success(res, "Proposal memori", {
+                items: await MemoryEngine.pending({
+                    limit: Math.min(Number(req.query.limit ?? 100), 300)
+                })
+            });
+        }
+        catch (error) {
+            next(error);
+        }
+    }
+
+    async approveProposal(req, res, next) {
+        try {
+            return response.success(res, "Proposal disetujui",
+                await MemoryEngine.approve(Number(req.params.id), { actor: req.body?.actor ?? "user" }));
+        }
+        catch (error) {
+            return response.error(res, error.message, 400);
+        }
+    }
+
+    async rejectProposal(req, res, next) {
+        try {
+            return response.success(res, "Proposal ditolak",
+                await MemoryEngine.reject(Number(req.params.id), {
+                    actor: req.body?.actor ?? "user", reason: req.body?.reason ?? null
+                }));
+        }
+        catch (error) {
+            return response.error(res, error.message, 400);
+        }
+    }
+
+    async audit(req, res, next) {
+        try {
+            return response.success(res, "Audit memori", {
+                items: await MemoryEngine.auditLog({
+                    limit: Math.min(Number(req.query.limit ?? 100), 300)
+                })
+            });
+        }
+        catch (error) {
+            next(error);
+        }
     }
 
 }

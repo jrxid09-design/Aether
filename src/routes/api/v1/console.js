@@ -159,6 +159,12 @@ router.post("/memory/documents", memoryController.ingest);
 router.get("/memory/documents/:id/chunks", memoryController.documentChunks);
 router.delete("/memory/documents/:id", memoryController.removeDocument);
 
+// Governance: proposal memori ask-tier + audit. Sebelum "/memory/:id".
+router.get("/memory/proposals", memoryController.proposals);
+router.post("/memory/proposals/:id/approve", memoryController.approveProposal);
+router.post("/memory/proposals/:id/reject", memoryController.rejectProposal);
+router.get("/memory/audit", memoryController.audit);
+
 // Rute ber-parameter ditaruh paling akhir agar tidak menelan
 // "/memory/entities" dan kawan-kawan.
 router.get("/memory/:id", memoryController.get);

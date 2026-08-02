@@ -3,6 +3,7 @@ const store = require("../stores/MemoryStore");
 const edges = require("../graph/EdgeStore");
 const retriever = require("../retrieval/Retriever");
 const consolidator = require("../consolidation/Consolidator");
+const governor = require("../governance/Governor");
 const types = require("./types");
 const stm = require("../stm/WorkingSet");
 
@@ -84,15 +85,15 @@ class MemoryEngine {
 
     consolidate(scope, opts = {}) { return consolidator.consolidate(scope, { engine: this, ...opts }); }
 
-    // ---- Tulis ---------------------------------------------------
-    // Subsistem 1: commit langsung (perilaku sekarang dipertahankan).
-    // Subsistem 7 (Governance) akan mengalihkan tipe ber-tier "ask"
-    // menjadi PROPOSAL, bukan commit — lewat facade yang sama.
+    // ---- Tulis (digerbang Governance, subsistem 7) ---------------
+    // tier "auto" → commit langsung; tier "ask" → PROPOSAL menunggu
+    // persetujuan pengguna. Aether tak pernah menyimpan memori ask-tier
+    // tanpa approve eksplisit.
 
     async remember(content, { type = "semantic", importance, entities = [], metadata = {}, sensitive } = {}, ctx = {}) {
         const key = types.resolve(type);
         const spec = types.spec(key);
-        return memory.remember({
+        const payload = {
             content,
             type: spec.storeType,
             source: ctx.writer || "aether",
@@ -100,8 +101,25 @@ class MemoryEngine {
             sensitive: sensitive ?? spec.sensitive,
             entities,
             metadata: { ...metadata, memoryType: key, scope: ctx.scope ?? metadata.scope ?? null }
-        });
+        };
+        if (spec.tier === "ask") {
+            return governor.propose({
+                kind: "memory", payload, memoryType: key,
+                writer: ctx.writer || "aether", role: ctx.role || "superadmin",
+                reason: metadata.reason || null
+            });
+        }
+        return memory.remember(payload);
     }
+
+    // ---- Governance API ------------------------------------------
+
+    propose(entry) { return governor.propose(entry); }
+    pending(opts) { return governor.pending(opts); }
+    approve(id, opts) { return governor.approve(id, opts); }
+    reject(id, opts) { return governor.reject(id, opts); }
+    rollback(memoryId, opts) { return governor.rollback(memoryId, opts); }
+    auditLog(opts) { return governor.audit(opts); }
 
 }
 
