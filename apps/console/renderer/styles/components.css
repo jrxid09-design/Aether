@@ -1457,7 +1457,24 @@ input[type="range"]::-webkit-slider-thumb {
 .dev-card.on .tile { color: var(--ok); background: linear-gradient(135deg, rgba(52,211,153,0.2), rgba(34,211,238,0.12)); }
 .dev-card .dev-controls { margin-top: auto; }
 
-/* CCTV mini grid. */
+/* CCTV — kartu kamera (view Vision). */
+.cctv-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; padding: 4px 16px 0; }
+.cctv-card {
+    display: flex; flex-direction: column; gap: 10px;
+    padding: 10px;
+    background: var(--bg-inset);
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+}
+.cctv-card .cctv-thumb { margin: 0; }
+.cctv-card .cctv-thumb .placeholder { display: grid; place-items: center; gap: 6px; }
+.cctv-card .cctv-thumb .placeholder .icon { width: 26px; height: 26px; opacity: 0.5; }
+.cctv-meta { display: flex; align-items: center; gap: 8px; }
+.cctv-meta > div:first-child { flex: 1; min-width: 0; }
+.cctv-meta .title { font-size: 12.5px; font-weight: 560; }
+.cctv-meta .sub { font-size: 10.5px; color: var(--text-dim); }
+
+/* CCTV mini grid (dashboard). */
 .cctv-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 @media (max-width: 1400px) { .cctv-grid { grid-template-columns: repeat(2, 1fr); } }
 .cctv-cell {

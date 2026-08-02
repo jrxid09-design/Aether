@@ -233,18 +233,25 @@ async function drawCameras(root) {
             return;
         }
 
-        host.innerHTML = cameras.map(c => `
-            <div class="list-item" data-cam="${esc(c.id)}" style="flex-wrap:wrap">
-                <div style="min-width:0;flex:1">
-                    <div class="title">${esc(c.label)} <span class="tag mono">${esc(c.id)}</span></div>
-                    <div class="sub mono truncate" style="max-width:260px">${esc(c.snapshotUrl)}</div>
+        host.innerHTML = `<div class="cctv-cards">` + cameras.map(c => `
+            <div class="cctv-card" data-cam="${esc(c.id)}">
+                <div class="video-frame cctv-thumb" data-live>
+                    <div class="placeholder">${icon("camera")}<div>${esc(c.label)}</div>
+                        <div class="small dim">tekan Live untuk pratinjau</div></div>
                 </div>
-                <button class="btn sm" data-live-btn>${icon("play")} Live</button>
-                <button class="btn sm" data-see>${icon("orb")} Lihat</button>
-                <button class="btn sm danger" data-del>${icon("trash")}</button>
-                <div class="video-frame" data-live style="flex-basis:100%;margin-top:8px;display:none"></div>
-                <div class="quote" data-out style="flex-basis:100%;margin-top:8px;display:none"></div>
-            </div>`).join("");
+                <div class="cctv-meta">
+                    <div>
+                        <div class="title truncate">${esc(c.label)} <span class="tag mono">${esc(c.id)}</span></div>
+                        <div class="sub mono truncate">${esc(c.snapshotUrl)}</div>
+                    </div>
+                    <div class="row" style="gap:6px">
+                        <button class="btn sm" data-live-btn>${icon("play")} Live</button>
+                        <button class="btn sm" data-see>${icon("orb")} Lihat</button>
+                        <button class="btn sm danger" data-del>${icon("trash")}</button>
+                    </div>
+                </div>
+                <div class="quote" data-out style="display:none"></div>
+            </div>`).join("") + `</div>`;
 
         host.querySelectorAll("[data-cam]").forEach(row => {
             const id = row.dataset.cam;
