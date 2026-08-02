@@ -42,13 +42,14 @@ export const dashboard = {
                 <div class="mc-top">
                     <div class="panel greet">
                         <span class="hello">${greeting()},</span>
-                        <h1>${esc(name)}<span class="dot">.</span></h1>
+                        <h1 id="mc-name">${esc(name)}<span class="dot">.</span></h1>
                         <p>Aether siap membantumu mengelola sistem, data, agent, dan rumah.</p>
                     </div>
                     ${healthHero(o)}
                     <div class="panel mc-clock">
                         <div class="time" id="mc-time">--:--</div>
                         <div class="date" id="mc-date"></div>
+                        <div class="mc-weather" id="mc-weather"></div>
                     </div>
                 </div>
 
@@ -151,6 +152,8 @@ export const dashboard = {
         enrichGraph(root);
         enrichHome(root);
         enrichCctv(root);
+        enrichWeather(root);
+        enrichProfile(root);
     },
 
     unmount() {
@@ -450,6 +453,29 @@ async function enrichHome(root) {
         host.innerHTML = `<div class="empty">${icon("home")}<div>Home Assistant belum terhubung.</div></div>`;
         root.querySelector("#mc-home-count").textContent = "—";
     }
+}
+
+async function enrichWeather(root) {
+    const host = root.querySelector("#mc-weather");
+    if (!host) return;
+    try {
+        const w = await api.weather();
+        host.innerHTML = w.available
+            ? `<span class="w-temp">${w.tempC}°</span>
+               <span class="w-desc">${esc(w.desc)}</span>
+               <span class="w-meta">${esc(w.label)} · 💧${w.humidity ?? "?"}% · 💨${Math.round(w.wind ?? 0)}km/j</span>`
+            : `<span class="w-meta">${esc(w.reason ?? "cuaca tak tersedia")}</span>`;
+    }
+    catch { host.innerHTML = ""; }
+}
+
+async function enrichProfile(root) {
+    try {
+        const p = await api.profile();
+        const el = root.querySelector("#mc-name");
+        if (el && p?.name) el.innerHTML = `${esc(p.name)}<span class="dot">.</span>`;
+    }
+    catch { /* pakai default */ }
 }
 
 async function enrichCctv(root) {

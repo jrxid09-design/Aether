@@ -21,6 +21,7 @@ const runtimeController = require("../../../controllers/runtimeController");
 const exposureController = require("../../../controllers/exposureController");
 const nasController = require("../../../controllers/nasController");
 const filesController = require("../../../controllers/filesController");
+const personalController = require("../../../controllers/personalController");
 
 const router = express.Router();
 
@@ -222,5 +223,12 @@ router.post("/nas/monitor/check", nasController.monitorCheck);
 // ---- Files (penjelajah berkas lokal, read-only) ----------------
 
 router.get("/files", filesController.list);
+
+// ---- Cuaca & profil (dashboard) --------------------------------
+
+router.get("/weather", personalController.weather);
+router.post("/weather/config", personalController.weatherConfig);
+router.get("/profile", personalController.profile);
+router.post("/profile", personalController.saveProfile);
 
 module.exports = router;

@@ -45,3 +45,7 @@ configs/family-location.json
 # NAS: disk pool + rahasia DB Immich per-mesin.
 configs/nas.json
 deploy/immich/.env
+
+# Personalisasi per-mesin (lokasi cuaca, nama pemilik).
+configs/weather.json
+configs/profile.json

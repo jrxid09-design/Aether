@@ -347,6 +347,12 @@ class AetherApi {
 
     files(p)              { return this.request(`/files${p ? `?path=${encodeURIComponent(p)}` : ""}`, { timeout: 15000 }); }
 
+    // ---- Cuaca & profil --------------------------------------------
+
+    weather()             { return this.request("/weather", { timeout: 12000 }); }
+    profile()             { return this.request("/profile"); }
+    saveProfile(name)     { return this.request("/profile", { method: "POST", body: { name } }); }
+
     // ---- Chat streaming --------------------------------------------
 
     /**
