@@ -330,6 +330,11 @@ class AetherApi {
     immichStatus()        { return this.request("/nas/immich", { timeout: 15000 }); }
     immichUp()            { return this.request("/nas/immich/up", { method: "POST", timeout: 20000 }); }
     immichDown()          { return this.request("/nas/immich/down", { method: "POST", timeout: 70000 }); }
+    nasPools()            { return this.request("/nas/pools", { timeout: 15000 }); }
+    backups()             { return this.request("/nas/backup"); }
+    backupAdd(job)        { return this.request("/nas/backup", { method: "POST", body: job }); }
+    backupRun(id)         { return this.request(`/nas/backup/${encodeURIComponent(id)}/run`, { method: "POST", timeout: 300000 }); }
+    backupRemove(id)      { return this.request(`/nas/backup/${encodeURIComponent(id)}`, { method: "DELETE" }); }
 
     // ---- Files ------------------------------------------------------
 

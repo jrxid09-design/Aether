@@ -39,9 +39,15 @@ async function draw(root) {
     const body = root.querySelector("#nas-body");
     body.innerHTML = `<div class="panel"><div class="row"><span class="spinner"></span><span class="small muted">Membaca DiskStation…</span></div></div>`;
 
-    let s, immich, cfg;
+    let s, immich, cfg, pools, backups;
     try {
-        [s, immich, cfg] = await Promise.all([api.nasStatus(), api.immichStatus().catch(() => null), api.nasConfig().catch(() => ({ pool: null }))]);
+        [s, immich, cfg, pools, backups] = await Promise.all([
+            api.nasStatus(),
+            api.immichStatus().catch(() => null),
+            api.nasConfig().catch(() => ({ pool: null })),
+            api.nasPools().catch(() => null),
+            api.backups().catch(() => ({ jobs: [] }))
+        ]);
     }
     catch (e) { body.innerHTML = `<div class="panel"><div class="empty">${icon("alert")}<div class="danger-text">${esc(e.message)}</div></div></div>`; return; }
 
@@ -60,6 +66,10 @@ async function draw(root) {
             ${storagePanel(s, pool)}
             ${appCenter(immich, pool)}
         </div>
+
+        ${raidPanel(pools)}
+
+        ${backupPanel(backups, pool)}
 
         <div class="grid cols-2">
             <div class="panel">
@@ -137,6 +147,73 @@ function appCenter(immich, pool) {
                 <div class="dim">1. Install app <strong>Immich</strong> dari App Store.
                 2. Server URL: <span class="mono">http://${esc(lastIp)}:2283</span>.
                 3. Login, aktifkan <em>Backup</em> → foto &amp; video otomatis masuk NAS.</div>
+            </div>
+        </div>`;
+}
+
+function raidPanel(pools) {
+    if (!pools || !pools.supported) {
+        return `<div class="panel"><div class="panel-head"><h2>${icon("box")} Storage Pool (RAID / Storage Spaces)</h2></div>
+            <div class="small dim">Hanya di Windows. Storage Spaces menggabungkan 2+ disk jadi satu volume tahan-gagal.</div></div>`;
+    }
+    const cmd = `powershell -ExecutionPolicy Bypass -File deploy\\nas\\create-storage-space.ps1 -Resiliency Mirror -DriveLetter N`;
+    return `
+        <div class="panel">
+            <div class="panel-head"><h2>${icon("box")} Storage Pool (RAID / Storage Spaces)</h2>
+                <span class="hint push">${pools.pools.length} pool · ${pools.candidates.length} disk siap</span></div>
+
+            ${pools.pools.length
+                ? `<div class="scroll-x"><table class="table">
+                    <thead><tr><th>Volume</th><th>Resiliency</th><th>Ukuran</th><th>Kesehatan</th></tr></thead>
+                    <tbody>${pools.pools.map(p => `<tr>
+                        <td>${esc(p.name)}</td>
+                        <td>${pill(esc(p.resiliency || "—"), "idle")}</td>
+                        <td class="mono small">${p.sizeGB ? p.sizeGB + " GB" : "—"}</td>
+                        <td>${pill(esc(p.health || "?"), p.health === "Healthy" ? "ok" : "warn")}</td>
+                    </tr>`).join("")}</tbody></table></div>`
+                : `<div class="small dim">Belum ada Storage Pool.</div>`}
+
+            <div class="divider"></div>
+            <div class="small" style="margin-bottom:6px">
+                <strong>Disk yang bisa di-pool:</strong>
+                ${pools.candidates.length
+                    ? pools.candidates.map(d => `<span class="tag">${esc(d.name)} · ${d.sizeGB} GB${d.media ? " · " + esc(d.media) : ""}</span>`).join(" ")
+                    : `<span class="dim">tak ada (disk harus kosong/tak berpartisi)</span>`}
+            </div>
+            <div class="small warn-text" style="margin:6px 0">${icon("alert")} Membuat pool MENGHAPUS seluruh data di disk terpilih. Jalankan sebagai Administrator di PC rumah:</div>
+            <div class="code-view" id="raid-cmd">${esc(cmd)}</div>
+            <button class="btn sm" id="raid-copy" style="margin-top:8px">${icon("copy")} Salin perintah</button>
+        </div>`;
+}
+
+function backupPanel(data, pool) {
+    const list = data?.jobs ?? [];
+    const defDest = pool ? `${pool}\\backup` : "D:\\AetherNAS\\backup";
+    return `
+        <div class="panel">
+            <div class="panel-head"><h2>${icon("refresh")} Backup Terjadwal</h2>
+                <span class="hint push">${list.length} job</span></div>
+            <p class="small dim" style="margin:-6px 0 12px">Salinan berkala folder → NAS. Aman: hanya menambah/menimpa, tak pernah menghapus di tujuan.</p>
+
+            ${list.length ? `<div class="scroll-x"><table class="table">
+                <thead><tr><th>Nama</th><th>Sumber → Tujuan</th><th>Tiap</th><th>Terakhir</th><th style="width:1%"></th></tr></thead>
+                <tbody>${list.map(j => `<tr data-job="${esc(j.id)}">
+                    <td>${esc(j.name)}</td>
+                    <td class="mono small truncate" style="max-width:340px">${esc(j.source)} → ${esc(j.dest)}</td>
+                    <td class="small">${esc(j.intervalHours)} jam</td>
+                    <td>${j.lastRun ? pill(esc(j.lastStatus ?? "?"), j.lastStatus === "ok" ? "ok" : "danger") : `<span class="small dim">belum</span>`}</td>
+                    <td><div class="row" style="gap:4px">
+                        <button class="btn sm" data-run>${icon("play")}</button>
+                        <button class="btn sm danger" data-del>${icon("trash")}</button>
+                    </div></td>
+                </tr>`).join("")}</tbody></table></div><div class="divider"></div>` : ""}
+
+            <div class="grid cols-4" style="gap:8px;align-items:end">
+                <div class="field"><label>Nama</label><input type="text" id="bk-name" placeholder="Foto HP"></div>
+                <div class="field" style="grid-column:span 2"><label>Folder sumber</label><input type="text" id="bk-src" class="mono" placeholder="C:\\Users\\..\\Pictures"></div>
+                <div class="field"><label>Tiap (jam)</label><input type="number" id="bk-int" value="24" min="1"></div>
+                <div class="field" style="grid-column:span 3"><label>Folder tujuan (di NAS)</label><input type="text" id="bk-dst" class="mono" value="${esc(defDest)}"></div>
+                <div><button class="btn primary" id="bk-add" style="width:100%">${icon("plus")} Tambah</button></div>
             </div>
         </div>`;
 }
@@ -233,5 +310,36 @@ function wire(root, s) {
     root.querySelector("#smb-copy")?.addEventListener("click", () => {
         const cmd = root.querySelector("#smb-cmd")?.textContent ?? "";
         navigator.clipboard.writeText(cmd).then(() => toast("Perintah disalin", "ok"));
+    });
+
+    root.querySelector("#raid-copy")?.addEventListener("click", () => {
+        const cmd = root.querySelector("#raid-cmd")?.textContent ?? "";
+        navigator.clipboard.writeText(cmd).then(() => toast("Perintah disalin", "ok"));
+    });
+
+    // Backup
+    root.querySelector("#bk-add")?.addEventListener("click", async () => {
+        const job = {
+            name: root.querySelector("#bk-name").value.trim(),
+            source: root.querySelector("#bk-src").value.trim(),
+            dest: root.querySelector("#bk-dst").value.trim(),
+            intervalHours: Number(root.querySelector("#bk-int").value) || 24
+        };
+        if (!job.source || !job.dest) return toast("Folder sumber & tujuan wajib diisi.", "warn");
+        try { await api.backupAdd(job); toast("Job backup dibuat", "ok"); draw(root); }
+        catch (e) { toast(e.message, "danger"); }
+    });
+    root.querySelectorAll("[data-job]").forEach(tr => {
+        const id = tr.dataset.job;
+        tr.querySelector("[data-run]")?.addEventListener("click", async () => {
+            toast("Menjalankan backup…", "ok");
+            try { const r = await api.backupRun(id); toast(`Backup ${r.status} (exit ${r.code})`, r.status === "ok" ? "ok" : "danger"); draw(root); }
+            catch (e) { toast(e.message, "danger"); }
+        });
+        tr.querySelector("[data-del]")?.addEventListener("click", async () => {
+            if (!window.confirm("Hapus job backup ini?")) return;
+            try { await api.backupRemove(id); draw(root); }
+            catch (e) { toast(e.message, "danger"); }
+        });
     });
 }

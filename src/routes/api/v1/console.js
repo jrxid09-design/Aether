@@ -211,6 +211,11 @@ router.post("/nas/config", nasController.setConfig);
 router.get("/nas/immich", nasController.immichStatus);
 router.post("/nas/immich/up", nasController.immichUp);
 router.post("/nas/immich/down", nasController.immichDown);
+router.get("/nas/pools", nasController.pools);
+router.get("/nas/backup", nasController.backups);
+router.post("/nas/backup", nasController.addBackup);
+router.post("/nas/backup/:id/run", nasController.runBackup);
+router.delete("/nas/backup/:id", nasController.removeBackup);
 
 // ---- Files (penjelajah berkas lokal, read-only) ----------------
 

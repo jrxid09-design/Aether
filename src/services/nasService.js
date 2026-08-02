@@ -146,6 +146,29 @@ async function smb() {
     catch { return { supported: true, shared: false, name }; }
 }
 
+/** Storage Spaces: virtual disk (pool RAID) yang ada + disk yang bisa di-pool. */
+async function storagePools() {
+    if (process.platform !== "win32") return { supported: false, pools: [], candidates: [] };
+    const pools = [], candidates = [];
+    try {
+        const { stdout } = await pexec("powershell", ["-NoProfile", "-NonInteractive", "-Command",
+            "Get-VirtualDisk -ErrorAction SilentlyContinue | Select-Object FriendlyName,ResiliencySettingName,@{n='SizeGB';e={[math]::Round($_.Size/1GB,1)}},HealthStatus | ConvertTo-Json -Compress"], OPTS);
+        let a = stdout.trim() ? JSON.parse(stdout) : [];
+        if (!Array.isArray(a)) a = [a];
+        pools.push(...a.map(v => ({ name: v.FriendlyName, resiliency: v.ResiliencySettingName, sizeGB: v.SizeGB, health: v.HealthStatus })));
+    }
+    catch { /* Storage Spaces tak ada */ }
+    try {
+        const { stdout } = await pexec("powershell", ["-NoProfile", "-NonInteractive", "-Command",
+            "Get-PhysicalDisk -CanPool $true -ErrorAction SilentlyContinue | Select-Object FriendlyName,@{n='SizeGB';e={[math]::Round($_.Size/1GB,1)}},MediaType | ConvertTo-Json -Compress"], OPTS);
+        let a = stdout.trim() ? JSON.parse(stdout) : [];
+        if (!Array.isArray(a)) a = [a];
+        candidates.push(...a.map(d => ({ name: d.FriendlyName, sizeGB: d.SizeGB, media: d.MediaType })));
+    }
+    catch { /* tak ada disk kandidat */ }
+    return { supported: true, pools, candidates };
+}
+
 class NasService {
     async status() {
         const [vols, sm, dk, sh] = await Promise.all([volumes(), smart(), docker(), smb()]);
@@ -168,6 +191,7 @@ class NasService {
 
     config() { return config(); }
     setConfig(patch) { return setConfig(patch); }
+    pools() { return storagePools(); }
 }
 
 module.exports = new NasService();
