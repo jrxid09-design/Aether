@@ -18,6 +18,7 @@ const automationController = require("../../../controllers/automationController"
 const roleController = require("../../../controllers/roleController");
 const terminalController = require("../../../controllers/terminalController");
 const runtimeController = require("../../../controllers/runtimeController");
+const exposureController = require("../../../controllers/exposureController");
 
 const router = express.Router();
 
@@ -186,5 +187,18 @@ router.put("/devices", deviceController.update);
 router.post("/devices/sensors", deviceController.addSensor);
 router.delete("/devices/sensors/:id", deviceController.removeSensor);
 router.get("/devices/sensors/readings", deviceController.readSensors);
+
+// ---- Cek Paparan Data (HIBP, akun sendiri/keluarga berizin) ----
+
+router.get("/exposure", exposureController.status);
+router.post("/exposure/config", exposureController.configure);
+router.post("/exposure/check", exposureController.check);
+
+// ---- Berbagi Lokasi Keluarga (opt-in, bukan pelacakan nomor) ----
+
+router.get("/family/location", exposureController.members);
+router.post("/family/location/register", exposureController.register);
+router.post("/family/location/update", exposureController.updateLocation);
+router.post("/family/location/:id/revoke", exposureController.revoke);
 
 module.exports = router;

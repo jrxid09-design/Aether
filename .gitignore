@@ -37,3 +37,7 @@ configs/face.json
 # Sesi login WhatsApp (Baileys) — kredensial perangkat, per-mesin.
 configs/wa-auth/
 configs/runtimes.json
+
+# RAHASIA & data pribadi keluarga — jangan pernah di-commit.
+configs/exposure.json
+configs/family-location.json
