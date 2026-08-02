@@ -472,7 +472,9 @@ function startPolling() {
 
             updateChrome();
 
-            refreshActiveView();
+            // Catatan: dashboard TIDAK di-render ulang tiap poll — agar chat
+            // tertanam & interaksi tak terputus. Angka live tetap di status bar
+            // (updateChrome). Dashboard menyegarkan saat dibuka/berpindah view.
 
         }
 

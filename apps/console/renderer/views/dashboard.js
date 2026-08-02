@@ -2,6 +2,7 @@ import { store } from "../lib/store.js";
 import { api } from "../lib/api.js";
 import { icon } from "../lib/icons.js";
 import { esc, bytes, duration, relativeTime, gauge, sparkline, toast } from "../lib/ui.js";
+import { chat } from "./chat.js";
 
 /**
  * Dashboard — "Mission Control" Aether.
@@ -51,6 +52,14 @@ export const dashboard = {
                 </div>
 
                 ${metricsRow(o, state.history)}
+
+                <div class="panel" style="padding:0" id="mc-chat-panel">
+                    <div class="panel-head" style="padding:14px 18px 2px">
+                        <h2>${icon("chat")} Chat dengan Aether</h2>
+                        <span class="hint push">alur nyata: intent → planner → tool → jawaban</span>
+                    </div>
+                    <div id="mc-chat"></div>
+                </div>
 
                 <div class="grid cols-2">
                     <div class="panel">
@@ -128,6 +137,13 @@ export const dashboard = {
 
         if (!store.get().connected) return;
 
+        // Chat tertanam: pakai ulang modul chat (streaming + alur) di panel.
+        const chatEl = root.querySelector("#mc-chat");
+        if (chatEl) {
+            chat.render(chatEl);
+            chat.mount(chatEl);
+        }
+
         enrichAgents(root);
         enrichProposals(root);
         enrichGraph(root);
@@ -138,6 +154,7 @@ export const dashboard = {
     unmount() {
         clearInterval(clockTimer);
         clockTimer = null;
+        try { chat.unmount?.(); } catch { /* abaikan */ }
     }
 
 };
