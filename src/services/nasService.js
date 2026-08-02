@@ -24,8 +24,8 @@ function config() {
     return cfgStore.read();
 }
 
-/** Set disk pool NAS (folder di salah satu disk). Validasi keberadaannya. */
-function setConfig({ pool } = {}) {
+/** Set disk pool NAS + ambang kuota peringatan. */
+function setConfig({ pool, quotaPercent } = {}) {
     if (pool !== undefined && pool !== null) {
         const p = String(pool);
         if (!fsx.existsSync(p)) {
@@ -34,8 +34,16 @@ function setConfig({ pool } = {}) {
         }
         cfgStore.write({ pool: p });
     }
+    if (quotaPercent !== undefined) {
+        const q = Math.max(50, Math.min(99, Number(quotaPercent) || 90));
+        const c = cfgStore.read();
+        cfgStore.write({ alerts: { ...(c.alerts || {}), quotaPercent: q } });
+    }
     return config();
 }
+
+/** Ambang kuota peringatan disk (persen), default 90. */
+function quotaPercent() { return Number(config().alerts?.quotaPercent) || 90; }
 
 /**
  * nasService — status penyimpanan & host untuk view NAS.
@@ -191,6 +199,7 @@ class NasService {
 
     config() { return config(); }
     setConfig(patch) { return setConfig(patch); }
+    quotaPercent() { return quotaPercent(); }
     pools() { return storagePools(); }
 }
 

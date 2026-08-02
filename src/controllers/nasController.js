@@ -2,6 +2,8 @@ const response = require("../utils/response");
 const nasService = require("../services/nasService");
 const immichDeploy = require("../services/immichDeployService");
 const backup = require("../services/backupService");
+const notify = require("../services/notifyService");
+const nasMonitor = require("../services/nasMonitorService");
 
 class NasController {
 
@@ -14,14 +16,29 @@ class NasController {
         try {
             const c = nasService.config();
             // Jangan bocorkan password DB Immich.
-            return response.success(res, "NAS config", { pool: c.pool });
+            return response.success(res, "NAS config", { pool: c.pool, quotaPercent: c.alerts?.quotaPercent ?? 90 });
         }
         catch (error) { next(error); }
     }
 
     async setConfig(req, res, next) {
-        try { return response.success(res, "NAS config disimpan", { pool: nasService.setConfig(req.body ?? {}).pool }); }
+        try {
+            const c = nasService.setConfig(req.body ?? {});
+            return response.success(res, "NAS config disimpan", { pool: c.pool, quotaPercent: c.alerts?.quotaPercent ?? 90 });
+        }
         catch (error) { return response.error(res, error.message, 400); }
+    }
+
+    // ---- Notifikasi & pemantau ----------------------------------
+
+    async testNotify(req, res, next) {
+        try { return response.success(res, "Uji notifikasi", await notify.send("🔔 Uji notifikasi Aether NAS — kanal WhatsApp aktif.")); }
+        catch (error) { return response.error(res, error.message, 400); }
+    }
+
+    async monitorCheck(req, res, next) {
+        try { return response.success(res, "Pemeriksaan disk", await nasMonitor.check()); }
+        catch (error) { next(error); }
     }
 
     // ---- Immich (app center) -------------------------------------

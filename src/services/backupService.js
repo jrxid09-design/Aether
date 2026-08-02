@@ -40,6 +40,7 @@ function add({ name, source, dest, intervalHours = 24 } = {}) {
         name: name || path.basename(source),
         source, dest,
         intervalHours: Math.max(1, Number(intervalHours) || 24),
+        notify: true,
         paused: false, lastRun: null, lastStatus: null, lastLog: null,
         createdAt: new Date().toISOString()
     };
@@ -89,6 +90,14 @@ async function run(id) {
     job.lastLog = `exit ${r.code}\n${r.log}`.slice(-2000);
     save(list);
     telemetry[r.ok ? "info" : "warn"](`[backup] '${job.name}' ${job.lastStatus} (exit ${r.code})`);
+
+    if (job.notify !== false) {
+        const emoji = r.ok ? "✅" : "⚠️";
+        require("./notifyService").send(
+            `${emoji} Backup "${job.name}" ${job.lastStatus}.\n` +
+            `${job.source} → ${job.dest}\n${new Date().toLocaleString("id-ID")}`
+        );
+    }
     return { id, status: job.lastStatus, code: r.code };
 }
 

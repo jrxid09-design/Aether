@@ -326,7 +326,12 @@ class AetherApi {
 
     nasStatus()           { return this.request("/nas/status", { timeout: 15000 }); }
     nasConfig()           { return this.request("/nas/config"); }
-    nasSetConfig(pool)    { return this.request("/nas/config", { method: "POST", body: { pool } }); }
+    nasSetConfig(pool, quotaPercent) {
+        const body = {};
+        if (pool !== undefined) body.pool = pool;
+        if (quotaPercent !== undefined) body.quotaPercent = quotaPercent;
+        return this.request("/nas/config", { method: "POST", body });
+    }
     immichStatus()        { return this.request("/nas/immich", { timeout: 15000 }); }
     immichUp()            { return this.request("/nas/immich/up", { method: "POST", timeout: 20000 }); }
     immichDown()          { return this.request("/nas/immich/down", { method: "POST", timeout: 70000 }); }
@@ -335,6 +340,8 @@ class AetherApi {
     backupAdd(job)        { return this.request("/nas/backup", { method: "POST", body: job }); }
     backupRun(id)         { return this.request(`/nas/backup/${encodeURIComponent(id)}/run`, { method: "POST", timeout: 300000 }); }
     backupRemove(id)      { return this.request(`/nas/backup/${encodeURIComponent(id)}`, { method: "DELETE" }); }
+    nasTestNotify()       { return this.request("/nas/notify/test", { method: "POST", timeout: 20000 }); }
+    nasMonitorCheck()     { return this.request("/nas/monitor/check", { method: "POST", timeout: 20000 }); }
 
     // ---- Files ------------------------------------------------------
 

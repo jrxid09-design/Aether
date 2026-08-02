@@ -71,6 +71,8 @@ async function draw(root) {
 
         ${backupPanel(backups, pool)}
 
+        ${notifyPanel(cfg)}
+
         <div class="grid cols-2">
             <div class="panel">
                 <div class="panel-head"><h2>${icon("cpu")} Kesehatan Disk (SMART)</h2></div>
@@ -218,6 +220,29 @@ function backupPanel(data, pool) {
         </div>`;
 }
 
+function notifyPanel(cfg) {
+    const q = cfg?.quotaPercent ?? 90;
+    return `
+        <div class="panel">
+            <div class="panel-head"><h2>${icon("activity")} Notifikasi &amp; Peringatan Disk</h2></div>
+            <div class="small dim" style="margin-bottom:10px">
+                Hasil backup dan peringatan disk dikirim otomatis ke WhatsApp (nomor pemilik yang diizinkan di Settings).
+            </div>
+            <div class="grid cols-3" style="gap:10px;align-items:end">
+                <div class="field">
+                    <label>Ambang kuota disk (%)</label>
+                    <input type="number" id="nas-quota" min="50" max="99" value="${esc(q)}">
+                    <span class="help">Peringatan bila pemakaian volume melewati ini.</span>
+                </div>
+                <div><button class="btn primary sm" id="nas-quota-save" style="width:100%">${icon("check")} Simpan</button></div>
+                <div class="row" style="gap:8px">
+                    <button class="btn ghost sm" id="nas-notify-test">${icon("chat")} Uji WA</button>
+                    <button class="btn ghost sm" id="nas-monitor-now">${icon("refresh")} Cek sekarang</button>
+                </div>
+            </div>
+        </div>`;
+}
+
 function smbPanel(s, pool) {
     const sh = s.smb || {};
     const cmd = `powershell -ExecutionPolicy Bypass -File deploy\\nas\\share-smb.ps1 -Pool "${pool || "D:\\AetherNAS"}"`;
@@ -315,6 +340,21 @@ function wire(root, s) {
     root.querySelector("#raid-copy")?.addEventListener("click", () => {
         const cmd = root.querySelector("#raid-cmd")?.textContent ?? "";
         navigator.clipboard.writeText(cmd).then(() => toast("Perintah disalin", "ok"));
+    });
+
+    // Notifikasi & pemantau disk
+    root.querySelector("#nas-quota-save")?.addEventListener("click", async () => {
+        const quotaPercent = Number(root.querySelector("#nas-quota").value) || 90;
+        try { await api.nasSetConfig(undefined, quotaPercent); toast(`Ambang kuota: ${quotaPercent}%`, "ok"); }
+        catch (e) { toast(e.message, "danger"); }
+    });
+    root.querySelector("#nas-notify-test")?.addEventListener("click", async () => {
+        try { const r = await api.nasTestNotify(); toast(r.sent > 0 ? `Terkirim ke ${r.sent} nomor` : "Tak ada nomor WA aktif", r.sent > 0 ? "ok" : "warn"); }
+        catch (e) { toast(e.message, "danger"); }
+    });
+    root.querySelector("#nas-monitor-now")?.addEventListener("click", async () => {
+        try { const r = await api.nasMonitorCheck(); toast(`Dicek — ${r.issues ?? 0} masalah, ${r.alerted ?? 0} peringatan dikirim`, "ok"); }
+        catch (e) { toast(e.message, "danger"); }
     });
 
     // Backup

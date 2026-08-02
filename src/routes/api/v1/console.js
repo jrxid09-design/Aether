@@ -216,6 +216,8 @@ router.get("/nas/backup", nasController.backups);
 router.post("/nas/backup", nasController.addBackup);
 router.post("/nas/backup/:id/run", nasController.runBackup);
 router.delete("/nas/backup/:id", nasController.removeBackup);
+router.post("/nas/notify/test", nasController.testNotify);
+router.post("/nas/monitor/check", nasController.monitorCheck);
 
 // ---- Files (penjelajah berkas lokal, read-only) ----------------
 
