@@ -2,6 +2,7 @@ const memory = require("../services/MemoryService");
 const store = require("../stores/MemoryStore");
 const edges = require("../graph/EdgeStore");
 const retriever = require("../retrieval/Retriever");
+const consolidator = require("../consolidation/Consolidator");
 const types = require("./types");
 const stm = require("../stm/WorkingSet");
 
@@ -77,6 +78,11 @@ class MemoryEngine {
     // Recall hibrida + perluasan graf → {items, edges, strategies}.
 
     retrieve(query, opts) { return retriever.retrieve(query, opts); }
+
+    // ---- Consolidation (subsistem 6) -----------------------------
+    // STM → kandidat LTM. auto di-commit, ask jadi pending (→ proposal).
+
+    consolidate(scope, opts = {}) { return consolidator.consolidate(scope, { engine: this, ...opts }); }
 
     // ---- Tulis ---------------------------------------------------
     // Subsistem 1: commit langsung (perilaku sekarang dipertahankan).
