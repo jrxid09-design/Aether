@@ -6,7 +6,7 @@
     position: relative;
     z-index: 1;
     display: grid;
-    grid-template-rows: var(--titlebar-h) 1fr;
+    grid-template-rows: var(--titlebar-h) 1fr var(--statusbar-h);
     height: 100vh;
 }
 

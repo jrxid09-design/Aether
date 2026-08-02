@@ -203,6 +203,10 @@ class AetherApi {
 
     removeDocument(id)  { return this.request(`/memory/documents/${id}`, { method: "DELETE" }); }
 
+    memoryProposals()      { return this.request("/memory/proposals"); }
+    approveProposal(id)    { return this.request(`/memory/proposals/${id}/approve`, { method: "POST" }); }
+    rejectProposal(id)     { return this.request(`/memory/proposals/${id}/reject`, { method: "POST" }); }
+
     embeddingStatus()   { return this.request("/memory/embeddings"); }
 
     backfillEmbeddings() {

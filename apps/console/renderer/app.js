@@ -2,6 +2,7 @@ import { store } from "./lib/store.js";
 import { api } from "./lib/api.js";
 import { icon, brandMark } from "./lib/icons.js";
 import { $, esc, pill, toast } from "./lib/ui.js";
+import { openCommandPalette } from "./lib/commandPalette.js";
 
 import { dashboard } from "./views/dashboard.js";
 import { awareness } from "./views/awareness.js";
@@ -136,6 +137,26 @@ function navigate(id) {
 
 }
 
+/** Daftar perintah untuk command palette: semua view + aksi cepat. */
+function paletteItems() {
+
+    const items = VIEWS.map(v => ({
+        icon: v.icon,
+        name: v.label,
+        group: "Halaman",
+        run: () => navigate(v.id)
+    }));
+
+    const connected = store.get().connected;
+
+    items.push(
+        { icon: connected ? "x" : "plug", name: connected ? "Putuskan daemon" : "Hubungkan daemon", group: "Aksi", run: () => connected ? disconnect() : connect() },
+        { icon: "refresh", name: "Periksa ulang integrasi", group: "Aksi", run: async () => { try { await api.checkIntegrations(); toast("Integrasi diperiksa ulang", "ok"); } catch (e) { toast(e.message, "danger"); } } }
+    );
+
+    return items;
+}
+
 /** Gambar ulang view aktif bila ia bergantung pada state global. */
 function refreshActiveView() {
 
@@ -187,6 +208,45 @@ function updateChrome() {
     setCount("integrations", o ? `${o.integrations.summary.online}/${o.integrations.summary.enabled}` : "");
     setCount("logs", state.logs.length || "");
 
+    updateStatusBar(state);
+
+}
+
+/** Bottom status bar — denyut sistem yang selalu terlihat. */
+function updateStatusBar(state) {
+
+    const bar = $("#statusbar");
+    if (!bar) return;
+
+    const o = state.overview;
+    const online = state.connected;
+
+    const seg = (cls, label, val) =>
+        `<span class="seg ${cls}"><span class="d"></span><span class="lbl">${esc(label)}</span>${val != null ? `<span class="val">${esc(val)}</span>` : ""}</span>`;
+
+    if (!online || !o) {
+        bar.innerHTML = seg("off", "Daemon", "terputus")
+            + `<span class="seg push"><span class="lbl">Aether OS</span></span>`;
+        return;
+    }
+
+    const s = o.integrations.summary;
+    bar.innerHTML =
+        seg("on", "Daemon", shortHost(state.settings.daemonUrl))
+        + seg(s.online >= s.enabled ? "on" : "off", "Runtime", `${s.online}/${s.enabled}`)
+        + seg("", "CPU", `${Math.round(o.stats.cpu.usage)}%`)
+        + seg("", "RAM", `${Math.round(o.stats.memory.usedPercent)}%`)
+        + seg("", "Model", (o.ai.active ?? o.ai.defaultModel ?? "—").split("/").pop())
+        + seg("", "Tools", o.tools.total)
+        + seg("", "Uptime", durationShort(o.stats.daemon.uptime))
+        + `<span class="seg push"><span class="lbl">Aether OS</span><span class="val">v${esc(o.daemon.version)}</span></span>`;
+
+}
+
+function durationShort(sec) {
+    if (!Number.isFinite(sec)) return "—";
+    const d = Math.floor(sec / 86400), h = Math.floor((sec / 3600) % 24), m = Math.floor((sec / 60) % 60);
+    return d ? `${d}h ${h}j` : h ? `${h}j ${m}m` : `${m}m`;
 }
 
 function setCount(id, value) {
@@ -430,6 +490,14 @@ async function main() {
     buildTitlebar();
 
     buildSidebar();
+
+    // Command palette global (⌘K / Ctrl+K).
+    document.addEventListener("keydown", e => {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+            e.preventDefault();
+            openCommandPalette(paletteItems());
+        }
+    });
 
     const saved = await window.aether.settings.get();
 

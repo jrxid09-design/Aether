@@ -62,6 +62,7 @@
     --slow: 480ms var(--ease);
 
     --titlebar-h: 40px;
+    --statusbar-h: 30px;
     --sidebar-w: 232px;
 }
 
