@@ -113,16 +113,23 @@ function render(data) {
         : "";
 
     return summary + domains.map(domain => `
-        <div class="panel flush">
-            <div class="panel-head" style="padding:14px 16px 0">
-                <h2>${esc(domainLabel(domain))}</h2>
+        <div class="panel">
+            <div class="panel-head">
+                <h2>${icon(domainIconOf(domain))} ${esc(domainLabel(domain))}</h2>
                 <span class="hint push">${groups[domain].length}</span>
             </div>
-            <div style="padding:8px 0">
+            <div class="home-grid">
                 ${groups[domain].map(deviceRow).join("")}
             </div>
         </div>`).join("");
 
+}
+
+function domainIconOf(domain) {
+    return {
+        light: "activity", switch: "tool", climate: "sensor", fan: "refresh",
+        media_player: "activity", sensor: "sensor", binary_sensor: "sensor", cover: "home"
+    }[domain] ?? "home";
 }
 
 function deviceRow(d) {
@@ -151,13 +158,16 @@ function deviceRow(d) {
             : `<span class="tag mono">${esc(d.state)}</span>`;
 
     return `
-        <div class="list-item" data-device="${esc(d.id)}">
-            <div style="min-width:0;flex:1">
-                <div class="title">${esc(d.name)}</div>
-                <div class="sub mono">${esc(d.id)}</div>
+        <div class="dev-card ${on ? "on" : ""}" data-device="${esc(d.id)}">
+            <div class="row" style="gap:10px;align-items:flex-start">
+                <span class="tile">${icon(domainIconOf(d.domain))}</span>
+                <div style="min-width:0;flex:1">
+                    <div class="title truncate">${esc(d.name)}</div>
+                    <div class="sub mono truncate">${esc(d.id)}</div>
+                </div>
+                ${stateLabel}
             </div>
-            ${stateLabel}
-            <div class="row" style="gap:8px">${controls}</div>
+            ${controls ? `<div class="row dev-controls" style="gap:8px">${controls}</div>` : ""}
         </div>`;
 
 }
