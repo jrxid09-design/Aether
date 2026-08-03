@@ -40,10 +40,44 @@ const PRESETS = {
         modelHint: "mis. gemini-2.0-flash"
     },
     groq: {
-        label: "Groq",
+        label: "Groq (gratis, cepat)",
         baseUrl: "https://api.groq.com/openai/v1",
         kind: "openai",
+        free: true,
         modelHint: "mis. llama-3.3-70b-versatile"
+    },
+    cerebras: {
+        label: "Cerebras (gratis, cepat)",
+        baseUrl: "https://api.cerebras.ai/v1",
+        kind: "openai",
+        free: true,
+        modelHint: "mis. llama-3.3-70b"
+    },
+    mistral: {
+        label: "Mistral (ada tier gratis)",
+        baseUrl: "https://api.mistral.ai/v1",
+        kind: "openai",
+        free: true,
+        modelHint: "mis. mistral-small-latest"
+    },
+    together: {
+        label: "Together AI (ada model gratis)",
+        baseUrl: "https://api.together.xyz/v1",
+        kind: "openai",
+        free: true,
+        modelHint: "mis. meta-llama/Llama-3.3-70B-Instruct-Turbo-Free"
+    },
+    deepseek: {
+        label: "DeepSeek",
+        baseUrl: "https://api.deepseek.com/v1",
+        kind: "openai",
+        modelHint: "mis. deepseek-chat"
+    },
+    anthropic: {
+        label: "Anthropic (Claude)",
+        baseUrl: "https://api.anthropic.com/v1",
+        kind: "openai",
+        modelHint: "mis. claude-sonnet-4 (berbayar; endpoint OpenAI-compat)"
     },
     custom: {
         label: "Custom (OpenAI-compatible)",

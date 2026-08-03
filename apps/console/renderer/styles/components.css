@@ -1494,6 +1494,12 @@ input[type="range"]::-webkit-slider-thumb {
 #mc-chat .view-head { display: none; }
 #mc-chat .chat-layout { height: 440px; min-height: 300px; padding: 0 16px 16px; }
 
+/* Graf pemakaian AI harian (Models). */
+.usage-bars { display: flex; align-items: flex-end; gap: 6px; height: 120px; padding: 6px 0; }
+.usage-bars .ub { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: 4px; min-width: 0; }
+.usage-bars .ub-fill { width: 70%; max-width: 26px; border-radius: 4px 4px 0 0; background: var(--accent-gradient); transition: height var(--base); }
+.usage-bars .ub-x { font-size: 9px; color: var(--text-dim); font-family: var(--font-mono); white-space: nowrap; }
+
 /* AI Activity radial (dashboard). */
 .ai-radial { display: flex; align-items: center; gap: 20px; }
 .ai-orb { position: relative; width: 96px; height: 96px; flex: none; display: grid; place-items: center; }

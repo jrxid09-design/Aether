@@ -645,6 +645,14 @@ class AIRuntimeService {
         }
         else if (status === 429) {
             health.mark(platform, model, "quota", "kuota habis");
+            // Limit harian free biasanya berbunyi "per-day"/"free-models-per-day".
+            const daily = /per[-\s]?day|daily|free-models|quota/i.test(err?.message || "");
+            try {
+                const usage = require("./usageService");
+                usage.recordError(platform);
+                if (daily) usage.markLimited(platform);   // → alert + tandai, jadi bisa pindah provider
+            }
+            catch { /* abaikan */ }
         }
         else {
             return null;    // 5xx / jaringan → bukan salah model, jangan fallback
@@ -805,15 +813,31 @@ class AIRuntimeService {
         const first = this.resolveModel(model);
 
         try {
-            return await this.ensure().chat({ messages: msgs, model: first, temperature, maxTokens, tools });
+            const res = await this.ensure().chat({ messages: msgs, model: first, temperature, maxTokens, tools });
+            this._recordUsage(platform, res);
+            return res;
         }
         catch (error) {
             const next = await this.handleModelFailure(platform, first, error);
             if (!next) throw error;
             // Retry sekali dengan model pengganti (tanpa interaksi pengguna).
-            return await this.ensure().chat({ messages: msgs, model: next, temperature, maxTokens, tools });
+            const res = await this.ensure().chat({ messages: msgs, model: next, temperature, maxTokens, tools });
+            this._recordUsage(this.activePlatform?.id ?? platform, res);
+            return res;
         }
 
+    }
+
+    /** Catat pemakaian token per provider (best-effort; bentuk usage bervariasi). */
+    _recordUsage(platform, res) {
+        try {
+            const u = res?.usage ?? res?.raw?.usage ?? {};
+            require("./usageService").record(platform, {
+                promptTokens: u.prompt_tokens ?? u.promptTokens ?? 0,
+                completionTokens: u.completion_tokens ?? u.completionTokens ?? 0
+            });
+        }
+        catch { /* pencatatan tak boleh menggagalkan chat */ }
     }
 
     async *stream({ messages, model, temperature, maxTokens, tools }) {
@@ -827,11 +851,13 @@ class AIRuntimeService {
         // untuk fallback + retry tanpa dobel-output.
         try {
             yield* this.ensure().stream({ messages: msgs, model: first, temperature, maxTokens, tools, stream: true });
+            try { require("./usageService").record(platform, {}); } catch { /* abaikan */ }
         }
         catch (error) {
             const next = await this.handleModelFailure(platform, first, error);
             if (!next) throw error;
             yield* this.ensure().stream({ messages: msgs, model: next, temperature, maxTokens, tools, stream: true });
+            try { require("./usageService").record(this.activePlatform?.id ?? platform, {}); } catch { /* abaikan */ }
         }
 
     }

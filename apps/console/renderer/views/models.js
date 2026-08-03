@@ -29,6 +29,12 @@ export const models = {
                 <div id="model-body" style="padding:16px">
                     <div class="row"><span class="spinner"></span><span class="small muted">Memuat model…</span></div>
                 </div>
+            </div>
+
+            <div class="panel" style="margin-top:14px">
+                <div class="panel-head"><h2>${icon("activity")} Pemakaian AI Harian</h2>
+                    <span class="hint push" id="usage-sum">—</span></div>
+                <div id="usage-body"><div class="row"><span class="spinner"></span><span class="small muted">Memuat pemakaian…</span></div></div>
             </div>`;
 
     },
@@ -78,13 +84,57 @@ export const models = {
 
         };
 
-        root.querySelector("#model-refresh").addEventListener("click", load);
+        root.querySelector("#model-refresh").addEventListener("click", () => { load(); loadUsage(root); });
 
         await load();
+        loadUsage(root);
 
     }
 
 };
+
+async function loadUsage(root) {
+    const body = root.querySelector("#usage-body");
+    const sum = root.querySelector("#usage-sum");
+    if (!body) return;
+    try {
+        const u = await api.aiUsage(14);
+        const hist = u.history ?? [];
+        const today = u.today ?? {};
+        const provs = Object.entries(today);
+        const reqToday = provs.reduce((a, [, p]) => a + (p.requests || 0), 0);
+        if (sum) sum.textContent = `${reqToday} request hari ini`;
+
+        body.innerHTML = `
+            ${usageBars(hist)}
+            <div class="divider"></div>
+            ${provs.length
+                ? `<div class="scroll-x"><table class="table">
+                    <thead><tr><th>Provider</th><th>Request</th><th>Token</th><th>Status</th></tr></thead>
+                    <tbody>${provs.map(([name, p]) => `<tr>
+                        <td>${esc(name)}</td>
+                        <td class="mono small">${p.requests || 0}</td>
+                        <td class="mono small">${(p.promptTokens || 0) + (p.completionTokens || 0)}</td>
+                        <td>${p.limited ? pill("limit habis", "danger") : (p.warned ? pill("mendekati", "warn") : pill("ok", "ok"))}</td>
+                    </tr>`).join("")}</tbody></table></div>`
+                : `<div class="small dim">Belum ada pemakaian hari ini.</div>`}`;
+    }
+    catch (error) {
+        body.innerHTML = `<div class="small dim">Pemakaian tak tersedia: ${esc(error.message)}</div>`;
+    }
+}
+
+function usageBars(hist) {
+    if (!hist.length) return `<div class="small dim">Belum ada data.</div>`;
+    const max = Math.max(1, ...hist.map(d => d.totalRequests));
+    return `<div class="usage-bars">${hist.map(d => {
+        const h = Math.round((d.totalRequests / max) * 100);
+        return `<div class="ub" title="${esc(d.date)}: ${d.totalRequests} request, ${d.totalTokens} token">
+            <div class="ub-fill" style="height:${Math.max(3, h)}%"></div>
+            <div class="ub-x">${esc(d.date.slice(5))}</div>
+        </div>`;
+    }).join("")}</div>`;
+}
 
 function table(data) {
 

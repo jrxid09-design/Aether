@@ -119,6 +119,7 @@ class AetherApi {
     models(provider)    { return this.request(`/ai/models${provider ? `?provider=${encodeURIComponent(provider)}` : ""}`, { timeout: 25000 }); }
     selectModel(model)  { return this.request("/ai/model", { method: "POST", body: { model } }); }
     metrics()           { return this.request("/ai/metrics"); }
+    aiUsage(days = 14)  { return this.request(`/ai/usage?days=${days}`); }
 
     // ---- Plugin & tool -------------------------------------------
 

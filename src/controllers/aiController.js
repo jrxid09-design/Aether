@@ -221,6 +221,19 @@ class AIController {
 
     }
 
+    usage(req, res, next) {
+        try {
+            const usage = require("../services/usageService");
+            return response.success(res, "Pemakaian AI", {
+                today: usage.today(),
+                history: usage.history(Math.min(Number(req.query.days ?? 14), 30))
+            });
+        }
+        catch (error) {
+            next(error);
+        }
+    }
+
     async chat(req, res, next) {
 
         try {

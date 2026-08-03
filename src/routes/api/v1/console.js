@@ -226,6 +226,8 @@ router.get("/files", filesController.list);
 
 // ---- Cuaca & profil (dashboard) --------------------------------
 
+router.get("/ai/usage", aiController.usage);
+
 router.get("/weather", personalController.weather);
 router.post("/weather/config", personalController.weatherConfig);
 router.get("/profile", personalController.profile);
