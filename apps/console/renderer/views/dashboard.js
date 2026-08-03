@@ -199,10 +199,10 @@ function healthHero(o) {
         </div>`;
 }
 
-function metric(iconName, label, value, unit, sub, spark) {
+function metric(color, label, value, unit, sub, spark) {
     return `
         <div class="metric">
-            <div class="k">${icon(iconName)} ${esc(label)}</div>
+            <div class="k"><span class="mdot" style="background:${color}"></span>${esc(label)}</div>
             <div class="v">${esc(value)}${unit ? `<span class="u">${esc(unit)}</span>` : ""}</div>
             ${spark ?? (sub ? `<div class="s">${esc(sub)}</div>` : "")}
         </div>`;
@@ -212,12 +212,12 @@ function metricsRow(o, history) {
     const mem = o.stats.memory;
     const m = o.ai.metrics ?? {};
     return `<div class="metrics">
-        ${metric("cpu", "CPU", Math.round(o.stats.cpu.usage), "%", null, sparkline(history.cpu, { height: 26 }))}
-        ${metric("cpu", "RAM", Math.round(mem.usedPercent), "%", null, sparkline(history.memory, { height: 26, stroke: "var(--accent-3)" }))}
-        ${metric("server", "Uptime", duration(o.stats.daemon.uptime), "", "daemon aktif")}
-        ${metric("activity", "AI Request", m.requests ?? 0, "", `${m.failed ?? 0} gagal`)}
-        ${metric("cpu", "Model", shortModel(o.ai.active ?? o.ai.defaultModel), "", "aktif")}
-        ${metric("tool", "Tools", o.tools.total, "", `${o.plugins.total} plugin`)}
+        ${metric("var(--accent-1)", "CPU", Math.round(o.stats.cpu.usage), "%", null, sparkline(history.cpu, { height: 26 }))}
+        ${metric("var(--accent-3)", "RAM", Math.round(mem.usedPercent), "%", null, sparkline(history.memory, { height: 26, stroke: "var(--accent-3)" }))}
+        ${metric("var(--ok)", "Uptime", duration(o.stats.daemon.uptime), "", "daemon aktif")}
+        ${metric("var(--warn)", "AI Request", m.requests ?? 0, "", `${m.failed ?? 0} gagal`)}
+        ${metric("var(--accent-2)", "Model", shortModel(o.ai.active ?? o.ai.defaultModel), "", "aktif")}
+        ${metric("var(--accent-1)", "Tools", o.tools.total, "", `${o.plugins.total} plugin`)}
     </div>`;
 }
 
