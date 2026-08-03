@@ -66,6 +66,17 @@ function bootSubsystems() {
     // Terminal Runtime (pty persisten; nonaktif diam-diam bila node-pty belum ada).
     terminals.start();
 
+    // Auto-nyalakan runtime inti (Hermes/OpenClaw/Ollama) agar dashboard tak
+    // "DEGRADED" tiap Aether dibuka. Ditunda agar terminal & health siap;
+    // melewati yang sudah online. Bisa dimatikan di configs/runtimes.json.
+    setTimeout(() => {
+        try {
+            require("./runtime/runtimeService").autostart()
+                .catch(error => logger.warn?.(`Autostart runtime: ${error.message}`));
+        }
+        catch (error) { logger.warn?.(`Autostart runtime: ${error.message}`); }
+    }, 4000).unref?.();
+
     // Gateway WebSocket khusus I/O terminal, menempel pada server HTTP yg sama.
     try {
         require("./ws/terminalGateway").attach(server);

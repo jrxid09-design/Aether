@@ -171,4 +171,40 @@ async function restart(key) {
     return { runtime: key, terminal: id, ready: res.matched };
 }
 
-module.exports = { status, restart, RUNTIMES };
+// Runtime inti yang dinyalakan otomatis saat daemon boot (bisa di-override
+// per-mesin di configs/runtimes.json → overrides[key].autostart = false).
+const DEFAULT_AUTOSTART = { hermes: true, openclaw: true, ollama: true, docker: false };
+
+/**
+ * Nyalakan runtime inti saat boot agar dashboard tak "DEGRADED" tiap
+ * Aether dibuka. Melewati yang sudah online (mis. dijalankan manual/
+ * eksternal) dan yang tak punya perintah start. Best-effort per runtime.
+ */
+async function autostart() {
+    let statuses = [];
+    try { statuses = await status(); }
+    catch { /* lanjut: anggap semua offline */ }
+    const byKey = Object.fromEntries(statuses.map(s => [s.key, s]));
+
+    const results = [];
+    for (const r of RUNTIMES) {
+        if (r.self) continue;
+        const enabled = cfg(r.key, "autostart", DEFAULT_AUTOSTART[r.key] ?? false);
+        if (!enabled) continue;
+        const command = cfg(r.key, "command", r.command);
+        if (!command) continue;
+        if (byKey[r.key]?.health === "online") { results.push({ key: r.key, skipped: "sudah online" }); continue; }
+        try {
+            await restart(r.key);
+            telemetry.info(`[runtime] autostart: ${r.label} dinyalakan.`);
+            results.push({ key: r.key, started: true });
+        }
+        catch (error) {
+            telemetry.warn(`[runtime] autostart ${r.key} gagal: ${error.message}`);
+            results.push({ key: r.key, error: error.message });
+        }
+    }
+    return results;
+}
+
+module.exports = { status, restart, autostart, RUNTIMES };
