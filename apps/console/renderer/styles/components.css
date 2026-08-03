@@ -1516,13 +1516,37 @@ input[type="range"]::-webkit-slider-thumb {
 .ai-stages .d.t2 { background: var(--accent-3); } .ai-stages .d.t3 { background: var(--warn); }
 .ai-stages .d.t4 { background: var(--accent-1); } .ai-stages .d.t5 { background: var(--ok); }
 
-/* Memory Graph (dashboard). */
+/* Memory Graph "hidup" (dashboard). */
 .mem-graph { width: 100%; height: auto; display: block; }
-.mem-graph .g-edge { stroke: var(--line-strong); stroke-width: 1; }
-.mem-graph .g-center { fill: url(#none); fill: rgba(124,140,255,0.9); filter: drop-shadow(0 0 8px rgba(124,140,255,0.7)); }
-.mem-graph .g-node { fill: var(--bg-raised); stroke: var(--accent-1); stroke-width: 1.5; }
-.mem-graph .g-lbl { fill: #05060c; font-size: 10px; font-weight: 700; font-family: var(--font-ui); }
+.mem-graph .g-edge {
+    fill: none; stroke-width: 1.6; opacity: 0.55;
+    stroke-dasharray: 3 5; stroke-linecap: round;
+    animation: g-flow 2.8s linear infinite;
+}
+@keyframes g-flow { to { stroke-dashoffset: -16; } }
+.mem-graph .g-center {
+    fill: var(--accent-2);
+    filter: drop-shadow(0 0 10px rgba(124,140,255,0.9));
+}
+.mem-graph .g-center-halo {
+    fill: rgba(124,140,255,0.18);
+    animation: g-halo 3s var(--ease) infinite;
+    transform-box: fill-box; transform-origin: center;
+}
+@keyframes g-halo { 0%,100% { transform: scale(0.8); opacity: 0.5; } 50% { transform: scale(1.15); opacity: 0.15; } }
+.mem-graph .g-node {
+    filter: url(#gglow);
+    animation: g-pulse 2.6s var(--ease) infinite;
+}
+@keyframes g-pulse { 0%,100% { r: 6; opacity: 0.85; } 50% { r: 8.5; opacity: 1; } }
+.mem-graph .g-lbl { fill: #05060c; font-size: 10px; font-weight: 800; font-family: var(--font-ui); }
 .mem-graph .g-nlbl { fill: var(--text-muted); font-size: 9.5px; font-family: var(--font-ui); }
+
+/* Ikon navigasi tak lagi monoton: aktif → warna aksen + glow. */
+.nav-item.active .icon { color: var(--accent-1); filter: drop-shadow(0 0 6px rgba(34,211,238,0.6)); }
+.nav-group-label { color: var(--accent-2); opacity: 0.7; }
+.panel-head h2 .icon { color: var(--accent-1); opacity: 0.9; }
+.metric .k .icon { color: var(--accent-2); opacity: 0.95; }
 
 /* CCTV mini grid (dashboard). */
 .cctv-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }

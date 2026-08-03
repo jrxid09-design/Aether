@@ -77,11 +77,12 @@ function buildTitlebar() {
         </div>
         <button class="btn ghost sm" id="btn-connect">${icon("plug")} Hubungkan</button>`;
 
-    $("#btn-cmdk").addEventListener("click", () => openCommandPalette(paletteItems()));
-    $("#tb-notif").addEventListener("click", () => navigate("logs"));
-    $("#tb-apps").addEventListener("click", () => openCommandPalette(paletteItems()));
-    $("#tb-runtime").addEventListener("click", () => navigate("runtime"));
-    $("#tb-settings").addEventListener("click", () => navigate("settings"));
+    // Fungsi berbeda-beda (bukan semua membuka palette).
+    $("#btn-cmdk").addEventListener("click", () => openCommandPalette(paletteItems()));   // satu-satunya palette
+    $("#tb-notif").addEventListener("click", () => navigate("logs"));                     // notifikasi/log
+    $("#tb-apps").addEventListener("click", () => navigate("skills"));                    // "apps" → Skills & Studio
+    $("#tb-runtime").addEventListener("click", () => navigate("runtime"));                // runtime
+    $("#tb-settings").addEventListener("click", () => navigate("settings"));              // settings
 
     $("#btn-connect").addEventListener("click", () => {
 
@@ -128,7 +129,7 @@ function buildSidebar() {
         button.addEventListener("click", () => navigate(button.dataset.nav));
     });
 
-    $("#sidebar-assistant")?.addEventListener("click", () => openCommandPalette(paletteItems()));
+    $("#sidebar-assistant")?.addEventListener("click", () => navigate("aether"));
 
 }
 
@@ -527,8 +528,8 @@ async function main() {
         }
     });
 
-    // Floating Assistant → buka command palette.
-    $("#fab-assistant")?.addEventListener("click", () => openCommandPalette(paletteItems()));
+    // Floating Assistant → ngobrol dengan Aether (bukan palette).
+    $("#fab-assistant")?.addEventListener("click", () => navigate("aether"));
 
     const saved = await window.aether.settings.get();
 

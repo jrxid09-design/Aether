@@ -308,18 +308,33 @@ function aiRadial(state) {
 
 // ---- Memory Graph (entitas nyata) -----------------------------------
 
+const GRAPH_COLORS = ["var(--accent-1)", "var(--accent-2)", "var(--accent-3)", "var(--ok)", "var(--warn)", "#f472b6", "#38bdf8", "#a3e635"];
+
 function graphSvg(nodes) {
-    const cx = 150, cy = 115, r = 80;
+    const cx = 150, cy = 115, r = 84;
     const edges = [], dots = [];
     nodes.forEach((n, i) => {
         const a = (Math.PI * 2 * i) / nodes.length - Math.PI / 2;
         const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
-        edges.push(`<line x1="${cx}" y1="${cy}" x2="${x.toFixed(0)}" y2="${y.toFixed(0)}" class="g-edge"/>`);
-        dots.push(`<circle cx="${x.toFixed(0)}" cy="${y.toFixed(0)}" r="6" class="g-node"/>
-            <text x="${x.toFixed(0)}" y="${(y + (Math.sin(a) >= 0 ? 20 : -12)).toFixed(0)}" class="g-nlbl" text-anchor="middle">${esc(shortLabel(n))}</text>`);
+        const col = GRAPH_COLORS[i % GRAPH_COLORS.length];
+        // Edge melengkung (kuadratik) dengan titik kontrol tegak lurus — terasa organik.
+        const mx = (cx + x) / 2, my = (cy + y) / 2;
+        const ctrlX = (mx + (cy - y) * 0.16).toFixed(0), ctrlY = (my + (x - cx) * 0.16).toFixed(0);
+        edges.push(`<path d="M${cx} ${cy} Q${ctrlX} ${ctrlY} ${x.toFixed(0)} ${y.toFixed(0)}" class="g-edge" style="stroke:${col};animation-delay:${(i * 0.25).toFixed(2)}s"/>`);
+        dots.push(
+            `<circle cx="${x.toFixed(0)}" cy="${y.toFixed(0)}" r="6.5" class="g-node" style="fill:${col};animation-delay:${(i * 0.3).toFixed(2)}s"/>` +
+            `<text x="${x.toFixed(0)}" y="${(y + (Math.sin(a) >= 0 ? 20 : -12)).toFixed(0)}" class="g-nlbl" text-anchor="middle">${esc(shortLabel(n))}</text>`
+        );
     });
     return `<svg viewBox="0 0 300 230" class="mem-graph">
+        <defs>
+            <filter id="gglow" x="-50%" y="-50%" width="200%" height="200%">
+                <feGaussianBlur stdDeviation="2.4" result="b"/>
+                <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+        </defs>
         ${edges.join("")}
+        <circle cx="${cx}" cy="${cy}" r="26" class="g-center-halo"/>
         <circle cx="${cx}" cy="${cy}" r="18" class="g-center"/>
         <text x="${cx}" y="${cy + 4}" class="g-lbl" text-anchor="middle">Kamu</text>
         ${dots.join("")}
