@@ -40,6 +40,15 @@ class AgentConnector extends BaseConnector {
         /** Diisi setelah probe pertama yang berhasil. */
         this.resolvedHealthPath = null;
 
+        /** Diisi setelah task pertama yang berhasil (auto-discovery). */
+        this.resolvedChatPath = null;
+
+        /** Kandidat endpoint TASK — beda agent beda API (OpenClaw ≠ chat-LLM). */
+        this.chatCandidates = options.chatCandidates ?? [
+            "/v1/chat/completions", "/api/chat", "/chat",
+            "/api/run", "/run", "/api/task", "/api/execute", "/execute"
+        ];
+
     }
 
     async probe() {
@@ -132,36 +141,63 @@ class AgentConnector extends BaseConnector {
     }
 
     /**
-     * Kirim prompt ke agent. Bentuk payload sengaja mengikuti
-     * gaya OpenAI chat-completions karena itu yang paling umum
-     * dipakai agent server; override di turunan bila berbeda.
+     * Kirim tugas ke agent. Endpoint & bentuk body BERBEDA tiap agent:
+     * server chat-LLM pakai {messages}, sementara agent otomasi (OpenClaw)
+     * biasanya pakai {instruction|prompt|task}. Karena itu:
+     *   - path task: coba yang dikonfigurasi (paths.chat) dulu, lalu kandidat
+     *     umum, dan INGAT yang berhasil (seperti health).
+     *   - body: bila metadata.taskField diisi (mis. "instruction"), kirim
+     *     { [taskField]: teks }; kalau tidak, pakai gaya OpenAI {messages}.
+     * Error menyertakan METHOD + URL + STATUS supaya 404 mudah didiagnosis.
      */
     async chat({ messages, model = null, ...rest }) {
 
-        const path = this.paths.chat ?? "/v1/chat/completions";
+        const text = Array.isArray(messages)
+            ? messages.map(m => m?.content ?? "").filter(Boolean).join("\n")
+            : String(messages ?? "");
 
-        const response = await this.httpClient.post(this.url(path), {
-            headers: this.requestHeaders(),
-            body: {
-                model: model ?? this.metadata.defaultModel ?? undefined,
-                messages,
-                ...rest
-            },
-            timeout: this.metadata.chatTimeout ?? 120000
-        });
+        const taskField = this.metadata.taskField ?? null;
+        const buildBody = () => taskField
+            ? { [taskField]: text, ...rest }
+            : { model: model ?? this.metadata.defaultModel ?? undefined, messages, ...rest };
 
-        if (!response.success) {
+        const candidates = this.resolvedChatPath
+            ? [this.resolvedChatPath]
+            : [this.paths.chat, ...this.chatCandidates].filter(Boolean);
 
-            throw new Error(
-                response.data?.error?.message ??
-                response.error ??
-                response.statusText ??
-                `${this.label} request failed.`
-            );
+        let last = { url: null, status: null, error: "unreachable" };
 
+        for (const path of candidates) {
+
+            const url = this.url(path);
+
+            const response = await this.httpClient.post(url, {
+                headers: this.requestHeaders(),
+                body: buildBody(),
+                timeout: this.metadata.chatTimeout ?? 120000
+            });
+
+            if (response.success) {
+                this.resolvedChatPath = path;   // ingat endpoint yang benar
+                return response.data;
+            }
+
+            last = {
+                url,
+                status: response.status ?? null,
+                error: response.data?.error?.message ?? response.error ?? response.statusText ?? "gagal"
+            };
+
+            // 404/405 = path salah → coba kandidat berikutnya. Selain itu
+            // (401/403/5xx/timeout) servicenya ada tapi menolak → berhenti.
+            if (response.status !== 404 && response.status !== 405) break;
         }
 
-        return response.data;
+        throw new Error(
+            `${this.label}: POST ${last.url} → ${last.status ?? "?"} (${last.error}). ` +
+            `Endpoint task ${this.label} kemungkinan berbeda. Atur "paths.chat" dan (bila perlu) ` +
+            `"metadata.taskField" di configs/integrations.json sesuai API ${this.label}.`
+        );
 
     }
 
