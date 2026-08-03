@@ -173,7 +173,8 @@ async function restart(key) {
 
 // Runtime inti yang dinyalakan otomatis saat daemon boot (bisa di-override
 // per-mesin di configs/runtimes.json → overrides[key].autostart = false).
-const DEFAULT_AUTOSTART = { hermes: true, openclaw: true, ollama: true, docker: false };
+// OpenClaw sengaja TIDAK auto-serve (dijalankan normal/manual sesuai permintaan).
+const DEFAULT_AUTOSTART = { hermes: true, openclaw: false, ollama: true, docker: false };
 
 /**
  * Nyalakan runtime inti saat boot agar dashboard tak "DEGRADED" tiap
