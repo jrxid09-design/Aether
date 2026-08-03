@@ -1,11 +1,19 @@
 const AgentConnector = require("./AgentConnector");
 
 /**
- * Konektor untuk hermes-agent.
+ * Konektor untuk hermes-agent (Nous Research) — DIREVERSE dari source
+ * terpasang (hermes_agent 0.19.x).
  *
- * Sama seperti OpenClaw, default di sini adalah tebakan yang
- * masuk akal untuk agent server dan dimaksudkan untuk ditimpa
- * lewat configs/integrations.json begitu instance-nya nyata.
+ * Hermes API server (gateway/platforms/api_server.py, aiohttp) MEMANG
+ * OpenAI-compatible, jadi AgentConnector.chat() (POST /v1/chat/completions,
+ * Bearer) sudah cocok. Yang penting:
+ *   - Port API server default = 8642 (env API_SERVER_PORT). CATATAN: 9119
+ *     itu web/dashboard (`hermes serve`), BUKAN API server — arahkan Aether
+ *     ke port API server.
+ *   - Auth = "Authorization: Bearer <API_SERVER_KEY>" (isi sebagai apiKey /
+ *     AETHER_HERMES_KEY). API server menolak start tanpa API_SERVER_KEY.
+ *   - Endpoint: /v1/chat/completions (chat) + /v1/runs (agent run) +
+ *     /api/sessions/*. Health: /health atau /v1/health.
  */
 class HermesConnector extends AgentConnector {
 
@@ -13,16 +21,17 @@ class HermesConnector extends AgentConnector {
 
         super({
             label: "Hermes Agent",
-            baseUrl: "http://localhost:8080",
+            baseUrl: "http://127.0.0.1:8642",
             ...options,
             id: options.id ?? "hermes",
             healthCandidates: options.healthCandidates ?? [
                 "/health",
-                "/healthz",
-                "/api/health",
+                "/v1/health",
+                "/health/detailed",
                 "/v1/models",
                 "/"
-            ]
+            ],
+            chatCandidates: options.chatCandidates ?? ["/v1/chat/completions"]
         });
 
     }
