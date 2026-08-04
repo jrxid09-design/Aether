@@ -138,6 +138,30 @@ function codingTools() {
             }
         }),
 
+        // ---- Fase PLANNING: investigasi berbudget --------------------
+
+        new AITool({
+            name: "code_plan",
+            description:
+                "MULAI dari sini untuk tugas koding non-sepele. Satu panggilan mengumpulkan dosir " +
+                "terscope: pengalaman lampau + file relevan (Graphify) + outline simbol (LSP/Tree-" +
+                "sitter), dedup & berbudget (maks 8 langkah) — HEMAT tool budget, cegah baca file " +
+                "sama dua kali. Balikan juga saran branch, file yang mungkin disentuh, langkah " +
+                "verifikasi yang tersedia, dan checklist workflow. Pakai SEBELUM membaca file manual.",
+            parameters: {
+                type: "object",
+                properties: {
+                    task: { type: "string", description: "Deskripsi tugas/gejala bug." },
+                    project: { type: "string", description: "Root proyek (opsional)." },
+                    budget: { type: "number", description: "Maks langkah investigasi (default 8)." },
+                    seedFiles: { type: "array", items: { type: "string" }, description: "File awal yang diprioritaskan (opsional)." }
+                },
+                required: ["task"]
+            },
+            execute: async ({ task, project, budget, seedFiles }) =>
+                brain.planner.plan(task, { project, budget, seedFiles: seedFiles || [] })
+        }),
+
         // ---- Loop eksekusi: patcher + tester + bug-memory ------------
 
         new AITool({

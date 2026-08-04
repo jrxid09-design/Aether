@@ -2,6 +2,7 @@ const graph = require("./graph/graphifyAdapter");
 const symbol = require("./symbol/serenaAdapter");
 const lsp = require("./lsp/LSPManager");
 const ast = require("./ast/treeSitter");
+const planner = require("./planner/Planner");
 const patcher = require("./patcher/gitPatcher");
 const tester = require("./tester/testRunner");
 const bugMemory = require("./memory/bugMemory");
@@ -29,6 +30,7 @@ class CodingBrain {
     get tester() { return tester; }
     get bugMemory() { return bugMemory; }
     get refactor() { return refactor; }
+    get planner() { return planner; }
 
     /**
      * Outline simbol satu file dgn urutan analisis Coding Brain: LSP dulu
@@ -38,13 +40,15 @@ class CodingBrain {
     async outline(file, { project = process.cwd() } = {}) {
         if (lsp.available(file)) {
             const r = await lsp.op("documentSymbols", file, [], { project });
-            if (r.available && r.result) return { source: "lsp", symbols: r.result };
+            if (r.available && Array.isArray(r.result) && r.result.length) return { source: "lsp", symbols: r.result };
         }
-        if (await ast.available()) {
-            const r = await ast.symbolsOfFile(file);
-            return { source: "tree-sitter", ...r };
-        }
-        return { source: "none", symbols: [], note: "LSP & Tree-sitter tak tersedia." };
+        try {
+            if (await ast.available()) {
+                const r = await ast.symbolsOfFile(file);      // throw bila grammar tak ada (mis. .md)
+                return { source: "tree-sitter", ...r };
+            }
+        } catch { /* bahasa tak didukung AST → none */ }
+        return { source: "none", symbols: [], note: "Tak ada outline (LSP kosong & Tree-sitter tak dukung bahasa ini)." };
     }
 
     /**
@@ -84,6 +88,7 @@ class CodingBrain {
             patcher: true,   // git patcher     — loop eksekusi ✔
             tester: true,    // test runner     — loop eksekusi ✔
             refactor: true,  // refactoring otonom — Fase 8 ✔
+            planner: true,   // fase planning (investigasi berbudget) ✔
             memory: true     // MemoryEngine + bug memory ✔
         };
     }
