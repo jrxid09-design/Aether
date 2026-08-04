@@ -10,11 +10,12 @@
                    media-src 'self' blob: mediastream:;
                    font-src 'self';
                    connect-src http: https: ws: wss:;">
-    <title>Aether Console</title>
+    <title>Aether OS</title>
     <link rel="stylesheet" href="styles/tokens.css">
     <link rel="stylesheet" href="styles/layout.css">
     <link rel="stylesheet" href="styles/components.css">
     <link rel="stylesheet" href="vendor/xterm/xterm.css">
+    <link rel="stylesheet" href="styles/cyber.css">
 </head>
 <body>
 
@@ -26,14 +27,19 @@
         <div class="brand">
             <span class="mark" id="brand-mark"></span>
             <span class="name">Aether</span>
-            <span class="sub">Console</span>
+            <span class="sub">OS</span>
         </div>
 
         <div class="drag-free" id="connection-chip"></div>
 
         <div class="spacer"></div>
 
-        <div class="drag-free" id="titlebar-actions"></div>
+        <div class="drag-free">
+            <button class="apps-btn" id="apps-btn" title="Semua aplikasi (Ctrl+K)">
+                <span class="dots"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+                Apps
+            </button>
+        </div>
 
         <div class="window-controls">
             <button id="win-min" title="Minimize"></button>
@@ -43,43 +49,31 @@
 
     </header>
 
-    <!-- ================= Badan ================= -->
+    <!-- ================= Badan: satu stage aplikasi ================= -->
     <div class="body">
-
-        <nav class="sidebar" id="sidebar"></nav>
-
-        <main class="content" id="content">
-
-            <section class="view active" data-view="dashboard" id="view-dashboard"></section>
-            <section class="view" data-view="awareness" id="view-awareness"></section>
-            <section class="view" data-view="aether" id="view-aether"></section>
-            <section class="view" data-view="memory" id="view-memory"></section>
-            <section class="view" data-view="models" id="view-models"></section>
-            <section class="view" data-view="integrations" id="view-integrations"></section>
-            <section class="view" data-view="devices" id="view-devices"></section>
-            <section class="view" data-view="skills" id="view-skills"></section>
-            <section class="view" data-view="agents" id="view-agents"></section>
-            <section class="view" data-view="tools" id="view-tools"></section>
-            <section class="view" data-view="home" id="view-home"></section>
-            <section class="view" data-view="vision" id="view-vision"></section>
-            <section class="view" data-view="runtime" id="view-runtime"></section>
-            <section class="view" data-view="family" id="view-family"></section>
-            <section class="view" data-view="nas" id="view-nas"></section>
-            <section class="view" data-view="files" id="view-files"></section>
-            <section class="view" data-view="logs" id="view-logs"></section>
-            <section class="view" data-view="settings" id="view-settings"></section>
-
-        </main>
-
+        <main class="stage" id="stage"></main>
     </div>
 
-    <!-- ================= Bottom status bar ================= -->
+    <!-- ================= Bottom status bar (HUD) ================= -->
     <footer class="statusbar" id="statusbar"></footer>
 
-    <!-- ================= Floating Assistant ================= -->
-    <button class="fab-assistant" id="fab-assistant" title="Ngobrol dengan Aether">
-        <span class="orb"></span>
-    </button>
+    <!-- ================= App Launcher (satu tombol → semua) ======= -->
+    <div class="launcher" id="launcher">
+        <div class="launcher-inner">
+            <h2>Aether Applications</h2>
+            <div class="app-grid" id="app-grid"></div>
+        </div>
+        <button class="btn ghost sm launcher-close" id="launcher-close">Tutup ✕</button>
+    </div>
+
+    <!-- ================= Hologram mengambang (standby) =========== -->
+    <button class="holo-fab" id="holo-fab" title="Aether — klik atau ucapkan “Aether”"></button>
+
+    <!-- ================= Badge "mendengar" ======================= -->
+    <div class="wake-badge" id="wake-badge">
+        <span class="eq"><i></i><i></i><i></i><i></i></span>
+        <span>Mendengar…</span>
+    </div>
 
 </div>
 

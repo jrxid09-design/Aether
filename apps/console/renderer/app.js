@@ -2,44 +2,59 @@ import { store } from "./lib/store.js";
 import { api } from "./lib/api.js";
 import { icon, brandMark } from "./lib/icons.js";
 import { $, esc, pill, toast } from "./lib/ui.js";
-import { openCommandPalette } from "./lib/commandPalette.js";
 
+import { createHologram } from "./lib/hologram.js";
+import { createWakeWord } from "./lib/wakeword.js";
+
+import { buildStudioApp } from "./views/apps/studio.js";
+import { buildSpaceApp } from "./views/apps/space.js";
+import { buildConnectApp } from "./views/apps/connect.js";
+
+// View mandiri (dipakai apa adanya sebagai "aplikasi").
+import { aether } from "./views/aether.js";
 import { dashboard } from "./views/dashboard.js";
-import { awareness } from "./views/awareness.js";
-import { companion } from "./views/companion.js";
 import { memory } from "./views/memory.js";
 import { models } from "./views/models.js";
-import { integrations } from "./views/integrations.js";
-import { devices } from "./views/devices.js";
-import { skills } from "./views/skills.js";
-import { agents } from "./views/agents.js";
-import { home } from "./views/home.js";
-import { vision } from "./views/vision.js";
 import { runtime } from "./views/runtime.js";
-import { tools } from "./views/tools.js";
-import { family } from "./views/family.js";
-import { nas } from "./views/nas.js";
-import { files } from "./views/files.js";
+import { awareness } from "./views/awareness.js";
+import { companion } from "./views/companion.js";
 import { logs } from "./views/logs.js";
 import { settings } from "./views/settings.js";
 
-const VIEWS = [
-    dashboard, awareness, companion, memory, models,
-    integrations, devices, skills, agents, tools, home, vision, runtime, family, nas, files, logs, settings
+// =====================================================================
+// Registry APLIKASI — semua navigasi lama hidup di App Launcher (1 tombol)
+// =====================================================================
+
+const goHome = () => navigate("core");
+
+const APPS = [
+    { id: "core", label: "Beranda", icon: "orb", color: "#14e6ff", desc: "Hologram & asisten", core: true },
+    { id: "chat", label: "Aether", icon: "chat", color: "#14e6ff", desc: "Ngobrol & suara", view: aether },
+    { id: "studio", label: "Studio", icon: "grid", color: "#7c5cff", desc: "Skills · Agent · Tools", view: buildStudioApp(goHome), consolidated: true },
+    { id: "space", label: "Ruang", icon: "home", color: "#8dffcf", desc: "Rumah · Vision · NAS · Keluarga", view: buildSpaceApp(goHome), consolidated: true },
+    { id: "connect", label: "Terhubung", icon: "plug", color: "#ff3bd4", desc: "Perangkat · Integrasi", view: buildConnectApp(goHome), consolidated: true },
+    { id: "memory", label: "Memori", icon: "brain", color: "#7c5cff", desc: "Ingatan Aether", view: memory },
+    { id: "models", label: "Model AI", icon: "cpu", color: "#14e6ff", desc: "Provider & token", view: models },
+    { id: "dashboard", label: "Ikhtisar", icon: "dashboard", color: "#8dffcf", desc: "Panel sistem", view: dashboard },
+    { id: "runtime", label: "Runtime", icon: "terminal", color: "#14e6ff", desc: "Proses & terminal", view: runtime },
+    { id: "awareness", label: "Kesadaran", icon: "activity", color: "#ff3bd4", desc: "Konteks aktif", view: awareness },
+    { id: "companion", label: "Pendamping", icon: "orb", color: "#8dffcf", desc: "Avatar Aether", view: companion },
+    { id: "logs", label: "Log", icon: "bell", color: "#fbbf24", desc: "Kejadian & notifikasi", view: logs },
+    { id: "settings", label: "Pengaturan", icon: "gear", color: "#8d97bd", desc: "Preferensi", view: settings }
 ];
 
-const GROUPS = [
-    { label: "Pantau", ids: ["dashboard", "awareness", "logs"] },
-    { label: "Kerja", ids: ["aether", "memory", "models", "skills", "agents", "tools", "runtime"] },
-    { label: "Sistem", ids: ["home", "vision", "nas", "files", "devices", "family", "integrations", "settings"] }
-];
+let currentAppId = null;
+let currentInstance = null;
+let coreHolo = null;
 
-let currentView = null;
+// Semua hologram hidup (Beranda + fab) → disiarkan bersama.
+const holos = new Set();
+const holoState = (s) => { for (const h of holos) h.setState(s); };
+const holoLevel = (v) => { for (const h of holos) h.setLevel(v); };
 
 let pollTimer = null;
-
-/** Menahan reconnect beruntun saat daemon sedang mati. */
 let reconnectTimer = null;
+let wake = null;
 
 // =====================================================================
 // Kerangka
@@ -48,168 +63,215 @@ let reconnectTimer = null;
 function buildTitlebar() {
 
     $("#brand-mark").innerHTML = brandMark(20);
-
     $("#win-min").innerHTML = icon("minimize");
     $("#win-max").innerHTML = icon("maximize");
     $("#win-close").innerHTML = icon("close");
 
     $("#win-min").addEventListener("click", () => window.aether.window.minimize());
     $("#win-close").addEventListener("click", () => window.aether.window.close());
-
     $("#win-max").addEventListener("click", async () => {
         const maximized = await window.aether.window.toggleMaximize();
         $("#win-max").innerHTML = icon(maximized ? "restore" : "maximize");
     });
-
     window.aether.window.onState(({ maximized }) => {
         $("#win-max").innerHTML = icon(maximized ? "restore" : "maximize");
     });
 
-    $("#titlebar-actions").innerHTML = `
-        <button class="searchbar" id="btn-cmdk" title="Command palette (Ctrl+K)">
-            ${icon("search")}<span class="ph">Cari apa saja…</span><span class="kbd">⌘K</span>
-        </button>
-        <div class="tb-icons">
-            <button class="icon-btn" id="tb-notif" title="Log & notifikasi">${icon("bell")}</button>
-            <button class="icon-btn" id="tb-apps" title="Command palette">${icon("grid")}</button>
-            <button class="icon-btn" id="tb-runtime" title="Runtime">${icon("play")}</button>
-            <button class="icon-btn" id="tb-settings" title="Settings">${icon("gear")}</button>
-        </div>
-        <button class="btn ghost sm" id="btn-connect">${icon("plug")} Hubungkan</button>`;
-
-    // Fungsi berbeda-beda (bukan semua membuka palette).
-    $("#btn-cmdk").addEventListener("click", () => openCommandPalette(paletteItems()));   // satu-satunya palette
-    $("#tb-notif").addEventListener("click", () => navigate("logs"));                     // notifikasi/log
-    $("#tb-apps").addEventListener("click", () => navigate("skills"));                    // "apps" → Skills & Studio
-    $("#tb-runtime").addEventListener("click", () => navigate("runtime"));                // runtime
-    $("#tb-settings").addEventListener("click", () => navigate("settings"));              // settings
-
-    $("#btn-connect").addEventListener("click", () => {
-
-        if (store.get().connected) {
-            disconnect();
-        }
-        else {
-            connect();
-        }
-
-    });
-
+    // Tombol APPS → launcher; chip koneksi → sambung/putus.
+    $("#apps-btn").addEventListener("click", toggleLauncher);
+    $("#connection-chip").addEventListener("click", () => store.get().connected ? disconnect() : connect());
 }
 
-function buildSidebar() {
+// ---- App Launcher (satu tombol → semua aplikasi) ------------------
 
-    const sidebar = $("#sidebar");
+function buildLauncher() {
 
-    sidebar.innerHTML = GROUPS.map(group => `
-        <div class="nav-group-label">${esc(group.label)}</div>
-        ${group.ids.map(id => {
+    $("#app-grid").innerHTML = APPS.map(a => `
+        <button class="app-tile" data-app="${esc(a.id)}" style="--tile:${a.color}">
+            <span class="ico">${icon(a.icon)}</span>
+            <span class="t">${esc(a.label)}</span>
+            <span class="d">${esc(a.desc)}</span>
+        </button>`).join("");
 
-            const view = VIEWS.find(v => v.id === id);
+    $("#app-grid").querySelectorAll("[data-app]").forEach(b =>
+        b.addEventListener("click", () => navigate(b.dataset.app)));
 
-            return `<button class="nav-item" data-nav="${esc(id)}">
-                ${icon(view.icon)}
-                <span>${esc(view.label)}</span>
-                <span class="count" data-count="${esc(id)}"></span>
-            </button>`;
+    $("#launcher-close").addEventListener("click", closeLauncher);
+    $("#launcher").addEventListener("click", e => { if (e.target.id === "launcher") closeLauncher(); });
+}
 
-        }).join("")}
-    `).join("") + `
-        <div class="sidebar-footer">
-            <button class="sidebar-assistant" id="sidebar-assistant" title="Tanya Aether (⌘K)">
-                <span class="sa-orb"></span>
-                <span class="sa-txt">
-                    <span class="sa-title">Aether Assistant</span>
-                    <span class="sa-sub" id="sidebar-status">tidak terhubung</span>
-                </span>
-            </button>
-        </div>`;
+function toggleLauncher() { $("#launcher").classList.toggle("open"); }
+function closeLauncher() { $("#launcher").classList.remove("open"); }
 
-    sidebar.querySelectorAll("[data-nav]").forEach(button => {
-        button.addEventListener("click", () => navigate(button.dataset.nav));
-    });
+// ---- Navigasi (tiap app = satu layar di #stage) -------------------
 
-    $("#sidebar-assistant")?.addEventListener("click", () => navigate("aether"));
-
+function ensureScreen(app) {
+    let s = document.getElementById(`screen-${app.id}`);
+    if (!s) {
+        s = document.createElement("section");
+        s.className = "app-screen" + (app.core ? " core" : "");
+        s.id = `screen-${app.id}`;
+        $("#stage").appendChild(s);
+    }
+    return s;
 }
 
 function navigate(id) {
 
-    const view = VIEWS.find(v => v.id === id);
+    const app = APPS.find(a => a.id === id) || APPS[0];
 
-    if (!view) {
-        return;
+    // Lepas sumber daya app sebelumnya.
+    currentInstance?.unmount?.();
+    if (currentAppId === "core") teardownCore();
+    currentInstance = null;
+
+    currentAppId = app.id;
+
+    const screen = ensureScreen(app);
+    document.querySelectorAll(".app-screen").forEach(s => s.classList.toggle("active", s === screen));
+
+    if (app.core) {
+        renderCore(screen);
+    }
+    else if (app.consolidated) {
+        app.view.render(screen);
+        currentInstance = app.view;
+    }
+    else {
+        currentInstance = mountStandalone(screen, app);
     }
 
-    // Lepaskan sumber daya view sebelumnya (stream kamera, listener SSE).
-    currentView?.unmount?.();
+    location.hash = app.id;
+    closeLauncher();
+}
 
-    currentView = view;
+/** Bungkus view mandiri dengan app-head (judul + kembali). */
+function mountStandalone(screen, app) {
+    screen.innerHTML = `
+        <div class="app-head">
+            <button class="back" title="Kembali ke Beranda">${icon("chevron-left") || "‹"}</button>
+            <div class="title">${esc(app.label)}<small>${esc(app.desc)}</small></div>
+        </div>
+        <div class="app-body" style="height:calc(100% - 58px)"></div>`;
+    screen.querySelector(".back").addEventListener("click", goHome);
+    const body = screen.querySelector(".app-body");
+    app.view.render(body);
+    app.view.mount?.(body);
+    return { unmount() { app.view.unmount?.(); } };
+}
 
-    document.querySelectorAll(".view").forEach(section => {
-        section.classList.toggle("active", section.dataset.view === id);
+// ---- Beranda hologram (core) --------------------------------------
+
+function greeting() {
+    const h = new Date().getHours();
+    const line = h < 5 ? "Selamat malam" : h < 11 ? "Selamat pagi" : h < 15 ? "Selamat siang" : h < 19 ? "Selamat sore" : "Selamat malam";
+    return { line, sub: "Ucapkan “Aether” atau ketik untuk memulai." };
+}
+
+function renderCore(screen) {
+
+    const g = greeting();
+
+    screen.innerHTML = `
+        <div class="holo-home">
+            <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;position:relative;">
+                <div class="holo-hud">A · E · T · H · E · R &nbsp;·&nbsp; O S</div>
+                <div class="holo-stage" id="core-holo">
+                    <span class="holo-ring-deco"></span><span class="holo-ring-deco b"></span>
+                </div>
+                <div class="holo-greet">${esc(g.line)}, aku <b>Aether</b></div>
+                <div class="holo-sub">${esc(g.sub)}</div>
+            </div>
+            <div style="width:100%;">
+                <div class="holo-stats" id="core-stats"></div>
+                <form class="holo-prompt" id="core-prompt">
+                    <input type="text" autocomplete="off" placeholder="Tanya apa saja pada Aether…" />
+                    <button class="mic" type="button" id="core-mic" title="Bicara">${icon("mic")}</button>
+                </form>
+            </div>
+        </div>`;
+
+    try {
+        coreHolo = createHologram();
+        screen.querySelector("#core-holo").appendChild(coreHolo.el);
+        holos.add(coreHolo);
+        coreHolo.setState(store.get().connected ? "idle" : "offline");
+    }
+    catch { coreHolo = null; }
+
+    renderCoreStats();
+
+    const form = screen.querySelector("#core-prompt");
+    form.addEventListener("submit", e => {
+        e.preventDefault();
+        const v = form.querySelector("input").value.trim();
+        if (!v) return;
+        askAether(v);
     });
+    screen.querySelector("#core-mic").addEventListener("click", () => { holoState("listening"); navigate("chat"); });
+}
 
-    document.querySelectorAll("[data-nav]").forEach(button => {
-        button.classList.toggle("active", button.dataset.nav === id);
+function renderCoreStats() {
+    const el = document.getElementById("core-stats");
+    if (!el) return;
+    const s = store.get(), o = s.overview;
+    const chip = (on, label, val) => `<span class="holo-chip${on ? "" : " off"}"><span class="d"></span>${esc(label)} <b>${esc(String(val))}</b></span>`;
+    if (!s.connected || !o) { el.innerHTML = chip(false, "Daemon", "terputus"); return; }
+    el.innerHTML =
+        chip(true, "Daemon", shortHost(s.settings.daemonUrl))
+        + chip(true, "CPU", Math.round(o.stats.cpu.usage) + "%")
+        + chip(true, "RAM", Math.round(o.stats.memory.usedPercent) + "%")
+        + chip(true, "Tools", o.tools.total)
+        + chip(true, "Model", (o.ai.active ?? o.ai.defaultModel ?? "—").split("/").pop());
+}
+
+function teardownCore() {
+    if (coreHolo) { holos.delete(coreHolo); coreHolo.destroy(); coreHolo = null; }
+}
+
+/** Buka Aether (chat) dengan sebuah pertanyaan. */
+function askAether(text) {
+    holoState("thinking");
+    navigate("chat");
+    document.dispatchEvent(new CustomEvent("aether:ask", { detail: { text } }));
+    setTimeout(() => holoState("idle"), 1800);
+}
+
+// =====================================================================
+// Wake word — Aether selalu standby
+// =====================================================================
+
+function initWake() {
+    wake = createWakeWord({
+        onWake: () => {
+            showWakeBadge();
+            holoState("listening");
+            navigate("chat");
+            setTimeout(() => holoState("idle"), 3000);
+        },
+        onError: () => { /* diam: 'not-allowed' dll — fab manual tetap ada */ }
     });
-
-    const root = document.querySelector(`#view-${id}`);
-
-    view.render(root);
-
-    view.mount?.(root);
-
-    location.hash = id;
-
-}
-
-/** Daftar perintah untuk command palette: semua view + aksi cepat. */
-function paletteItems() {
-
-    const items = VIEWS.map(v => ({
-        icon: v.icon,
-        name: v.label,
-        group: "Halaman",
-        run: () => navigate(v.id)
-    }));
-
-    const connected = store.get().connected;
-
-    items.push(
-        { icon: connected ? "x" : "plug", name: connected ? "Putuskan daemon" : "Hubungkan daemon", group: "Aksi", run: () => connected ? disconnect() : connect() },
-        { icon: "refresh", name: "Periksa ulang integrasi", group: "Aksi", run: async () => { try { await api.checkIntegrations(); toast("Integrasi diperiksa ulang", "ok"); } catch (e) { toast(e.message, "danger"); } } }
-    );
-
-    return items;
-}
-
-/** Gambar ulang view aktif bila ia bergantung pada state global. */
-function refreshActiveView() {
-
-    if (!currentView) {
-        return;
+    if (wake.available()) {
+        try { wake.start(); } catch { /* butuh izin mic */ }
     }
-
-    if (!["dashboard"].includes(currentView.id)) {
-        return;
-    }
-
-    const root = document.querySelector(`#view-${currentView.id}`);
-
-    currentView.render(root);
-
-    currentView.mount?.(root);
-
 }
+
+let wakeBadgeTimer = null;
+function showWakeBadge() {
+    const b = $("#wake-badge");
+    b.classList.add("show");
+    clearTimeout(wakeBadgeTimer);
+    wakeBadgeTimer = setTimeout(() => b.classList.remove("show"), 2600);
+}
+
+// =====================================================================
+// Chrome (chip koneksi + status bar HUD)
+// =====================================================================
 
 function updateChrome() {
 
     const state = store.get();
-
     const chip = $("#connection-chip");
-
-    const button = $("#btn-connect");
 
     if (state.connecting) {
         chip.innerHTML = `<span class="spinner"></span><span class="small muted">menyambung…</span>`;
@@ -221,22 +283,9 @@ function updateChrome() {
         chip.innerHTML = pill("terputus", "danger");
     }
 
-    button.innerHTML = state.connected
-        ? `${icon("x")} Putuskan`
-        : `${icon("plug")} Hubungkan`;
-
-    $("#sidebar-status").textContent = state.connected
-        ? `terhubung · ${shortHost(state.settings.daemonUrl)}`
-        : (state.lastError ?? "tidak terhubung");
-
-    const o = state.overview;
-
-    setCount("skills", o ? o.tools.total : "");
-    setCount("integrations", o ? `${o.integrations.summary.online}/${o.integrations.summary.enabled}` : "");
-    setCount("logs", state.logs.length || "");
+    if (currentAppId === "core") renderCoreStats();
 
     updateStatusBar(state);
-
 }
 
 /** Bottom status bar — denyut sistem yang selalu terlihat. */
@@ -267,7 +316,6 @@ function updateStatusBar(state) {
         + seg("", "Tools", o.tools.total)
         + seg("", "Uptime", durationShort(o.stats.daemon.uptime))
         + `<span class="seg push"><span class="lbl">Aether OS</span><span class="val">v${esc(o.daemon.version)}</span></span>`;
-
 }
 
 function durationShort(sec) {
@@ -276,238 +324,104 @@ function durationShort(sec) {
     return d ? `${d}h ${h}j` : h ? `${h}j ${m}m` : `${m}m`;
 }
 
-function setCount(id, value) {
-
-    const node = document.querySelector(`[data-count="${id}"]`);
-
-    if (node) {
-        node.textContent = value === "" ? "" : String(value);
-    }
-
-}
-
 function shortHost(url) {
-
-    try {
-        const parsed = new URL(url);
-        return `${parsed.hostname}:${parsed.port || 80}`;
-    }
-    catch {
-        return url;
-    }
-
+    try { const p = new URL(url); return `${p.hostname}:${p.port || 80}`; }
+    catch { return url; }
 }
 
 // =====================================================================
-// Koneksi
+// Koneksi (dipertahankan dari versi sebelumnya)
 // =====================================================================
 
 async function connect() {
 
     clearTimeout(reconnectTimer);
-
     const settingsState = store.get().settings;
-
-    api.configure({
-        baseUrl: settingsState.daemonUrl,
-        token: settingsState.token
-    });
-
+    api.configure({ baseUrl: settingsState.daemonUrl, token: settingsState.token });
     store.set({ connecting: true, lastError: null });
-
     updateChrome();
 
     try {
-
         const overview = await api.overview();
-
-        store.set({
-            connected: true,
-            connecting: false,
-            lastError: null,
-            overview
-        });
-
+        store.set({ connected: true, connecting: false, lastError: null, overview });
         store.pushHistory(overview.stats.cpu.usage, overview.stats.memory.usedPercent);
-
         openEventStream();
-
         startPolling();
-
+        holoState("idle");
         updateChrome();
-
-        refreshActiveView();
-
         toast(`Terhubung ke ${shortHost(settingsState.daemonUrl)}`, "ok");
-
     }
-
     catch (error) {
-
-        store.set({
-            connected: false,
-            connecting: false,
-            lastError: error.message
-        });
-
+        store.set({ connected: false, connecting: false, lastError: error.message });
+        holoState("offline");
         updateChrome();
-
-        refreshActiveView();
-
         toast(error.message, "danger", 5000);
-
-        // Coba lagi sendiri supaya Console pulih begitu daemon hidup.
         scheduleReconnect();
-
     }
-
 }
 
 function disconnect() {
-
     clearTimeout(reconnectTimer);
-
     stopPolling();
-
     api.disconnectEvents();
-
-    store.set({
-        connected: false,
-        connecting: false,
-        overview: null,
-        lastError: "diputuskan manual"
-    });
-
+    store.set({ connected: false, connecting: false, overview: null, lastError: "diputuskan manual" });
+    holoState("offline");
     updateChrome();
-
-    refreshActiveView();
-
 }
 
 function scheduleReconnect() {
-
     clearTimeout(reconnectTimer);
-
-    if (!store.get().settings.autoConnect) {
-        return;
-    }
-
+    if (!store.get().settings.autoConnect) return;
     reconnectTimer = setTimeout(connect, 8000);
-
 }
 
 function openEventStream() {
-
     api.connectEvents({
-
         onOpen: ({ backlog }) => {
-
             const state = store.get();
-
             state.logs = [...(backlog ?? [])];
-
             store.set({ logs: state.logs });
-
         },
-
         onLog: entry => store.pushLog(entry),
-
         onEvent: event => store.pushLog({
-            id: event.id,
-            time: event.time,
-            level: "event",
+            id: event.id, time: event.time, level: "event",
             message: `${event.type} ${summarize(event.payload)}`
         }),
-
-        onError: () => {
-
-            // EventSource menyambung ulang sendiri; polling yang
-            // menentukan apakah daemon benar-benar mati.
-
-        }
-
+        onError: () => { /* EventSource menyambung ulang sendiri */ }
     });
-
 }
 
 function summarize(payload) {
-
-    if (!payload || typeof payload !== "object") {
-        return "";
-    }
-
-    if (payload.id && payload.status) {
-        return `${payload.id} → ${payload.status.online ? "online" : "offline"}`;
-    }
-
-    if (payload.tool) {
-        return `${payload.tool}${payload.error ? ` (${payload.error})` : ""}`;
-    }
-
-    return Object.entries(payload)
-        .slice(0, 3)
-        .map(([key, value]) =>
-            `${key}=${typeof value === "object" ? "…" : value}`)
-        .join(" ");
-
+    if (!payload || typeof payload !== "object") return "";
+    if (payload.id && payload.status) return `${payload.id} → ${payload.status.online ? "online" : "offline"}`;
+    if (payload.tool) return `${payload.tool}${payload.error ? ` (${payload.error})` : ""}`;
+    return Object.entries(payload).slice(0, 3).map(([k, v]) => `${k}=${typeof v === "object" ? "…" : v}`).join(" ");
 }
 
 function startPolling() {
-
     stopPolling();
-
     const interval = store.get().settings.pollInterval ?? 5000;
-
     pollTimer = setInterval(async () => {
-
         try {
-
             const overview = await api.overview();
-
             store.set({ overview, connected: true, lastError: null });
-
-            store.pushHistory(
-                overview.stats.cpu.usage,
-                overview.stats.memory.usedPercent
-            );
-
+            store.pushHistory(overview.stats.cpu.usage, overview.stats.memory.usedPercent);
             updateChrome();
-
-            // Catatan: dashboard TIDAK di-render ulang tiap poll — agar chat
-            // tertanam & interaksi tak terputus. Angka live tetap di status bar
-            // (updateChrome). Dashboard menyegarkan saat dibuka/berpindah view.
-
         }
-
         catch (error) {
-
             store.set({ connected: false, lastError: error.message });
-
             stopPolling();
-
             api.disconnectEvents();
-
+            holoState("offline");
             updateChrome();
-
-            refreshActiveView();
-
             toast("Koneksi ke daemon terputus", "warn");
-
             scheduleReconnect();
-
         }
-
     }, interval);
-
 }
 
 function stopPolling() {
-
-    if (pollTimer) {
-        clearInterval(pollTimer);
-        pollTimer = null;
-    }
-
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
 }
 
 // =====================================================================
@@ -517,73 +431,53 @@ function stopPolling() {
 async function main() {
 
     buildTitlebar();
+    buildLauncher();
 
-    buildSidebar();
-
-    // Command palette global (⌘K / Ctrl+K).
+    // Ctrl+K → launcher (pencarian/nav terpadu). Escape → tutup.
     document.addEventListener("keydown", e => {
-        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-            e.preventDefault();
-            openCommandPalette(paletteItems());
-        }
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); toggleLauncher(); }
+        if (e.key === "Escape") closeLauncher();
     });
 
-    // Floating Assistant → ngobrol dengan Aether (bukan palette).
-    $("#fab-assistant")?.addEventListener("click", () => navigate("aether"));
+    // Hologram mengambang — standby di mana pun.
+    try {
+        const fabHolo = createHologram();
+        $("#holo-fab").appendChild(fabHolo.el);
+        holos.add(fabHolo);
+        fabHolo.setState("idle");
+    }
+    catch { /* WebGL tak ada → fab tetap tombol biasa */ }
+
+    $("#holo-fab").addEventListener("click", () => { holoState("listening"); navigate("chat"); setTimeout(() => holoState("idle"), 2500); });
 
     const saved = await window.aether.settings.get();
-
     store.set({ settings: saved });
-
     api.configure({ baseUrl: saved.daemonUrl, token: saved.token });
 
-    // Log dari daemon yang dijalankan Console ikut masuk panel Logs.
     window.aether.daemon.onOutput(({ channel, text }) => {
-
         for (const line of text.split(/\r?\n/)) {
-
             if (line.trim()) {
-
                 store.pushLog({
-                    id: Date.now(),
-                    time: new Date().toISOString(),
-                    level: channel === "stderr" ? "error" : "info",
-                    message: `[daemon] ${line}`
+                    id: Date.now(), time: new Date().toISOString(),
+                    level: channel === "stderr" ? "error" : "info", message: `[daemon] ${line}`
                 });
-
             }
-
         }
-
     });
 
     window.aether.daemon.onExit(({ code }) => {
-
         store.patch("localDaemon", { running: false, pid: null });
-
         toast(`Daemon lokal berhenti (kode ${code})`, "warn");
-
     });
 
     document.addEventListener("aether:reconnect", () => connect());
 
-    document.addEventListener("keydown", event => {
-
-        if (event.ctrlKey && event.key >= "1" && event.key <= "9") {
-            event.preventDefault();
-            navigate(VIEWS[Number(event.key) - 1].id);
-        }
-
-    });
-
-    navigate(location.hash.slice(1) || "dashboard");
-
+    navigate(location.hash.slice(1) || "core");
     updateChrome();
 
-    if (saved.autoConnect) {
-        connect();
-    }
+    initWake();
 
+    if (saved.autoConnect) connect();
 }
 
 main();
