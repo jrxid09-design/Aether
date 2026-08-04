@@ -40,6 +40,10 @@ class CodingBrain {
      * language server tak terpasang. Balikan menyertakan sumbernya.
      */
     async outline(file, { project = process.cwd() } = {}) {
+        if (/\.ps(m?1|d1)$/i.test(file) && powershell.available()) {
+            const r = await powershell.symbols(file);              // PS: AST bawaan (tanpa PSES)
+            if (r.symbols?.length || r.source === "powershell-ast") return r;
+        }
         if (lsp.available(file)) {
             const r = await lsp.op("documentSymbols", file, [], { project });
             if (r.available && Array.isArray(r.result) && r.result.length) return { source: "lsp", symbols: r.result };

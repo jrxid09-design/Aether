@@ -15,8 +15,9 @@ const OPTS = { windowsHide: true, maxBuffer: 16 * 1024 * 1024, timeout: 60000 };
  * Aether (~/.aether/psmodules) & diimpor via path eksplisit (menghindari
  * jalur modul CurrentUser yang sering ter-redirect OneDrive di Windows).
  *
- * ponytail: outline simbol PS tak disediakan (PSScriptAnalyzer = diagnostics
- * saja); upgrade ke PSES bila navigasi simbol PS benar-benar dibutuhkan.
+ * Outline simbol PS memakai PARSER AST BAWAAN PowerShell
+ * ([Parser]::ParseFile) — sumber kebenaran yang sama dipakai PSES, tanpa
+ * memasang PSES yang berat. Diagnostics lewat PSScriptAnalyzer.
  */
 
 const SEVERITY = { 0: "information", 1: "warning", 2: "error", 3: "parse-error" };
@@ -71,6 +72,34 @@ class PowerShellAnalyzer {
             return { available: true, ok: true, count: diagnostics.length, diagnostics };
         } catch (e) {
             return { available: true, ok: false, error: (e.stderr || e.message || "").slice(-2000) };
+        }
+    }
+
+    /**
+     * Outline simbol PS (fungsi/method/kelas/enum) via AST bawaan PowerShell.
+     * Kembalian selaras dgn engine lain: { source, count, symbols:[{kind,name,line}] }.
+     */
+    async symbols(file) {
+        if (process.platform !== "win32" && !fs.existsSync(powershellBin())) {
+            return { source: "none", symbols: [], note: "PowerShell tak tersedia di OS ini." };
+        }
+        if (!fs.existsSync(file)) return { source: "error", symbols: [], error: `File tak ada: ${file}` };
+
+        const script =
+            `$t=$null;$e=$null;` +
+            `$ast=[System.Management.Automation.Language.Parser]::ParseFile(${psQuote(path.resolve(file))},[ref]$t,[ref]$e);` +
+            `$o=@();` +
+            `$ast.FindAll({param($n)$n -is [System.Management.Automation.Language.FunctionDefinitionAst]},$true)|%{$o+=[pscustomobject]@{kind='function';name=$_.Name;line=$_.Extent.StartLineNumber}};` +
+            `$ast.FindAll({param($n)$n -is [System.Management.Automation.Language.TypeDefinitionAst]},$true)|%{$o+=[pscustomobject]@{kind=$(if($_.IsEnum){'enum'}elseif($_.IsClass){'class'}else{'type'});name=$_.Name;line=$_.Extent.StartLineNumber}};` +
+            `$o|ConvertTo-Json -Compress`;
+        try {
+            const { stdout } = await pexec(powershellBin(), ["-NoProfile", "-NonInteractive", "-Command", script], OPTS);
+            const out = stdout.trim();
+            let raw = out ? JSON.parse(out) : [];
+            if (!Array.isArray(raw)) raw = [raw];
+            return { source: "powershell-ast", count: raw.length, symbols: raw };
+        } catch (e) {
+            return { source: "error", symbols: [], error: (e.stderr || e.message || "").slice(-2000) };
         }
     }
 

@@ -486,6 +486,44 @@ function codingTools() {
         }),
 
         new AITool({
+            name: "code_completion",
+            description:
+                "Completion (LSP): kandidat autocomplete pada file:line:col (member/simbol/keyword). " +
+                "Opsional — berguna saat menyusun patch agar nama API tepat. line & col 1-based.",
+            parameters: {
+                type: "object",
+                properties: {
+                    file: { type: "string" }, line: { type: "number" }, column: { type: "number" },
+                    limit: { type: "number", description: "Batasi jumlah item (default 25)." },
+                    project: { type: "string" }
+                },
+                required: ["file", "line", "column"]
+            },
+            execute: async ({ file, line, column, limit = 25, project }) => {
+                const r = await brain.lsp.op("completion", file, [line - 1, column - 1], { project });
+                if (!r.available || !r.result) return r;
+                const items = Array.isArray(r.result) ? r.result : (r.result.items || []);
+                return { available: true, count: items.length, items: items.slice(0, limit).map(i => ({ label: i.label, kind: i.kind, detail: i.detail })) };
+            }
+        }),
+
+        new AITool({
+            name: "code_semantic_tokens",
+            description:
+                "Semantic Tokens (LSP, jika server dukung): klasifikasi token semantik satu file " +
+                "(legend + data terenkode relatif). Balikan { available:false } bila server tak dukung.",
+            parameters: {
+                type: "object",
+                properties: { file: { type: "string" }, project: { type: "string" } },
+                required: ["file"]
+            },
+            execute: async ({ file, project }) => {
+                const r = await brain.lsp.op("semanticTokens", file, [], { project });
+                return r.available ? r.result : r;   // ratakan nesting op→client
+            }
+        }),
+
+        new AITool({
             name: "code_remember_fix",
             description:
                 "SIMPAN pengalaman perbaikan setelah test hijau (Root Cause/Patch/File/Lesson) " +
