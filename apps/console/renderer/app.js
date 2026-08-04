@@ -45,6 +45,22 @@ const APPS = [
 let currentAppId = null;
 let currentInstance = null;
 let coreHolo = null;
+let fabHolo = null;
+
+/**
+ * Hemat daya: hanya SATU entitas 3D yang animasi pada satu waktu.
+ * - Inti Beranda aktif hanya saat di Beranda & overlay tutup.
+ * - Orb fab disembunyikan+dijeda saat di Beranda / overlay (hindari 2 scene).
+ * - Overlay punya entitasnya sendiri.
+ */
+function refreshHoloPower() {
+    const overlay = overlayOpen();
+    const onCore = currentAppId === "core";
+    if (coreHolo) (onCore && !overlay) ? coreHolo.resume() : coreHolo.pause();
+    const fab = document.getElementById("holo-fab");
+    if (fab) fab.style.display = (onCore || overlay) ? "none" : "";
+    if (fabHolo) (!onCore && !overlay) ? fabHolo.resume() : fabHolo.pause();
+}
 
 // Semua hologram hidup (Beranda + fab) → disiarkan bersama.
 const holos = new Set();
@@ -141,6 +157,7 @@ function navigate(id) {
     }
 
     location.hash = app.id;
+    refreshHoloPower();
     closeLauncher();
 }
 
@@ -175,9 +192,7 @@ function renderCore(screen) {
         <div class="holo-home">
             <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;position:relative;">
                 <div class="holo-hud">A · E · T · H · E · R &nbsp;·&nbsp; O S</div>
-                <div class="holo-stage" id="core-holo">
-                    <span class="holo-ring-deco"></span><span class="holo-ring-deco b"></span>
-                </div>
+                <div class="holo-stage" id="core-holo"></div>
                 <div class="holo-greet">${esc(g.line)}, aku <b>Aether</b></div>
                 <div class="holo-sub">${esc(g.sub)}</div>
             </div>
@@ -191,7 +206,7 @@ function renderCore(screen) {
         </div>`;
 
     try {
-        coreHolo = createHologram();
+        coreHolo = createHologram({ maxFps: 30 });
         screen.querySelector("#core-holo").appendChild(coreHolo.el);
         holos.add(coreHolo);
         coreHolo.setState(store.get().connected ? "idle" : "offline");
@@ -433,14 +448,17 @@ async function main() {
         if (e.key === "Escape") closeLauncher();
     });
 
-    // Hologram mengambang — standby di mana pun.
+    // Entitas mengambang — standby di app non-Beranda (di Beranda ia disembunyikan).
     try {
-        const fabHolo = createHologram();
+        fabHolo = createHologram({ maxFps: 24 });
         $("#holo-fab").appendChild(fabHolo.el);
         holos.add(fabHolo);
         fabHolo.setState("idle");
     }
     catch { /* WebGL tak ada → fab tetap tombol biasa */ }
+
+    // Jeda/lanjut entitas saat overlay dibuka/ditutup (hemat daya).
+    document.addEventListener("aether:overlay", refreshHoloPower);
 
     // Orb bulat → hologram fullscreen + bicara langsung dengan Aether.
     $("#holo-fab").addEventListener("click", () => openOverlay({ voice: true }));

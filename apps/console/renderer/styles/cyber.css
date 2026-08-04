@@ -6,51 +6,37 @@
    ========================================================= */
 
 :root {
-    /* Neon lebih tajam & kontras (cyberpunk) */
-    --accent-1: #14e6ff;     /* cyan listrik   */
-    --accent-2: #7c5cff;     /* violet         */
-    --accent-3: #ff3bd4;     /* magenta        */
-    --neon-cyan: #14e6ff;
-    --neon-mag:  #ff3bd4;
-    --neon-lime: #8dffcf;
+    /* Palet SEMANTIK — sinyal keadaan, bukan dekorasi (90% gelap, 2% neon). */
+    --c-info:   #35d6f0;   /* cyan   — informasi     */
+    --c-ai:     #9d6bff;   /* purple — reasoning/AI  */
+    --c-ok:     #34d399;   /* green  — online/sukses */
+    --c-proc:   #ff9d4a;   /* orange — processing    */
+    --c-danger: #ff5470;   /* red    — danger        */
 
-    --bg-void: #04060f;
-    --bg-deep: #05070f;
-    --line:        rgba(20, 230, 255, 0.12);
-    --line-strong: rgba(20, 230, 255, 0.28);
-    --line-glow:   rgba(20, 230, 255, 0.55);
+    --accent-1: var(--c-info);
+    --accent-2: var(--c-ai);
+    --accent-3: var(--c-ai);          /* magenta pensiun → ungu sbg aksen AI */
+    --neon-cyan: var(--c-info);
+    --neon-lime: var(--c-ok);
+    --accent-gradient: linear-gradient(120deg, var(--c-info), var(--c-ai));
 
-    --holo: 0 0 22px rgba(20, 230, 255, 0.55), 0 0 60px rgba(124, 92, 255, 0.28);
-    --holo-mag: 0 0 22px rgba(255, 59, 212, 0.5);
-    --grid: rgba(20, 230, 255, 0.05);
+    --bg-void: #05070e;
+    --bg-deep: #070a12;
+    --line:        rgba(160, 190, 255, 0.10);
+    --line-strong: rgba(120, 200, 255, 0.20);
+    --line-glow:   rgba(53, 214, 240, 0.42);
+
+    /* Glow HALUS (blur, bukan shadow tajam). */
+    --holo: 0 0 18px rgba(53, 214, 240, 0.35), 0 0 44px rgba(157, 107, 255, 0.18);
     --font-hud: "Rajdhani", "Orbitron", "Segoe UI", var(--font-ui);
 }
 
-/* Latar: kabut gelap + GRID perspektif + scanline halus. */
+/* Latar: kabut gelap sangat halus (tanpa grid/scanline — bukan gaming). */
 body::before {
     background:
-        radial-gradient(45% 40% at 15% 0%,  rgba(20, 230, 255, 0.14), transparent 60%),
-        radial-gradient(50% 45% at 88% 4%,  rgba(255, 59, 212, 0.12), transparent 62%),
-        radial-gradient(60% 55% at 50% 108%, rgba(124, 92, 255, 0.16), transparent 66%);
-    filter: blur(30px);
-}
-
-/* Overlay grid + garis pindai, di atas latar, di bawah konten. */
-#shell::before {
-    content: "";
-    position: fixed; inset: 0; z-index: 0; pointer-events: none;
-    background-image:
-        linear-gradient(var(--grid) 1px, transparent 1px),
-        linear-gradient(90deg, var(--grid) 1px, transparent 1px);
-    background-size: 44px 44px, 44px 44px;
-    mask-image: radial-gradient(120% 90% at 50% 30%, #000 55%, transparent 100%);
-    opacity: 0.6;
-}
-#shell::after {
-    content: "";
-    position: fixed; inset: 0; z-index: 1; pointer-events: none;
-    background: repeating-linear-gradient(0deg, rgba(0,0,0,0) 0 2px, rgba(0,0,0,0.16) 2px 3px);
-    mix-blend-mode: overlay; opacity: 0.35;
+        radial-gradient(50% 45% at 18% 2%,  rgba(53, 214, 240, 0.10), transparent 60%),
+        radial-gradient(55% 50% at 50% 112%, rgba(157, 107, 255, 0.12), transparent 66%);
+    filter: blur(34px);
 }
 
 #shell { position: relative; z-index: 1; }
@@ -217,37 +203,19 @@ body::before {
 .body { grid-template-columns: 1fr !important; }
 
 /* =========================================================
-   JARVIS — arc & sweep lebih hidup (kurangi kesan kaku)
+   Beranda — gerak halus (panggung & konstelasi kini di kanvas 3D)
    ========================================================= */
-
-/* Sapuan conic berputar di sekeliling hologram Beranda. */
-.holo-stage::before {
-    content: ""; position: absolute; inset: -14%; border-radius: 50%; pointer-events: none;
-    background: conic-gradient(from 0deg, transparent 0 78%, rgba(20,230,255,0.5) 88%, transparent 96%);
-    mask: radial-gradient(closest-side, transparent 84%, #000 85%);
-    -webkit-mask: radial-gradient(closest-side, transparent 84%, #000 85%);
-    animation: holo-spin 6s linear infinite; opacity: 0.7;
-}
-.holo-stage::after {
-    content: ""; position: absolute; inset: 2%; border-radius: 50%; pointer-events: none;
-    background: conic-gradient(from 180deg, transparent 0 82%, rgba(255,59,212,0.45) 90%, transparent 97%);
-    mask: radial-gradient(closest-side, transparent 88%, #000 89%);
-    -webkit-mask: radial-gradient(closest-side, transparent 88%, #000 89%);
-    animation: holo-spin 9s linear infinite reverse; opacity: 0.6;
-}
-.holo-ring-deco { border-style: dashed; animation-duration: 40s; }
-.holo-greet { animation: floaty 6s ease-in-out infinite; }
-@keyframes floaty { 0%,100%{ transform: translateY(0);} 50%{ transform: translateY(-5px);} }
-.holo-hud { animation: hud-flicker 5s steps(30) infinite; }
-@keyframes hud-flicker { 0%,97%,100%{opacity:.85;} 98%{opacity:.35;} 99%{opacity:.7;} }
+.holo-ring-deco { display: none; }        /* digantikan cincin di dalam kanvas */
+.holo-greet { animation: floaty 7s ease-in-out infinite; }
+@keyframes floaty { 0%,100%{ transform: translateY(0);} 50%{ transform: translateY(-4px);} }
 
 /* =========================================================
    Aether Overlay — percakapan hologram FULLSCREEN
    ========================================================= */
 .ae-overlay {
     position: fixed; inset: 0; z-index: 80; display: grid; grid-template-rows: 1fr auto;
-    background: radial-gradient(90% 90% at 50% 42%, rgba(6,10,22,0.82), rgba(3,5,12,0.96));
-    backdrop-filter: blur(20px);
+    background: radial-gradient(90% 90% at 50% 42%, rgba(6,10,22,0.86), rgba(3,5,12,0.97));
+    backdrop-filter: blur(14px);
     opacity: 0; pointer-events: none; transition: opacity var(--base);
 }
 .ae-overlay.open { opacity: 1; pointer-events: auto; }
@@ -272,9 +240,9 @@ body.ae-immersed .holo-fab { opacity: 0; pointer-events: none; }
     mask: radial-gradient(closest-side, transparent 88%, #000 89%); -webkit-mask: radial-gradient(closest-side, transparent 88%, #000 89%);
     animation: holo-spin 18s linear infinite; }
 .ae-arcs span:nth-child(2){ width: min(58vh,560px); height: min(58vh,560px);
-    background: conic-gradient(from 120deg, transparent 0 76%, rgba(255,59,212,0.24) 88%, transparent 95%);
+    background: conic-gradient(from 120deg, transparent 0 78%, rgba(157,107,255,0.22) 89%, transparent 95%);
     mask: radial-gradient(closest-side, transparent 90%, #000 91%); -webkit-mask: radial-gradient(closest-side, transparent 90%, #000 91%);
-    animation: holo-spin 12s linear infinite reverse; }
+    animation: holo-spin 14s linear infinite reverse; }
 .ae-arcs span:nth-child(3){ width: min(84vh,820px); height: min(84vh,820px);
     background: conic-gradient(from 300deg, transparent 0 82%, rgba(124,92,255,0.2) 91%, transparent 97%);
     mask: radial-gradient(closest-side, transparent 92%, #000 93%); -webkit-mask: radial-gradient(closest-side, transparent 92%, #000 93%);

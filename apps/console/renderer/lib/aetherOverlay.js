@@ -86,10 +86,11 @@ export async function openOverlay({ text = null, voice = false } = {}) {
     build();
     els.root.classList.add("open");
     document.body.classList.add("ae-immersed");
+    document.dispatchEvent(new CustomEvent("aether:overlay", { detail: { open: true } }));
 
     if (!holo) {
         try {
-            holo = createHologram();
+            holo = createHologram({ maxFps: 30 });
             els.holo.appendChild(holo.el);
         }
         catch { holo = null; }
@@ -124,6 +125,7 @@ export function close() {
     document.body.classList.remove("ae-immersed");
     els.mic.classList.remove("recording");
     if (holo) { holo.destroy(); holo = null; els.holo.innerHTML = ""; }
+    document.dispatchEvent(new CustomEvent("aether:overlay", { detail: { open: false } }));
 }
 
 export function isOpen() { return !!els && els.root.classList.contains("open"); }
