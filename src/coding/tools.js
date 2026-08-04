@@ -367,6 +367,83 @@ function codingTools() {
             }
         }),
 
+        // ---- Refactoring OTONOM (Fase 8) — LSP-driven + verified ------
+
+        new AITool({
+            name: "code_refactor_preview",
+            description:
+                "DRY-RUN rename simbol: berapa berkas & edit terdampak (dihitung LSP, sadar-scope) " +
+                "TANPA mengubah apa pun. Pakai untuk menilai dampak sebelum rename sungguhan. " +
+                "line & col 1-based.",
+            parameters: {
+                type: "object",
+                properties: {
+                    file: { type: "string" }, line: { type: "number" }, column: { type: "number" },
+                    newName: { type: "string" }, project: { type: "string" }
+                },
+                required: ["file", "line", "column", "newName"]
+            },
+            execute: async ({ file, line, column, newName, project }) =>
+                brain.refactor.previewRename(file, line - 1, column - 1, newName, { project })
+        }),
+
+        new AITool({
+            name: "code_refactor_rename",
+            description:
+                "Rename simbol OTONOM lintas-proyek + TERVERIFIKASI: LSP hitung edit → branch git → " +
+                "tulis → lint+test → commit bila hijau / ROLLBACK bila merah → segarkan graf. Cara " +
+                "aman mengganti nama fungsi/kelas/variabel di seluruh proyek. line & col 1-based.",
+            parameters: {
+                type: "object",
+                properties: {
+                    file: { type: "string" }, line: { type: "number" }, column: { type: "number" },
+                    newName: { type: "string" },
+                    project: { type: "string" },
+                    verifySteps: { type: "array", items: { type: "string" }, description: "Urutan verifikasi, default ['lint','test']." }
+                },
+                required: ["file", "line", "column", "newName"]
+            },
+            execute: async ({ file, line, column, newName, project, verifySteps }) =>
+                brain.refactor.renameSymbol({ file, line: line - 1, character: column - 1, newName, project, verifySteps })
+        }),
+
+        new AITool({
+            name: "code_refactor_actions",
+            description:
+                "Daftar REFACTOR/quick-fix yang ditawarkan LSP pada rentang baris (extract/inline/" +
+                "rewrite/source). Sumber ide refactoring otomatis. Baris 1-based.",
+            parameters: {
+                type: "object",
+                properties: {
+                    file: { type: "string" }, startLine: { type: "number" }, endLine: { type: "number" },
+                    project: { type: "string" }
+                },
+                required: ["file", "startLine", "endLine"]
+            },
+            execute: async ({ file, startLine, endLine, project }) =>
+                brain.refactor.actions(file, startLine - 1, endLine - 1, { project })
+        }),
+
+        new AITool({
+            name: "code_refactor_apply_action",
+            description:
+                "Terapkan satu code action refactor (berdasarkan judul dari code_refactor_actions) " +
+                "secara OTONOM+TERVERIFIKASI (branch→apply→test→commit/rollback). Hanya action " +
+                "yang membawa edit langsung; yang berbasis command dilewati dgn catatan. Baris 1-based.",
+            parameters: {
+                type: "object",
+                properties: {
+                    file: { type: "string" }, startLine: { type: "number" }, endLine: { type: "number" },
+                    title: { type: "string", description: "Judul action persis dari code_refactor_actions." },
+                    project: { type: "string" },
+                    verifySteps: { type: "array", items: { type: "string" } }
+                },
+                required: ["file", "startLine", "endLine", "title"]
+            },
+            execute: async ({ file, startLine, endLine, title, project, verifySteps }) =>
+                brain.refactor.applyAction(file, startLine - 1, endLine - 1, title, { project, verifySteps })
+        }),
+
         new AITool({
             name: "code_remember_fix",
             description:

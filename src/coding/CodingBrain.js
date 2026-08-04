@@ -5,6 +5,7 @@ const ast = require("./ast/treeSitter");
 const patcher = require("./patcher/gitPatcher");
 const tester = require("./tester/testRunner");
 const bugMemory = require("./memory/bugMemory");
+const refactor = require("./refactor/Refactorer");
 
 /**
  * CodingBrain — pintu tunggal kemampuan software-engineering Aether.
@@ -27,6 +28,7 @@ class CodingBrain {
     get patcher() { return patcher; }
     get tester() { return tester; }
     get bugMemory() { return bugMemory; }
+    get refactor() { return refactor; }
 
     /**
      * Outline simbol satu file dgn urutan analisis Coding Brain: LSP dulu
@@ -81,6 +83,7 @@ class CodingBrain {
             ast: a,          // Tree-sitter     — Fase 3 ✔
             patcher: true,   // git patcher     — loop eksekusi ✔
             tester: true,    // test runner     — loop eksekusi ✔
+            refactor: true,  // refactoring otonom — Fase 8 ✔
             memory: true     // MemoryEngine + bug memory ✔
         };
     }
