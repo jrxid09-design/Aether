@@ -229,6 +229,144 @@ function codingTools() {
             execute: async ({ files, project }) => brain.patcher.restore(files, project)
         }),
 
+        // ---- Mesin LSP (Fase 4) — semantik akurat lintas-file ---------
+
+        new AITool({
+            name: "code_lsp_status",
+            description:
+                "Cek language server mana yang TERPASANG (ts/js, python, json, yaml, html, css, " +
+                "markdown, bash) + health klien aktif. Pakai untuk tahu apakah analisis LSP " +
+                "tersedia; bila tidak, Aether otomatis pakai Tree-sitter/Serena.",
+            parameters: { type: "object", properties: {} },
+            execute: async () => ({ ok: true, installed: brain.lsp.installed(), health: brain.lsp.health() })
+        }),
+
+        new AITool({
+            name: "code_definition",
+            description:
+                "Go to Definition (LSP): di mana simbol pada file:line:col DIDEFINISIKAN. Semantik " +
+                "akurat lintas-file — pakai ini alih-alih menebak. line & col 1-based.",
+            parameters: {
+                type: "object",
+                properties: {
+                    file: { type: "string" }, line: { type: "number" }, column: { type: "number" },
+                    project: { type: "string", description: "Root proyek (opsional)." }
+                },
+                required: ["file", "line", "column"]
+            },
+            execute: async ({ file, line, column, project }) =>
+                brain.lsp.op("definition", file, [line - 1, column - 1], { project })
+        }),
+
+        new AITool({
+            name: "code_references",
+            description:
+                "Find References (LSP): semua tempat simbol pada file:line:col DIPAKAI. Wajib untuk " +
+                "menilai dampak sebelum rename/patch (root-cause, bukan gejala). line & col 1-based.",
+            parameters: {
+                type: "object",
+                properties: {
+                    file: { type: "string" }, line: { type: "number" }, column: { type: "number" },
+                    includeDeclaration: { type: "boolean", description: "Sertakan deklarasi (default true)." },
+                    project: { type: "string" }
+                },
+                required: ["file", "line", "column"]
+            },
+            execute: async ({ file, line, column, includeDeclaration = true, project }) =>
+                brain.lsp.op("references", file, [line - 1, column - 1, includeDeclaration], { project })
+        }),
+
+        new AITool({
+            name: "code_hover",
+            description: "Hover (LSP): tipe/signature/dokumentasi simbol pada file:line:col. line & col 1-based.",
+            parameters: {
+                type: "object",
+                properties: { file: { type: "string" }, line: { type: "number" }, column: { type: "number" }, project: { type: "string" } },
+                required: ["file", "line", "column"]
+            },
+            execute: async ({ file, line, column, project }) =>
+                brain.lsp.op("hover", file, [line - 1, column - 1], { project })
+        }),
+
+        new AITool({
+            name: "code_rename_symbol",
+            description:
+                "Rename Symbol (LSP): hitung WorkspaceEdit untuk mengganti nama simbol di file:line:col " +
+                "ke newName di SELURUH proyek (aman, sadar-scope). Kembalikan edit — terapkan lewat " +
+                "patcher lalu test. line & col 1-based.",
+            parameters: {
+                type: "object",
+                properties: {
+                    file: { type: "string" }, line: { type: "number" }, column: { type: "number" },
+                    newName: { type: "string" }, project: { type: "string" }
+                },
+                required: ["file", "line", "column", "newName"]
+            },
+            execute: async ({ file, line, column, newName, project }) =>
+                brain.lsp.op("rename", file, [line - 1, column - 1, newName], { project })
+        }),
+
+        new AITool({
+            name: "code_diagnostics",
+            description:
+                "Diagnostics (LSP): error/warning compiler/linter untuk sebuah file (type error, " +
+                "unresolved import, dsb). Pakai setelah patch untuk verifikasi cepat sebelum test.",
+            parameters: {
+                type: "object",
+                properties: { file: { type: "string" }, project: { type: "string" } },
+                required: ["file"]
+            },
+            execute: async ({ file, project }) => brain.lsp.op("getDiagnostics", file, [], { project })
+        }),
+
+        new AITool({
+            name: "code_doc_symbols",
+            description:
+                "Document Symbols (LSP): outline simbol satu file. Bila LSP tak ada, Aether pakai " +
+                "Tree-sitter otomatis (lewat brain.outline). Sumber ikut dilaporkan.",
+            parameters: {
+                type: "object",
+                properties: { file: { type: "string" }, project: { type: "string" } },
+                required: ["file"]
+            },
+            execute: async ({ file, project }) => ({ ok: true, ...(await brain.outline(file, { project })) })
+        }),
+
+        new AITool({
+            name: "code_workspace_symbols",
+            description: "Workspace Symbols (LSP): cari simbol berdasarkan nama di SELURUH proyek. Beri contoh file berbahasa target agar server tepat.",
+            parameters: {
+                type: "object",
+                properties: {
+                    query: { type: "string" },
+                    file: { type: "string", description: "Contoh file berbahasa target (mis. src/x.ts) utk memilih server." },
+                    project: { type: "string" }
+                },
+                required: ["query", "file"]
+            },
+            execute: async ({ query, file, project }) => brain.lsp.op("workspaceSymbols", file, [query], { project })
+        }),
+
+        new AITool({
+            name: "code_code_actions",
+            description:
+                "Code Actions (LSP): quick-fix/refactor yang ditawarkan server pada rentang file " +
+                "(baris awal→akhir, 1-based). Sumber ide refactor otomatis (Fase 8).",
+            parameters: {
+                type: "object",
+                properties: {
+                    file: { type: "string" },
+                    startLine: { type: "number" }, endLine: { type: "number" },
+                    project: { type: "string" }
+                },
+                required: ["file", "startLine", "endLine"]
+            },
+            execute: async ({ file, startLine, endLine, project }) => {
+                const range = { start: { line: startLine - 1, character: 0 }, end: { line: endLine - 1, character: 0 } };
+                return brain.lsp.op("codeActions", file, [range, []], { project });
+            }
+        }),
+
         new AITool({
             name: "code_remember_fix",
             description:

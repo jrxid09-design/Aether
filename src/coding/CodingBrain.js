@@ -1,5 +1,6 @@
 const graph = require("./graph/graphifyAdapter");
 const symbol = require("./symbol/serenaAdapter");
+const lsp = require("./lsp/LSPManager");
 const ast = require("./ast/treeSitter");
 const patcher = require("./patcher/gitPatcher");
 const tester = require("./tester/testRunner");
@@ -21,10 +22,28 @@ const bugMemory = require("./memory/bugMemory");
 class CodingBrain {
     get graph() { return graph; }
     get symbol() { return symbol; }
+    get lsp() { return lsp; }
     get ast() { return ast; }
     get patcher() { return patcher; }
     get tester() { return tester; }
     get bugMemory() { return bugMemory; }
+
+    /**
+     * Outline simbol satu file dgn urutan analisis Coding Brain: LSP dulu
+     * (semantik akurat: documentSymbol), fallback ke Tree-sitter (AST) bila
+     * language server tak terpasang. Balikan menyertakan sumbernya.
+     */
+    async outline(file, { project = process.cwd() } = {}) {
+        if (lsp.available(file)) {
+            const r = await lsp.op("documentSymbols", file, [], { project });
+            if (r.available && r.result) return { source: "lsp", symbols: r.result };
+        }
+        if (await ast.available()) {
+            const r = await ast.symbolsOfFile(file);
+            return { source: "tree-sitter", ...r };
+        }
+        return { source: "none", symbols: [], note: "LSP & Tree-sitter tak tersedia." };
+    }
 
     /**
      * Loop eksekusi self-healing: branch → (penambal AI mengedit) → verify
@@ -53,11 +72,13 @@ class CodingBrain {
     /** Ringkas mesin mana yang siap dipakai (untuk introspeksi/UI). */
     async capabilities() {
         const [g, s, a] = await Promise.all([graph.available(), symbol.available(), ast.available()]);
+        const installed = lsp.installed();
         return {
             graph: g,        // Graphify        — Fase 1 ✔
             symbol: s,       // Serena (index)  — Fase 2 ✔
+            lsp: Object.values(installed).some(Boolean), // Fase 4 ✔ (≥1 server)
+            lspServers: installed,                       // rincian per bahasa
             ast: a,          // Tree-sitter     — Fase 3 ✔
-            lsp: false,      // Fase 4
             patcher: true,   // git patcher     — loop eksekusi ✔
             tester: true,    // test runner     — loop eksekusi ✔
             memory: true     // MemoryEngine + bug memory ✔
