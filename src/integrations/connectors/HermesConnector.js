@@ -34,6 +34,8 @@ class HermesConnector extends AgentConnector {
             chatCandidates: options.chatCandidates ?? ["/v1/chat/completions"]
         });
 
+        // API server Hermes memakai model id "hermes-agent".
+        this.metadata.defaultModel = this.metadata.defaultModel ?? "hermes-agent";
     }
 
     async listModels() {
