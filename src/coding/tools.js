@@ -340,7 +340,24 @@ function codingTools() {
                 properties: { file: { type: "string" }, project: { type: "string" } },
                 required: ["file"]
             },
-            execute: async ({ file, project }) => brain.lsp.op("getDiagnostics", file, [], { project })
+            execute: async ({ file, project }) => {
+                if (/\.ps(m?1|d1)$/i.test(file)) return brain.powershell.analyze(file);   // PS → PSScriptAnalyzer
+                return brain.lsp.op("getDiagnostics", file, [], { project });
+            }
+        }),
+
+        new AITool({
+            name: "code_ps_analyze",
+            description:
+                "Diagnostics/lint PowerShell (.ps1/.psm1) via PSScriptAnalyzer — aturan resmi PS " +
+                "(Invoke-Expression, Write-Host, perbandingan $null, dsb). Pakai untuk memeriksa " +
+                "skrip deploy/otomasi sebelum menjalankannya.",
+            parameters: {
+                type: "object",
+                properties: { file: { type: "string", description: "Path file .ps1/.psm1." } },
+                required: ["file"]
+            },
+            execute: async ({ file }) => brain.powershell.analyze(file)
         }),
 
         new AITool({
