@@ -526,7 +526,7 @@ async function main() {
 
     // Entitas mengambang — standby di app non-Beranda (di Beranda ia disembunyikan).
     try {
-        fabHolo = createHologram({ maxFps: 24 });
+        fabHolo = createHologram({ maxFps: 24, stars: false });   // orb kecil: bintang jadi noise
         $("#holo-fab").appendChild(fabHolo.el);
         holos.add(fabHolo);
         fabHolo.setState("idle");

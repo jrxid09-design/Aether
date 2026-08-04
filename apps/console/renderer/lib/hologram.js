@@ -35,7 +35,7 @@ const COL = {
     offline:   0x39435e
 };
 
-export function createHologram({ maxFps = 30 } = {}) {
+export function createHologram({ maxFps = 30, stars = true } = {}) {
 
     const wrap = document.createElement("div");
     wrap.style.width = "100%";
@@ -52,8 +52,8 @@ export function createHologram({ maxFps = 30 } = {}) {
 
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
-    camera.position.set(0, 0.3, 6.6);
-    camera.lookAt(0, -0.25, 0);
+    camera.position.set(0, 0.35, 7.4);
+    camera.lookAt(0, -0.42, 0);
 
     // Pencahayaan lembut: kunci cyan, rim ungu (calm, premium).
     scene.add(new THREE.AmbientLight(0xffffff, 0.62));
@@ -64,7 +64,7 @@ export function createHologram({ maxFps = 30 } = {}) {
 
     // Root (skala global agar seluruh komposisi pas di frame).
     const root = new THREE.Group();
-    root.scale.setScalar(0.9);
+    root.scale.setScalar(0.92);
     scene.add(root);
 
     const entity = new THREE.Group();
@@ -155,8 +155,8 @@ export function createHologram({ maxFps = 30 } = {}) {
     // melengkung mulus meruncing ke ujung (sumber beam). Profil dihaluskan
     // lewat CatmullRom agar TIDAK bersegi/berlipat seperti permata.
     const bodyCtrl = [
-        [0.00, 0.44], [0.18, 0.435], [0.40, 0.38], [0.62, 0.26], [0.75, 0.04],
-        [0.70, -0.22], [0.54, -0.48], [0.32, -0.70], [0.13, -0.84], [0.00, -0.90]
+        [0.00, 0.42], [0.16, 0.415], [0.36, 0.36], [0.56, 0.24], [0.68, 0.03],
+        [0.63, -0.23], [0.49, -0.48], [0.30, -0.70], [0.12, -0.84], [0.00, -0.90]
     ].map(([x, y]) => new THREE.Vector3(x, y, 0));
 
     const bodyProfile = new THREE.CatmullRomCurve3(bodyCtrl, false, "catmullrom", 0.4)
@@ -164,9 +164,9 @@ export function createHologram({ maxFps = 30 } = {}) {
         .map(p => new THREE.Vector2(Math.max(0, p.x), p.y));
 
     const bodyMat = new THREE.MeshStandardMaterial({
-        color: 0xbde7ff, roughness: 0.22, metalness: 0.15,
-        emissive: COL.idle, emissiveIntensity: 0.55,
-        transparent: true, opacity: 0.82
+        color: 0x8fd6ff, roughness: 0.16, metalness: 0.1,
+        emissive: COL.idle, emissiveIntensity: 0.85,
+        transparent: true, opacity: 0.84
     });
     const bodyGroup = new THREE.Group();
     bodyGroup.position.y = -0.86;      // rapat di bawah kepala (celah utk orbit)
@@ -175,8 +175,17 @@ export function createHologram({ maxFps = 30 } = {}) {
     const body = new THREE.Mesh(new THREE.LatheGeometry(bodyProfile, 44), bodyMat);
     bodyGroup.add(body);
 
+    // Segmen "leher" mungil antara kepala & badan (ada di referensi).
+    const neckMat = new THREE.MeshStandardMaterial({
+        color: 0x9fd8ff, roughness: 0.25, metalness: 0.2,
+        emissive: COL.idle, emissiveIntensity: 0.7, transparent: true, opacity: 0.9
+    });
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.36, 0.16, 28), neckMat);
+    neck.position.y = 0.5;
+    bodyGroup.add(neck);
+
     // AI CORE — inti energi DI DALAM badan (menyala menembus).
-    const coreMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 });
+    const coreMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending, depthWrite: false });
     const core = new THREE.Mesh(new THREE.SphereGeometry(0.1, 24, 24), coreMat);
     core.position.y = -0.5;            // dekat ujung → menyatu jadi sumber beam
     bodyGroup.add(core);
@@ -195,38 +204,88 @@ export function createHologram({ maxFps = 30 } = {}) {
     bodyGroup.add(coreRing);
 
     // =============================================================
-    // PANGGUNG PROYEKTOR + BEAM (di root, tak ikut goyang entitas)
+    // ALTAR PROYEKTOR — cincin BERTINGKAT + kolam cahaya + beam
+    // (di root, tak ikut goyang entitas)
     // =============================================================
     const stage = new THREE.Group();
-    stage.position.y = -2.02;
+    stage.position.y = -2.5;
     root.add(stage);
 
+    // Kolam cahaya di lantai altar (radial falloff, murah di GPU).
+    const poolMat = new THREE.ShaderMaterial({
+        transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
+        uniforms: { uColor: { value: new THREE.Color(COL.idle) }, uPower: { value: 0.55 } },
+        vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+        fragmentShader: `
+            uniform vec3 uColor; uniform float uPower; varying vec2 vUv;
+            void main(){
+                float d = distance(vUv, vec2(0.5));
+                float a = smoothstep(0.5, 0.0, d);
+                gl_FragColor = vec4(uColor, pow(a, 1.6) * uPower);
+            }`
+    });
+    const pool = new THREE.Mesh(new THREE.PlaneGeometry(6.2, 6.2), poolMat);
+    pool.rotation.x = -Math.PI / 2;
+    pool.position.y = -0.02;
+    stage.add(pool);
+
+    // Cincin BERTINGKAT (terasering) — makin ke luar makin rendah & redup,
+    // dua cincin terluar beraksen ungu (AI) seperti referensi.
+    const RINGS = 6;
     const plats = [];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < RINGS; i++) {
+        const outer = i >= RINGS - 2;
+        const base = 1.0 - i * 0.08;
         const m = new THREE.MeshBasicMaterial({
-            color: COL.idle, transparent: true, opacity: 0.5 - i * 0.08,
+            color: outer ? 0x9d6bff : COL.idle, transparent: true, opacity: base,
             blending: THREE.AdditiveBlending, depthWrite: false
         });
-        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.62 + i * 0.46, 0.014, 8, 96), m);
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(0.55 + i * 0.4, 0.027 - i * 0.0022, 8, 120), m);
         ring.rotation.x = Math.PI / 2;
+        ring.position.y = -i * 0.052;                    // terasering → berkedalaman
         stage.add(ring);
-        plats.push({ ring, m, base: 0.5 - i * 0.08 });
+        plats.push({ ring, m, base, outer });
     }
 
-    // Beam kerucut dari ujung badan ke panggung.
+    // Titik-titik cahaya di sepanjang cincin altar.
+    const APTS = 64;
+    const aPos = new Float32Array(APTS * 3);
+    for (let i = 0; i < APTS; i++) {
+        const band = i % 3;
+        const r = 1.35 + band * 0.4;
+        const a = (i / APTS) * Math.PI * 2 * 3;
+        aPos[i * 3] = Math.cos(a) * r;
+        aPos[i * 3 + 1] = -(2 + band) * 0.052;
+        aPos[i * 3 + 2] = Math.sin(a) * r;
+    }
+    const aGeo = new THREE.BufferGeometry();
+    aGeo.setAttribute("position", new THREE.BufferAttribute(aPos, 3));
+    const aMat = new THREE.PointsMaterial({ color: COL.idle, size: 0.05, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false });
+    const altarDots = new THREE.Points(aGeo, aMat);
+    stage.add(altarDots);
+
+    // Beam kerucut dari ujung badan ke altar (lebih terang & berlapis).
     const beamMat = new THREE.MeshBasicMaterial({
-        color: COL.idle, transparent: true, opacity: 0.14,
+        color: COL.idle, transparent: true, opacity: 0.22,
         blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
     });
-    const beam = new THREE.Mesh(new THREE.ConeGeometry(0.5, 1.2, 26, 1, true), beamMat);
-    beam.position.y = 0.59;            // relatif panggung → menyentuh ujung badan
+    const beam = new THREE.Mesh(new THREE.ConeGeometry(0.52, 0.74, 26, 1, true), beamMat);
+    beam.position.y = 0.37;            // relatif altar → menyentuh ujung badan
     stage.add(beam);
 
-    // Titik terang di pusat panggung.
-    const spotMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending, depthWrite: false });
-    const spot = new THREE.Mesh(new THREE.CircleGeometry(0.2, 24), spotMat);
+    const beamCoreMat = new THREE.MeshBasicMaterial({
+        color: 0xffffff, transparent: true, opacity: 0.4,
+        blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide
+    });
+    const beamCore = new THREE.Mesh(new THREE.ConeGeometry(0.17, 0.74, 18, 1, true), beamCoreMat);
+    beamCore.position.y = 0.37;
+    stage.add(beamCore);
+
+    // Titik jatuh beam di pusat altar.
+    const spotMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false });
+    const spot = new THREE.Mesh(new THREE.CircleGeometry(0.24, 26), spotMat);
     spot.rotation.x = -Math.PI / 2;
-    spot.position.y = 0.005;
+    spot.position.y = 0.008;
     stage.add(spot);
 
     // =============================================================
@@ -267,6 +326,56 @@ export function createHologram({ maxFps = 30 } = {}) {
     orbitB.position.y = -0.46;
     entity.add(orbitB);
 
+    // =============================================================
+    // LATAR BINTANG — berkelip di GPU (uniform waktu saja; CPU nol)
+    // =============================================================
+    let starMat = null;
+    if (stars) {
+        const SCOUNT = 760;
+        const sPos = new Float32Array(SCOUNT * 3);
+        const sPhase = new Float32Array(SCOUNT);
+        const sSize = new Float32Array(SCOUNT);
+        for (let i = 0; i < SCOUNT; i++) {
+            // Sebar di kulit bola jauh, hindari tepat di belakang entitas.
+            const r = 7 + Math.random() * 5;
+            const th = Math.random() * Math.PI * 2;
+            const ph = Math.acos(2 * Math.random() - 1);
+            sPos[i * 3] = r * Math.sin(ph) * Math.cos(th);
+            sPos[i * 3 + 1] = r * Math.sin(ph) * Math.sin(th);
+            sPos[i * 3 + 2] = -Math.abs(r * Math.cos(ph)) - 2;     // selalu di belakang
+            sPhase[i] = Math.random();
+            sSize[i] = 2.6 + Math.random() * 9.0;
+        }
+        const sGeo = new THREE.BufferGeometry();
+        sGeo.setAttribute("position", new THREE.BufferAttribute(sPos, 3));
+        sGeo.setAttribute("phase", new THREE.BufferAttribute(sPhase, 1));
+        sGeo.setAttribute("aSize", new THREE.BufferAttribute(sSize, 1));
+
+        starMat = new THREE.ShaderMaterial({
+            transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+            uniforms: { uTime: { value: 0 }, uColor: { value: new THREE.Color(0xdff2ff) }, uOpacity: { value: 1 } },
+            vertexShader: `
+                attribute float phase; attribute float aSize;
+                uniform float uTime; varying float vTw;
+                void main(){
+                    vec4 mv = modelViewMatrix * vec4(position, 1.0);
+                    vTw = 0.35 + 0.65 * pow(0.5 + 0.5 * sin(uTime * 1.4 + phase * 6.2831), 2.0);
+                    gl_PointSize = aSize * vTw * (1.0 / -mv.z) * 5.0;
+                    gl_Position = projectionMatrix * mv;
+                }`,
+            fragmentShader: `
+                uniform vec3 uColor; uniform float uOpacity; varying float vTw;
+                void main(){
+                    float d = length(gl_PointCoord - vec2(0.5));
+                    if (d > 0.5) discard;
+                    float a = smoothstep(0.5, 0.0, d);
+                    gl_FragColor = vec4(uColor, pow(a, 1.8) * vTw * uOpacity);
+                }`
+        });
+        const starField = new THREE.Points(sGeo, starMat);
+        scene.add(starField);
+    }
+
     // Debu partikel halus (calm = sedikit).
     const PCOUNT = 80;
     const pPos = new Float32Array(PCOUNT * 3);
@@ -293,6 +402,7 @@ export function createHologram({ maxFps = 30 } = {}) {
     const gaze = { x: 0, y: 0 };
     const target = new THREE.Color(COL.idle);
     const cur = new THREE.Color(COL.idle);
+    const WHITE = new THREE.Color(0xffffff);      // hoisted: tak alokasi tiap frame
     const clock = new THREE.Clock();
 
     function onPointerMove(e) {
@@ -322,10 +432,12 @@ export function createHologram({ maxFps = 30 } = {}) {
         for (const cp of cups) cp.glowMat.color.copy(c);
         tipMat.color.copy(c);
         bodyMat.emissive.copy(c);
+        neckMat.emissive.copy(c);
         coreGlowMat.color.copy(c);
         beamMat.color.copy(c);
         spotMat.color.copy(c);
-        for (const p of plats) p.m.color.copy(c);
+        aMat.color.copy(c);
+        for (const p of plats) if (!p.outer) p.m.color.copy(c);   // 2 cincin luar tetap ungu
         constRingMat.color.copy(c); dotMat.color.copy(c); pMat.color.copy(c); orbMatA.color.copy(c);
     }
 
@@ -409,9 +521,11 @@ export function createHologram({ maxFps = 30 } = {}) {
         tip.scale.setScalar(1 + Math.sin(t * (busy ? 6 : 2.2)) * (busy ? 0.32 : 0.1) + energy * 0.3);
 
         // Badan: meredup saat reasoning agar CORE terlihat menembus.
-        const bodyOpacity = (reasoning ? 0.42 : 0.82) * (offline ? 0.5 : 1);
+        const bodyOpacity = (reasoning ? 0.4 : 0.84) * (offline ? 0.5 : 1);
         bodyMat.opacity += (bodyOpacity * intro - bodyMat.opacity) * 0.08;
-        bodyMat.emissiveIntensity = 0.45 + energy * 0.6 + Math.sin(t * 2) * 0.06;
+        neckMat.opacity = bodyMat.opacity;
+        bodyMat.emissiveIntensity = 0.78 + energy * 0.7 + Math.sin(t * 2) * 0.07;
+        neckMat.emissiveIntensity = bodyMat.emissiveIntensity * 0.8;
         shellMat.opacity += ((offline ? 0.75 : 1) * intro - shellMat.opacity) * 0.1;
 
         // AI Core.
@@ -433,12 +547,26 @@ export function createHologram({ maxFps = 30 } = {}) {
         // Panggung proyektor.
         stage.rotation.y += dt * (executing ? 0.85 : busy ? 0.45 : 0.2);
         plats.forEach((p, i) => {
-            const pulse = 0.5 + Math.sin(t * (executing ? 3 : 1.35) - i * 0.55) * 0.5;
-            p.m.opacity = (p.base * (0.45 + pulse * 0.85) + energy * 0.18) * intro * (offline ? 0.35 : 1);
-            p.ring.scale.setScalar(1 + pulse * (executing ? 0.055 : 0.02));
+            const pulse = 0.5 + Math.sin(t * (executing ? 3 : 1.35) - i * 0.55) * 0.5;   // riak keluar
+            p.m.opacity = (p.base * (0.45 + pulse * 0.85) + energy * 0.2) * intro * (offline ? 0.3 : 1);
+            p.ring.scale.setScalar(1 + pulse * (executing ? 0.05 : 0.018));
         });
-        beamMat.opacity = ((offline ? 0.03 : 0.12) + energy * 0.16) * intro;
-        spotMat.opacity = ((offline ? 0.1 : 0.4) + energy * 0.35) * intro;
+        aMat.opacity = ((offline ? 0.15 : 0.75) + Math.sin(t * 2.4) * 0.2 + energy * 0.25) * intro;
+        aMat.size = 0.045 + energy * 0.025;
+        altarDots.rotation.y -= dt * 0.12;
+        poolMat.uniforms.uColor.value.copy(cur);
+        poolMat.uniforms.uPower.value = ((offline ? 0.12 : 0.45) + energy * 0.4) * intro;
+
+        beamMat.opacity = ((offline ? 0.04 : 0.2) + energy * 0.22) * intro;
+        beamCoreMat.opacity = ((offline ? 0.05 : 0.35) + energy * 0.35) * intro;
+        beamCoreMat.color.copy(cur).lerp(WHITE, 0.6);
+        spotMat.opacity = ((offline ? 0.1 : 0.45) + energy * 0.4) * intro;
+
+        // Bintang berkelip (GPU: cukup perbarui waktu).
+        if (starMat) {
+            starMat.uniforms.uTime.value = t;
+            starMat.uniforms.uOpacity.value = (offline ? 0.35 : 1) * intro;
+        }
 
         // Konstelasi (berputar pelan, selalu menghadap kamera).
         constGroup.rotation.z += dt * (busy ? 0.11 : 0.045);
