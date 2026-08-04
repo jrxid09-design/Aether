@@ -80,6 +80,37 @@ function codingTools() {
                 properties: { project: { type: "string", description: "Path root proyek (opsional)." } }
             },
             execute: async ({ project }) => { await graph.update(project); return { ok: true, updated: true }; }
+        }),
+
+        // ---- Mesin SIMBOL (Serena, Fase 2) ---------------------------
+
+        new AITool({
+            name: "code_symbol_index",
+            description:
+                "Bangun/segarkan cache SIMBOL proyek (Serena/LSP) agar navigasi simbol " +
+                "cepat & akurat. Jalankan sekali per proyek (atau setelah perubahan besar) " +
+                "sebelum mengandalkan analisis simbol.",
+            parameters: {
+                type: "object",
+                properties: { project: { type: "string", description: "Path root proyek (opsional)." } }
+            },
+            execute: async ({ project }) => {
+                if (!await brain.symbol.available()) return { ok: false, note: "Serena belum terpasang." };
+                return brain.symbol.index(project);
+            }
+        }),
+
+        new AITool({
+            name: "code_symbol_health",
+            description: "Diagnosa kesiapan proyek untuk analisis simbol (Serena health-check).",
+            parameters: {
+                type: "object",
+                properties: { project: { type: "string", description: "Path root proyek (opsional)." } }
+            },
+            execute: async ({ project }) => {
+                if (!await brain.symbol.available()) return { ok: false, note: "Serena belum terpasang." };
+                return brain.symbol.healthCheck(project);
+            }
         })
 
     ];

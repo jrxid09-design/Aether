@@ -1,4 +1,5 @@
 const graph = require("./graph/graphifyAdapter");
+const symbol = require("./symbol/serenaAdapter");
 
 /**
  * CodingBrain — pintu tunggal kemampuan software-engineering Aether.
@@ -15,13 +16,15 @@ const graph = require("./graph/graphifyAdapter");
  */
 class CodingBrain {
     get graph() { return graph; }
+    get symbol() { return symbol; }
 
     /** Ringkas mesin mana yang siap dipakai (untuk introspeksi/UI). */
     async capabilities() {
+        const [g, s] = await Promise.all([graph.available(), symbol.available()]);
         return {
-            graph: await graph.available(),
-            symbol: false,   // Serena — Fase 2
-            ast: false,      // Tree-sitter — Fase 3
+            graph: g,        // Graphify        — Fase 1 ✔
+            symbol: s,       // Serena (index)  — Fase 2 ✔
+            ast: false,      // Tree-sitter     — Fase 3
             lsp: false,      // Fase 4
             memory: true     // MemoryEngine sudah ada
         };
