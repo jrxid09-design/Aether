@@ -73,6 +73,12 @@ export function createHologram() {
     const ringB = makeRing(2.35, 0.01, new THREE.Color(0xff3bd4), Math.PI / 3, Math.PI / 5);
     const ringC = makeRing(1.72, 0.014, new THREE.Color(0x7c5cff), Math.PI / 1.7, -Math.PI / 6);
 
+    // Cincin SCAN horizontal yang menyapu naik-turun (nuansa pemindaian JARVIS).
+    const scanMat = new THREE.MeshBasicMaterial({ color: 0x8dffcf, transparent: true, opacity: 0.5 });
+    const scan = new THREE.Mesh(new THREE.TorusGeometry(1.4, 0.006, 8, 80), scanMat);
+    scan.rotation.x = Math.PI / 2;
+    core.add(scan);
+
     // ---- Halo partikel --------------------------------------------
     const COUNT = 420;
     const pos = new Float32Array(COUNT * 3);
@@ -94,12 +100,15 @@ export function createHologram() {
     let state = "idle";
     let level = 0, levelSmooth = 0;
     let running = true;
+    let flash = 0;                 // kilat singkat saat ganti state
+    let intro = 0;                 // animasi masuk (0→1)
     const target = COL.idle.clone();
     const cur = COL.idle.clone();
     const clock = new THREE.Clock();
 
     function setState(next) {
         if (!STATES.includes(next)) return;
+        if (next !== state) flash = 1;
         state = next;
         target.copy(COL[next] ?? COL.idle);
     }
@@ -119,35 +128,51 @@ export function createHologram() {
         applyColor(cur);
 
         levelSmooth += (level - levelSmooth) * Math.min(1, dt * 12);
+        flash += (0 - flash) * Math.min(1, dt * 3);           // kilat mereda
+        intro += (1 - intro) * Math.min(1, dt * 2.2);         // masuk sekali
 
         const busy = state === "listening" || state === "thinking" || state === "speaking";
         const spin = state === "thinking" ? 1.8 : state === "offline" ? 0.05 : 0.5;
+        const energy = levelSmooth + flash * 0.5;
 
+        // Inti mengambang & sedikit miring (hidup, tak kaku).
+        core.position.y = Math.sin(t * 0.9) * 0.05;
+        core.rotation.x = Math.sin(t * 0.4) * 0.12;
+        core.rotation.z = Math.cos(t * 0.3) * 0.06;
         core.rotation.y += dt * spin * 0.5;
-        wire.rotation.x += dt * 0.25;
-        wire.rotation.y -= dt * 0.3;
+        core.scale.setScalar(0.6 + intro * 0.4);              // entrance scale-in
 
-        // Denyut + reaksi amplitudo suara.
-        const pulse = 1 + Math.sin(t * (busy ? 5 : 2)) * (busy ? 0.05 : 0.02) + levelSmooth * 0.28;
+        wire.rotation.x += dt * (0.25 + energy * 0.6);
+        wire.rotation.y -= dt * (0.3 + energy * 0.5);
+
+        // Denyut + reaksi amplitudo suara + kilat.
+        const pulse = 1 + Math.sin(t * (busy ? 5 : 2)) * (busy ? 0.05 : 0.02) + levelSmooth * 0.28 + flash * 0.12;
         wire.scale.setScalar(pulse);
-        shell.scale.setScalar(1 + levelSmooth * 0.35);
-        heart.scale.setScalar(0.7 + Math.sin(t * 3) * 0.06 + levelSmooth * 0.9);
-        heartMat.opacity = 0.6 + levelSmooth * 0.4;
+        shell.scale.setScalar(1 + levelSmooth * 0.35 + flash * 0.2);
+        heart.scale.setScalar(0.7 + Math.sin(t * 3) * 0.06 + energy * 0.9);
+        heartMat.opacity = 0.6 + energy * 0.4;
 
-        ringA.rotation.z += dt * 0.6;
-        ringB.rotation.z -= dt * 0.4;
-        ringC.rotation.z += dt * 0.8;
-        const ringGlow = 0.5 + (busy ? 0.4 : 0) + levelSmooth * 0.5;
+        // Cincin: putar + wobble sumbu (tak lagi bidang datar kaku).
+        ringA.rotation.z += dt * 0.6; ringA.rotation.x = Math.PI / 2.2 + Math.sin(t * 0.7) * 0.18;
+        ringB.rotation.z -= dt * 0.4; ringB.rotation.y = Math.PI / 5 + Math.cos(t * 0.5) * 0.2;
+        ringC.rotation.z += dt * 0.8; ringC.rotation.x = Math.PI / 1.7 + Math.sin(t * 0.9 + 1) * 0.16;
+        const ringGlow = 0.5 + (busy ? 0.4 : 0) + energy * 0.5;
         ringA.material.opacity = ringGlow; ringB.material.opacity = ringGlow * 0.9; ringC.material.opacity = ringGlow;
 
-        particles.rotation.y -= dt * 0.15;
+        // Cincin scan menyapu naik-turun + mengembang.
+        scan.position.y = Math.sin(t * (busy ? 1.6 : 0.9)) * 1.3;
+        const sc = 0.5 + Math.abs(Math.cos(t * (busy ? 1.6 : 0.9))) * 0.9;
+        scan.scale.set(sc, sc, sc);
+        scanMat.opacity = (0.15 + (busy ? 0.35 : 0.15) + energy * 0.4) * intro;
+
+        particles.rotation.y -= dt * (0.15 + energy * 0.4);
         particles.rotation.x += dt * 0.05;
-        pMat.opacity = (state === "offline" ? 0.15 : 0.6) + levelSmooth * 0.4;
-        pMat.size = 0.028 + levelSmooth * 0.03;
+        pMat.opacity = ((state === "offline" ? 0.15 : 0.6) + energy * 0.4) * intro;
+        pMat.size = 0.028 + energy * 0.035;
 
         // Redup total saat offline.
         const dim = state === "offline" ? 0.25 : 1;
-        wireMat.opacity += ((0.9 * dim) - wireMat.opacity) * 0.1;
+        wireMat.opacity += ((0.9 * dim * intro + flash * 0.3) - wireMat.opacity) * 0.1;
 
         renderer.render(scene, camera);
         rafId = requestAnimationFrame(frame);

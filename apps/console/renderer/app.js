@@ -5,6 +5,7 @@ import { $, esc, pill, toast } from "./lib/ui.js";
 
 import { createHologram } from "./lib/hologram.js";
 import { createWakeWord } from "./lib/wakeword.js";
+import { openOverlay, isOpen as overlayOpen } from "./lib/aetherOverlay.js";
 
 import { buildStudioApp } from "./views/apps/studio.js";
 import { buildSpaceApp } from "./views/apps/space.js";
@@ -17,7 +18,6 @@ import { memory } from "./views/memory.js";
 import { models } from "./views/models.js";
 import { runtime } from "./views/runtime.js";
 import { awareness } from "./views/awareness.js";
-import { companion } from "./views/companion.js";
 import { logs } from "./views/logs.js";
 import { settings } from "./views/settings.js";
 
@@ -38,7 +38,6 @@ const APPS = [
     { id: "dashboard", label: "Ikhtisar", icon: "dashboard", color: "#8dffcf", desc: "Panel sistem", view: dashboard },
     { id: "runtime", label: "Runtime", icon: "terminal", color: "#14e6ff", desc: "Proses & terminal", view: runtime },
     { id: "awareness", label: "Kesadaran", icon: "activity", color: "#ff3bd4", desc: "Konteks aktif", view: awareness },
-    { id: "companion", label: "Pendamping", icon: "orb", color: "#8dffcf", desc: "Avatar Aether", view: companion },
     { id: "logs", label: "Log", icon: "bell", color: "#fbbf24", desc: "Kejadian & notifikasi", view: logs },
     { id: "settings", label: "Pengaturan", icon: "gear", color: "#8d97bd", desc: "Preferensi", view: settings }
 ];
@@ -201,14 +200,17 @@ function renderCore(screen) {
 
     renderCoreStats();
 
+    // Mulai ngobrol di Beranda → live-chat hologram FULLSCREEN muncul di
+    // ATAS layar (tidak dialihkan ke jendela app).
     const form = screen.querySelector("#core-prompt");
     form.addEventListener("submit", e => {
         e.preventDefault();
         const v = form.querySelector("input").value.trim();
         if (!v) return;
-        askAether(v);
+        form.querySelector("input").value = "";
+        openOverlay({ text: v });
     });
-    screen.querySelector("#core-mic").addEventListener("click", () => { holoState("listening"); navigate("chat"); });
+    screen.querySelector("#core-mic").addEventListener("click", () => openOverlay({ voice: true }));
 }
 
 function renderCoreStats() {
@@ -229,14 +231,6 @@ function teardownCore() {
     if (coreHolo) { holos.delete(coreHolo); coreHolo.destroy(); coreHolo = null; }
 }
 
-/** Buka Aether (chat) dengan sebuah pertanyaan. */
-function askAether(text) {
-    holoState("thinking");
-    navigate("chat");
-    document.dispatchEvent(new CustomEvent("aether:ask", { detail: { text } }));
-    setTimeout(() => holoState("idle"), 1800);
-}
-
 // =====================================================================
 // Wake word — Aether selalu standby
 // =====================================================================
@@ -244,10 +238,10 @@ function askAether(text) {
 function initWake() {
     wake = createWakeWord({
         onWake: () => {
+            if (overlayOpen()) return;               // sudah dalam percakapan
             showWakeBadge();
             holoState("listening");
-            navigate("chat");
-            setTimeout(() => holoState("idle"), 3000);
+            openOverlay({ voice: true });            // hologram fullscreen + bicara langsung
         },
         onError: () => { /* diam: 'not-allowed' dll — fab manual tetap ada */ }
     });
@@ -448,7 +442,8 @@ async function main() {
     }
     catch { /* WebGL tak ada → fab tetap tombol biasa */ }
 
-    $("#holo-fab").addEventListener("click", () => { holoState("listening"); navigate("chat"); setTimeout(() => holoState("idle"), 2500); });
+    // Orb bulat → hologram fullscreen + bicara langsung dengan Aether.
+    $("#holo-fab").addEventListener("click", () => openOverlay({ voice: true }));
 
     const saved = await window.aether.settings.get();
     store.set({ settings: saved });
