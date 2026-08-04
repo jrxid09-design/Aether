@@ -1,6 +1,9 @@
 const graph = require("./graph/graphifyAdapter");
 const symbol = require("./symbol/serenaAdapter");
 const ast = require("./ast/treeSitter");
+const patcher = require("./patcher/gitPatcher");
+const tester = require("./tester/testRunner");
+const bugMemory = require("./memory/bugMemory");
 
 /**
  * CodingBrain — pintu tunggal kemampuan software-engineering Aether.
@@ -19,6 +22,33 @@ class CodingBrain {
     get graph() { return graph; }
     get symbol() { return symbol; }
     get ast() { return ast; }
+    get patcher() { return patcher; }
+    get tester() { return tester; }
+    get bugMemory() { return bugMemory; }
+
+    /**
+     * Loop eksekusi self-healing: branch → (penambal AI mengedit) → verify
+     * (lint+test) → commit bila hijau / restore bila merah → catat
+     * pengalaman. `applyPatch` = callback async yang melakukan edit file
+     * (mis. lewat tool Edit/Write); dijalankan di dalam branch aman.
+     */
+    async runFix({ project = process.cwd(), branch, applyPatch, verifySteps, experience } = {}) {
+        if (!await patcher.isRepo(project)) return { ok: false, note: "Bukan repo git — tak bisa patch aman." };
+        const base = await patcher.currentBranch(project);
+        const created = await patcher.createBranch(branch || `aether/fix-${Date.now()}`, project);
+
+        if (typeof applyPatch === "function") await applyPatch({ project, branch: created.branch });
+
+        const verdict = await tester.verify(project, verifySteps ? { steps: verifySteps } : undefined);
+        if (!verdict.ok) {
+            await patcher.restore(["."], project);                       // rollback aman
+            return { ok: false, branch: created.branch, base, verdict, rolledBack: true };
+        }
+
+        const committed = await patcher.commit(`fix(aether): ${branch || "patch otomatis"}`, project);
+        if (experience) await bugMemory.record(experience).catch(() => {});
+        return { ok: true, branch: created.branch, base, verdict, committed };
+    }
 
     /** Ringkas mesin mana yang siap dipakai (untuk introspeksi/UI). */
     async capabilities() {
@@ -28,7 +58,9 @@ class CodingBrain {
             symbol: s,       // Serena (index)  — Fase 2 ✔
             ast: a,          // Tree-sitter     — Fase 3 ✔
             lsp: false,      // Fase 4
-            memory: true     // MemoryEngine sudah ada
+            patcher: true,   // git patcher     — loop eksekusi ✔
+            tester: true,    // test runner     — loop eksekusi ✔
+            memory: true     // MemoryEngine + bug memory ✔
         };
     }
 }

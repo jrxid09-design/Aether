@@ -136,6 +136,116 @@ function codingTools() {
                     : await brain.ast.symbols(String(code ?? ""), lang ?? "js");
                 return { ok: true, ...r };
             }
+        }),
+
+        // ---- Loop eksekusi: patcher + tester + bug-memory ------------
+
+        new AITool({
+            name: "code_recall_fixes",
+            description:
+                "INGAT perbaikan bug lampau yang mirip gejala INI sebelum investigasi baru " +
+                "(hemat tool budget — jangan ulangi kerja). Balikan: Root Cause/Patch/File/" +
+                "Lesson dari memori. Panggil paling awal saat menghadapi bug.",
+            parameters: {
+                type: "object",
+                properties: { symptom: { type: "string", description: "Gejala/pesan error/tugas." } },
+                required: ["symptom"]
+            },
+            execute: async ({ symptom }) => brain.bugMemory.recall(symptom)
+        }),
+
+        new AITool({
+            name: "code_test",
+            description:
+                "Jalankan verifikasi proyek (lint+test dari package.json; skip yang tak ada). " +
+                "Gerbang WAJIB setelah menambal — jangan anggap selesai sebelum ini hijau. " +
+                "Balikan { ok, failed?, steps } berisi output untuk diagnosa.",
+            parameters: {
+                type: "object",
+                properties: {
+                    project: { type: "string", description: "Path root proyek (opsional)." },
+                    steps: { type: "array", items: { type: "string" }, description: "Urutan script, default ['lint','test']." }
+                }
+            },
+            execute: async ({ project, steps }) => brain.tester.verify(project, steps ? { steps } : undefined)
+        }),
+
+        new AITool({
+            name: "code_check_syntax",
+            description: "Cek sintaks satu file JS tanpa mengeksekusinya (node --check). Cepat, dipakai setelah edit.",
+            parameters: {
+                type: "object",
+                properties: { file: { type: "string", description: "Path file .js/.cjs/.mjs." } },
+                required: ["file"]
+            },
+            execute: async ({ file }) => brain.tester.check(file)
+        }),
+
+        new AITool({
+            name: "code_branch",
+            description:
+                "Buat BRANCH git kerja SEBELUM menambal (patch aman & bisa dibuang). Wajib " +
+                "sebelum mengubah kode pada tugas non-sepele.",
+            parameters: {
+                type: "object",
+                properties: {
+                    name: { type: "string", description: "Nama branch, mis. 'aether/fix-openclaw-404'." },
+                    project: { type: "string", description: "Path root proyek (opsional)." }
+                },
+                required: ["name"]
+            },
+            execute: async ({ name, project }) => {
+                if (!await brain.patcher.isRepo(project)) return { ok: false, note: "Bukan repo git." };
+                return brain.patcher.createBranch(name, project);
+            }
+        }),
+
+        new AITool({
+            name: "code_commit",
+            description: "Commit perubahan SETELAH test hijau (stage semua). Kembalikan hasil commit.",
+            parameters: {
+                type: "object",
+                properties: {
+                    message: { type: "string", description: "Pesan commit (imperatif, ringkas)." },
+                    project: { type: "string", description: "Path root proyek (opsional)." }
+                },
+                required: ["message"]
+            },
+            execute: async ({ message, project }) => brain.patcher.commit(message, project)
+        }),
+
+        new AITool({
+            name: "code_rollback",
+            description:
+                "ROLLBACK aman: buang perubahan belum-commit (kembalikan file ke HEAD) bila " +
+                "test gagal. Bukan reset destruktif. Beri daftar file, atau kosong = semua.",
+            parameters: {
+                type: "object",
+                properties: {
+                    files: { type: "array", items: { type: "string" }, description: "File yang dikembalikan; kosong = semua." },
+                    project: { type: "string", description: "Path root proyek (opsional)." }
+                }
+            },
+            execute: async ({ files, project }) => brain.patcher.restore(files, project)
+        }),
+
+        new AITool({
+            name: "code_remember_fix",
+            description:
+                "SIMPAN pengalaman perbaikan setelah test hijau (Root Cause/Patch/File/Lesson) " +
+                "agar bug serupa cepat selesai lain kali. Panggil di akhir setiap perbaikan.",
+            parameters: {
+                type: "object",
+                properties: {
+                    symptom: { type: "string", description: "Gejala awal." },
+                    file: { type: "string", description: "File utama yang diubah." },
+                    rootCause: { type: "string", description: "Akar masalah sebenarnya." },
+                    patch: { type: "string", description: "Ringkas patch yang menyelesaikan." },
+                    lesson: { type: "string", description: "Pelajaran agar tak terulang." }
+                },
+                required: ["rootCause", "lesson"]
+            },
+            execute: async (exp) => brain.bugMemory.record(exp)
         })
 
     ];
