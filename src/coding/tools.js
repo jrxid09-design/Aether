@@ -111,6 +111,31 @@ function codingTools() {
                 if (!await brain.symbol.available()) return { ok: false, note: "Serena belum terpasang." };
                 return brain.symbol.healthCheck(project);
             }
+        }),
+
+        // ---- Mesin AST (Tree-sitter, Fase 3) -------------------------
+
+        new AITool({
+            name: "code_ast_outline",
+            description:
+                "Outline SIMBOL sebuah file/potongan kode dari AST Tree-sitter (kelas/fungsi/" +
+                "method/interface + baris & kedalaman). Sumber kebenaran struktur kode — pakai " +
+                "ini alih-alih menebak/regex saat perlu memahami isi satu file. Beri `file` " +
+                "(path) ATAU `code`+`lang`.",
+            parameters: {
+                type: "object",
+                properties: {
+                    file: { type: "string", description: "Path file (mis. src/x.js). Diprioritaskan." },
+                    code: { type: "string", description: "Potongan kode langsung (butuh 'lang')." },
+                    lang: { type: "string", description: "Bahasa/ekstensi untuk 'code' (js/ts/py/go/rs/…)." }
+                }
+            },
+            execute: async ({ file, code, lang }) => {
+                if (!await brain.ast.available()) return { ok: false, note: "Tree-sitter belum terpasang." };
+                const r = file ? await brain.ast.symbolsOfFile(file)
+                    : await brain.ast.symbols(String(code ?? ""), lang ?? "js");
+                return { ok: true, ...r };
+            }
         })
 
     ];
