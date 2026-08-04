@@ -126,7 +126,7 @@ body::before {
     background: radial-gradient(120% 100% at 50% 0%, rgba(8,12,24,0.86), rgba(4,6,15,0.96));
     backdrop-filter: blur(16px); opacity: 0; pointer-events: none; transition: opacity var(--base); }
 .launcher.open { opacity: 1; pointer-events: auto; }
-.launcher-inner { width: min(920px, 92vw); }
+.launcher-inner { width: min(940px, 92vw); max-height: 84vh; overflow-y: auto; padding: 6px 10px; }
 .launcher h2 { font: 300 14px/1 var(--font-hud); letter-spacing: 0.4em; text-transform: uppercase;
     color: var(--neon-cyan); text-align: center; margin: 0 0 22px; text-shadow: var(--holo); }
 .app-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px; }
@@ -145,6 +145,51 @@ body::before {
 .app-tile .t { font: 600 14px/1.2 var(--font-hud); letter-spacing: 0.08em; }
 .app-tile .d { color: var(--text-dim); font-size: 11px; margin-top: 3px; }
 .launcher-close { position: absolute; top: 22px; right: 26px; }
+
+/* ---- Control Hub (bukan menu) — kartu app hidup --------------- */
+.hub-head { text-align: center; margin-bottom: 26px; font: 300 15px/1.4 var(--font-hud);
+    letter-spacing: 0.14em; color: var(--text-muted); }
+.hub-head .hub-brand { font-weight: 700; letter-spacing: 0.3em; color: var(--c-info);
+    background: var(--accent-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.hub-head b { color: var(--c-ai); font-weight: 700; }
+.hub-cat { font: 600 10px/1 var(--font-hud); letter-spacing: 0.32em; text-transform: uppercase;
+    color: var(--text-dim); margin: 18px 2px 10px; }
+.hub-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(184px, 1fr)); gap: 12px; }
+
+.hub-card { position: relative; padding: 15px 15px 13px; cursor: pointer; text-align: left; overflow: hidden;
+    background: linear-gradient(165deg, rgba(20,26,44,0.6), rgba(9,12,22,0.55));
+    border: 1px solid var(--line); border-radius: 14px; color: var(--text);
+    transition: transform var(--fast), border-color var(--fast), box-shadow var(--fast), background var(--fast); }
+.hub-card:hover { transform: translateY(-2px); border-color: var(--line-glow); box-shadow: var(--holo);
+    background: linear-gradient(165deg, rgba(24,30,52,0.7), rgba(11,15,26,0.6)); }
+.hub-card.current { border-color: color-mix(in srgb, var(--tile) 55%, transparent); }
+.hub-card::after { content: ""; position: absolute; right: -24px; top: -24px; width: 70px; height: 70px;
+    background: radial-gradient(circle, var(--tile), transparent 70%); opacity: 0.12; pointer-events: none; }
+
+.hub-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 11px; }
+.hub-top .ico { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center;
+    color: var(--tile); background: color-mix(in srgb, var(--tile) 12%, transparent); border: 1px solid var(--line-strong); }
+.hub-top .ico .icon { width: 18px; height: 18px; }
+
+/* Status dot semantik (data nyata). */
+.stat { width: 9px; height: 9px; border-radius: 50%; background: var(--text-dim); position: relative; }
+.stat::after { content: ""; position: absolute; inset: -4px; border-radius: 50%; background: inherit; opacity: 0.25; }
+.stat-ok { background: var(--c-ok); box-shadow: 0 0 8px var(--c-ok); }
+.stat-ai { background: var(--c-ai); box-shadow: 0 0 8px var(--c-ai); }
+.stat-proc { background: var(--c-proc); box-shadow: 0 0 8px var(--c-proc); animation: mic-pulse 1.3s ease-in-out infinite; }
+.stat-danger { background: var(--c-danger); box-shadow: 0 0 8px var(--c-danger); }
+.stat-idle { background: #46506b; }
+
+.hub-name { font: 600 14px/1.2 var(--font-hud); letter-spacing: 0.06em; display: flex; align-items: center; gap: 6px; }
+.hub-name .run { color: var(--c-ok); font-size: 8px; }
+.hub-desc { color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+.hub-meta { display: flex; justify-content: space-between; align-items: center; margin-top: 10px;
+    font: 600 10px/1 var(--font-hud); letter-spacing: 0.08em; }
+.hub-meta .ver { color: var(--text-dim); }
+.hub-meta .stt { color: var(--tile); }
+.hub-caps { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
+.hub-caps span { font-size: 9px; letter-spacing: 0.06em; color: var(--text-muted);
+    padding: 2px 7px; border-radius: var(--r-pill); border: 1px solid var(--line); background: rgba(0,0,0,0.15); }
 
 /* ---- App host (tab konsolidasi) ------------------------------- */
 .apphost { height: 100%; display: flex; flex-direction: column; }

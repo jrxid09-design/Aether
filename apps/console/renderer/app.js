@@ -27,20 +27,69 @@ import { settings } from "./views/settings.js";
 
 const goHome = () => navigate("core");
 
+// Warna semantik (identitas): info=cyan, ai=purple, ok=green, proc=orange.
+const CY = "#35d6f0", AI = "#9d6bff", OK = "#34d399", PR = "#ff9d4a";
+
+// Kategori Control Hub — Aether di pusat, sisanya "Applications".
+const CATEGORIES = ["Inti", "Kecerdasan", "Ruang", "Sistem"];
+
+/**
+ * Registry APPLICATIONS. Tiap app = kapabilitas Aether dengan metadata OS:
+ * category, version, capabilities, permissions, dependencies. Status runtime
+ * (running/health) diturunkan LIVE dari overview di appStatus(). Menambah app
+ * = satu entri (scalable). Status = fungsi murni (maintainable).
+ */
 const APPS = [
-    { id: "core", label: "Beranda", icon: "orb", color: "#14e6ff", desc: "Hologram & asisten", core: true },
-    { id: "chat", label: "Aether", icon: "chat", color: "#14e6ff", desc: "Ngobrol & suara", view: aether },
-    { id: "studio", label: "Studio", icon: "grid", color: "#7c5cff", desc: "Skills · Agent · Tools", view: buildStudioApp(goHome), consolidated: true },
-    { id: "space", label: "Ruang", icon: "home", color: "#8dffcf", desc: "Rumah · Vision · NAS · Keluarga", view: buildSpaceApp(goHome), consolidated: true },
-    { id: "connect", label: "Terhubung", icon: "plug", color: "#ff3bd4", desc: "Perangkat · Integrasi", view: buildConnectApp(goHome), consolidated: true },
-    { id: "memory", label: "Memori", icon: "brain", color: "#7c5cff", desc: "Ingatan Aether", view: memory },
-    { id: "models", label: "Model AI", icon: "cpu", color: "#14e6ff", desc: "Provider & token", view: models },
-    { id: "dashboard", label: "Ikhtisar", icon: "dashboard", color: "#8dffcf", desc: "Panel sistem", view: dashboard },
-    { id: "runtime", label: "Runtime", icon: "terminal", color: "#14e6ff", desc: "Proses & terminal", view: runtime },
-    { id: "awareness", label: "Kesadaran", icon: "activity", color: "#ff3bd4", desc: "Konteks aktif", view: awareness },
-    { id: "logs", label: "Log", icon: "bell", color: "#fbbf24", desc: "Kejadian & notifikasi", view: logs },
-    { id: "settings", label: "Pengaturan", icon: "gear", color: "#8d97bd", desc: "Preferensi", view: settings }
+    { id: "core", label: "Beranda", icon: "orb", color: CY, desc: "Pusat entitas Aether", core: true, cat: "Inti",
+      version: "3.0", caps: ["Suara", "Hologram", "Perintah"], perms: ["Mikrofon"], deps: [] },
+    { id: "chat", label: "Aether", icon: "chat", color: CY, desc: "Percakapan & reasoning", view: aether, cat: "Inti",
+      version: "3.0", caps: ["Chat", "Voice", "Streaming"], perms: ["AI", "Mikrofon"], deps: ["Model AI", "Memori"] },
+    { id: "memory", label: "Memori", icon: "brain", color: AI, desc: "Ingatan jangka panjang", view: memory, cat: "Kecerdasan",
+      version: "2.4", caps: ["Recall", "Graph", "Governance"], perms: ["Baca/Tulis memori"], deps: ["Model AI"] },
+    { id: "models", label: "Model AI", icon: "cpu", color: AI, desc: "Provider & token", view: models, cat: "Kecerdasan",
+      version: "2.1", caps: ["Provider", "Fallback", "Usage"], perms: ["Kunci API"], deps: [] },
+    { id: "studio", label: "Studio", icon: "grid", color: AI, desc: "Skills · Agent · Tools", view: buildStudioApp(goHome), consolidated: true, cat: "Kecerdasan",
+      version: "1.8", caps: ["Skills", "Agent", "Tools"], perms: ["Eksekusi tool"], deps: ["Model AI"] },
+    { id: "awareness", label: "Kesadaran", icon: "activity", color: AI, desc: "Konteks aktif", view: awareness, cat: "Kecerdasan",
+      version: "1.2", caps: ["Konteks", "Sinyal"], perms: [], deps: ["Memori"] },
+    { id: "space", label: "Ruang", icon: "home", color: OK, desc: "Rumah · Vision · NAS · Keluarga", view: buildSpaceApp(goHome), consolidated: true, cat: "Ruang",
+      version: "2.0", caps: ["Smart Home", "Vision", "NAS", "Keluarga"], perms: ["Kamera", "Berkas"], deps: ["Terhubung"] },
+    { id: "connect", label: "Terhubung", icon: "plug", color: OK, desc: "Perangkat · Integrasi", view: buildConnectApp(goHome), consolidated: true, cat: "Ruang",
+      version: "2.0", caps: ["Perangkat", "Integrasi", "OpenClaw", "Hermes"], perms: ["Jaringan"], deps: [] },
+    { id: "dashboard", label: "Ikhtisar", icon: "dashboard", color: CY, desc: "Panel sistem", view: dashboard, cat: "Sistem",
+      version: "1.5", caps: ["Metrik", "Ringkasan"], perms: [], deps: [] },
+    { id: "runtime", label: "Runtime", icon: "terminal", color: CY, desc: "Proses & terminal", view: runtime, cat: "Sistem",
+      version: "1.6", caps: ["Proses", "Terminal", "Log"], perms: ["Shell"], deps: [] },
+    { id: "logs", label: "Log", icon: "bell", color: PR, desc: "Kejadian & notifikasi", view: logs, cat: "Sistem",
+      version: "1.0", caps: ["Event", "SSE"], perms: [], deps: [] },
+    { id: "settings", label: "Pengaturan", icon: "gear", color: CY, desc: "Preferensi & koneksi", view: settings, cat: "Sistem",
+      version: "1.4", caps: ["Preferensi", "Daemon"], perms: [], deps: [] }
 ];
+
+/**
+ * Status runtime sebuah app — DITURUNKAN dari data nyata (overview) supaya
+ * Control Hub hidup, bukan hiasan. tone ∈ ok|ai|proc|idle|danger.
+ */
+function appStatus(app) {
+    const s = store.get();
+    if (!s.connected && app.id !== "settings" && app.id !== "core") return { tone: "idle", label: "Offline", running: false };
+    const o = s.overview;
+    switch (app.id) {
+        case "core": return { tone: "ai", label: "Aktif", running: true };
+        case "chat": return { tone: "ai", label: o?.ai?.active ? "Siap" : "Model?", running: true };
+        case "connect": {
+            const g = o?.integrations?.summary;
+            return g ? { tone: g.online > 0 ? "ok" : "idle", label: `${g.online}/${g.enabled} online`, running: g.online > 0 } : { tone: "idle", label: "—", running: false };
+        }
+        case "models": return { tone: "ai", label: (o?.ai?.active ?? o?.ai?.defaultModel ?? "—").split("/").pop(), running: !!o?.ai?.active };
+        case "studio": return { tone: "ok", label: `${o?.tools?.total ?? 0} tools`, running: true };
+        case "runtime": return { tone: o ? "ok" : "idle", label: o ? `up ${durationShort(o.stats.daemon.uptime)}` : "—", running: !!o };
+        case "logs": return { tone: s.logs.length ? "proc" : "idle", label: `${s.logs.length} event`, running: false };
+        case "memory": return { tone: "ok", label: "Aktif", running: true };
+        case "dashboard": return { tone: o ? "ok" : "idle", label: o ? `${Math.round(o.stats.cpu.usage)}% CPU` : "—", running: !!o };
+        default: return { tone: s.connected ? "ok" : "idle", label: s.connected ? "Siap" : "Offline", running: false };
+    }
+}
 
 let currentAppId = null;
 let currentInstance = null;
@@ -100,22 +149,48 @@ function buildTitlebar() {
 // ---- App Launcher (satu tombol → semua aplikasi) ------------------
 
 function buildLauncher() {
-
-    $("#app-grid").innerHTML = APPS.map(a => `
-        <button class="app-tile" data-app="${esc(a.id)}" style="--tile:${a.color}">
-            <span class="ico">${icon(a.icon)}</span>
-            <span class="t">${esc(a.label)}</span>
-            <span class="d">${esc(a.desc)}</span>
-        </button>`).join("");
-
-    $("#app-grid").querySelectorAll("[data-app]").forEach(b =>
-        b.addEventListener("click", () => navigate(b.dataset.app)));
-
     $("#launcher-close").addEventListener("click", closeLauncher);
     $("#launcher").addEventListener("click", e => { if (e.target.id === "launcher") closeLauncher(); });
+    renderHub();
 }
 
-function toggleLauncher() { $("#launcher").classList.toggle("open"); }
+/**
+ * Control Hub — bukan menu, tapi pusat kendali: kartu app HIDUP berkategori,
+ * status/health/versi diturunkan dari data nyata; Aether ditampilkan sebagai
+ * pengoordinasi. Dipanggil ulang saat poll agar status tetap live.
+ */
+function renderHub() {
+    const grid = document.getElementById("app-grid");
+    if (!grid) return;
+
+    const activeCount = APPS.filter(a => !a.core && appStatus(a).running).length;
+    const header = document.getElementById("hub-head");
+    if (header) header.innerHTML =
+        `<span class="hub-brand">AETHER</span> mengoordinasi <b>${activeCount}</b> aplikasi aktif`;
+
+    grid.innerHTML = CATEGORIES.map(cat => {
+        const apps = APPS.filter(a => a.cat === cat);
+        if (!apps.length) return "";
+        return `<div class="hub-cat">${esc(cat)}</div>
+            <div class="hub-row">${apps.map(a => {
+                const st = appStatus(a);
+                return `<button class="hub-card${a.id === currentAppId ? " current" : ""}" data-app="${esc(a.id)}" style="--tile:${a.color}">
+                    <div class="hub-top">
+                        <span class="ico">${icon(a.icon)}</span>
+                        <span class="stat stat-${st.tone}" title="${esc(st.label)}"></span>
+                    </div>
+                    <div class="hub-name">${esc(a.label)}${st.running ? `<span class="run">●</span>` : ""}</div>
+                    <div class="hub-desc">${esc(a.desc)}</div>
+                    <div class="hub-meta"><span class="ver">v${esc(a.version)}</span><span class="stt">${esc(st.label)}</span></div>
+                    <div class="hub-caps">${a.caps.slice(0, 3).map(c => `<span>${esc(c)}</span>`).join("")}</div>
+                </button>`;
+            }).join("")}</div>`;
+    }).join("");
+
+    grid.querySelectorAll("[data-app]").forEach(b => b.addEventListener("click", () => navigate(b.dataset.app)));
+}
+
+function toggleLauncher() { const l = $("#launcher"); l.classList.toggle("open"); if (l.classList.contains("open")) renderHub(); }
 function closeLauncher() { $("#launcher").classList.remove("open"); }
 
 // ---- Navigasi (tiap app = satu layar di #stage) -------------------
@@ -293,6 +368,7 @@ function updateChrome() {
     }
 
     if (currentAppId === "core") renderCoreStats();
+    if ($("#launcher").classList.contains("open")) renderHub();   // status app live
 
     updateStatusBar(state);
 }
