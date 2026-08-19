@@ -157,15 +157,15 @@ test("tool keamanan terdaftar dan terpilih pada giliran keamanan", () => {
 
 });
 
-test("system prompt memuat disiplin keamanan", () => {
+test("doktrin keamanan dimuat untuk pesan audit keamanan", () => {
 
-    const src = fs.readFileSync(
-        path.join(__dirname, "../../src/services/aiRuntimeService.js"),
-        "utf8"
-    );
+    const { doctrineFor } = require("../../src/prompts/doctrines");
 
-    assert.match(src, /INSINYUR KEAMANAN SENIOR/);
-    assert.match(src, /MODEL ANCAMAN DULU/);
-    assert.match(src, /TIDAK\\n" \+\s*"DIKETAHUI|TIDAK " \+\s*"DIKETAHUI|TIDAK\s+DIKETAHUI/);
+    const d = doctrineFor("tolong audit keamanan repo ini, ada kerentanan?");
+    assert.match(d, /INSINYUR KEAMANAN SENIOR/);
+    assert.match(d, /MODEL ANCAMAN DULU/);
+    assert.match(d, /TIDAK\s+DIKETAHUI/);
+
+    assert.equal(doctrineFor("terima kasih ya"), "");
 
 });

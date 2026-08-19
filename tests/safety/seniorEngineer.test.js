@@ -131,15 +131,15 @@ test("code_review terdaftar sebagai tool koding", () => {
 
 });
 
-test("system prompt memuat urutan kerja rekayasa", () => {
+test("doktrin rekayasa dimuat untuk pesan koding, tidak untuk obrolan biasa", () => {
 
-    const src = fs.readFileSync(
-        path.join(__dirname, "../../src/services/aiRuntimeService.js"),
-        "utf8"
-    );
+    const { doctrineFor } = require("../../src/prompts/doctrines");
 
-    assert.match(src, /INSINYUR SENIOR/);
-    assert.match(src, /AKAR MASALAH, BUKAN GEJALA/);
-    assert.match(src, /code_diff/);
+    const d = doctrineFor("tolong perbaiki bug di fungsi login");
+    assert.match(d, /INSINYUR SENIOR/);
+    assert.match(d, /AKAR MASALAH, BUKAN GEJALA/);
+    assert.match(d, /code_diff/);
+
+    assert.equal(doctrineFor("hai apa kabar"), "");
 
 });

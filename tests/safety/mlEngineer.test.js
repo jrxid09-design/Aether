@@ -67,19 +67,21 @@ test("ml_run mengeksekusi Python nyata dan mengembalikan exit-code apa adanya", 
 
 });
 
-test("system prompt memuat disiplin riset ML", () => {
+test("doktrin ML dimuat untuk pesan riset, memuat empat topi peran", () => {
 
-    const src = fs.readFileSync(
-        path.join(__dirname, "../../src/services/aiRuntimeService.js"), "utf8"
-    );
-    assert.match(src, /PENELITI & INSINYUR ML SENIOR/);
-    assert.match(src, /EMPAT TOPI/);
-    assert.match(src, /Machine Learning Engineer/);
-    assert.match(src, /Deep Learning Engineer/);
-    assert.match(src, /Research Engineer/);
-    assert.match(src, /AI Architect/);
-    assert.match(src, /BASELINE/);
-    assert.match(src, /ANTI-BOCOR/);
-    assert.match(src, /ml_run/);
+    const { doctrineFor } = require("../../src/prompts/doctrines");
+    const d = doctrineFor("latih model klasifikasi dari dataset ini");
+
+    assert.match(d, /PENELITI & INSINYUR ML SENIOR/);
+    assert.match(d, /EMPAT TOPI/);
+    assert.match(d, /Machine Learning Engineer/);
+    assert.match(d, /Deep Learning Engineer/);
+    assert.match(d, /Research Engineer/);
+    assert.match(d, /AI Architect/);
+    assert.match(d, /BASELINE/);
+    assert.match(d, /ANTI-BOCOR/);
+    assert.match(d, /ml_run/);
+
+    assert.equal(doctrineFor("apa kabar hari ini"), "");
 
 });

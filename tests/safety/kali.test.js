@@ -46,13 +46,13 @@ test("arsenal terkelompok per tugas dan tak kosong", () => {
     assert.ok(Object.values(kali.ARSENAL).flat().length >= 30);
 });
 
-test("system prompt memuat doktrin penguasaan Kali", () => {
-    const src = fs.readFileSync(
-        path.join(__dirname, "../../src/services/aiRuntimeService.js"), "utf8"
-    );
-    assert.match(src, /KAMU MENGUASAI ARSENALNYA/);
-    assert.match(src, /kali_run/);
-    assert.match(src, /aset\s+milik pemilik|diizinkan beserta cakupannya/);
+test("doktrin Kali dimuat untuk pesan pentest, tidak untuk obrolan biasa", () => {
+    const { doctrineFor } = require("../../src/prompts/doctrines");
+    const d = doctrineFor("jalankan nmap lalu sqlmap ke target lab");
+    assert.match(d, /KAMU MENGUASAI ARSENALNYA/);
+    assert.match(d, /kali_run/);
+    assert.match(d, /aset milik pemilik|diizinkan beserta cakupannya/);
+    assert.equal(doctrineFor("selamat pagi"), "");
 });
 
 // Eksekusi nyata — hanya bila Kali tersedia di mesin uji.
