@@ -1,0 +1,33 @@
+{
+    "id": "ps-exec",
+    "name": "PowerShell Exec",
+    "version": "1.0.0",
+    "entry": "index.js",
+    "category": "user",
+    "description": "Menjalankan perintah PowerShell/shell di mesin ini dan mengembalikan output + exit code. Untuk spawn process, kill, cek status proses, dan membaca file.",
+    "author": "aether-forge",
+    "permissions": [],
+    "tags": [
+        "user"
+    ],
+    "forge": {
+        "origin": "aether",
+        "createdAt": "2026-08-17T17:15:28.735Z",
+        "spec": {
+            "toolName": "psExec",
+            "description": "Menjalankan perintah PowerShell/shell di mesin ini dan mengembalikan output + exit code. Untuk spawn process, kill, cek status proses, dan membaca file.",
+            "parameters": {
+                "command": {
+                    "description": "Perintah PowerShell",
+                    "required": true,
+                    "type": "string"
+                },
+                "timeout_ms": {
+                    "description": "Timeout milidetik",
+                    "type": "number"
+                }
+            },
+            "code": "const { spawn } = require('child_process');\nconst isWin = process.platform === 'win32';\nconst cmd = isWin ? 'powershell.exe' : '/bin/sh';\nconst full = isWin ? ['-NoProfile', '-Command', command] : ['-c', command];\nconst child = spawn(cmd, full, { windowsHide: true });\nlet out = '', err = '';\nchild.stdout.on('data', d => out += d);\nchild.stderr.on('data', d => g++ && (err += d));\nlet g = 0;\nchild.stderr.on('data', d => { err += d; });\nchild.stdout.on('data', d => { out += d; });\nconst t = Number(timeout_ms || 30000);\nconst timer = setTimeout(() => { try { child.kill(); } catch(e){} }, t);\nawait new Promise(resolve => child.on('close', code => { clearTimeout(timer); resolve(code); }));\nreturn { ok: true, stdout: out.slice(0, 8000), stderr: err.slice(0, 8000) };"
+        }
+    }
+}

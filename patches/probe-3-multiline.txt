@@ -1,0 +1,1 @@
+PROBE 3: multi-line\npath C:\AetherGenesis\AutoClipper\README.md\nbackslash \"quoted\"

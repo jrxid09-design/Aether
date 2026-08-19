@@ -1,0 +1,1 @@
+PROBE toolbus 02:37 — kalau file ini ada dan isinya utuh, jalur tool_exec -> filesystem WRITE aman.
