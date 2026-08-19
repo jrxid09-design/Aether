@@ -11,7 +11,7 @@ class SkillImpl {
         path: '/api/search/person?name=' + encodeURIComponent(name),
         method: 'GET',
         headers: {
-          'x-api-key': 'z187FBvMrb2ACGegqlesy6xNoX4E8PqVJPmUCfLE',
+          'x-api-key': process.env.IMMICH_API_KEY,
           'Accept': 'application/json'
         }
       };

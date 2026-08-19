@@ -17,7 +17,7 @@ class SearchImmichPhotoByNameTool {
 
     async execute(context, args = {}) {
         const apiUrl = 'http://127.0.0.1:2283/api';
-        const apiKey = 'z187FBvMrb2ACGegqlesy6xNoX4E8PqVJPmUCfLE';
+        const apiKey = process.env.IMMICH_API_KEY;
         const headers = { 'x-api-key': apiKey, 'Accept': 'application/json' };
 
         const peopleRes = await fetch(`${apiUrl}/person`, { headers });
