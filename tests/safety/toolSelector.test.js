@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert");
 
-const { selectTools, ALWAYS, isAlways, tail } = require("../../src/ai/tools/ToolSelector");
+const { selectTools, ALWAYS, isAlways, isExternal, tail } = require("../../src/ai/tools/ToolSelector");
 
 /**
  * Pemilih tool (§28 anggaran konteks).
@@ -316,5 +316,48 @@ test("isAlways tidak melempar pada masukan kacau", () => {
     assert.doesNotThrow(() => isAlways(null));
     assert.doesNotThrow(() => isAlways({}));
     assert.equal(isAlways({ name: undefined }), false);
+
+});
+
+// ---- Tool eksternal (MCP) ------------------------------------------
+
+test("isExternal mengenali nama bridge mcp__ tapi bukan tool asli", () => {
+
+    assert.equal(isExternal({ name: "mcp__e2e__search" }), true);
+    assert.equal(isExternal({ name: "filesystem__readFile" }), false);
+    assert.equal(isExternal({ name: "memory_recall" }), false);
+    assert.equal(isExternal(null), false);
+
+});
+
+test("tool MCP terpilih saat pesan relevan, tak dilampirkan saat idle", () => {
+
+    // Daftar besar agar anggaran benar-benar bekerja (≤ anggaran
+    // dikirim apa adanya).
+    const banyak = [];
+    for (let i = 0; i < 160; i++) banyak.push({ name: `tool_${i}`, description: `desc ${i}` });
+    banyak.push({ name: "mcp__e2e__search", description: "Cari web" });
+    banyak.push({ name: "mcp__e2e__fetch_page", description: "Ambil halaman" });
+
+    // "cari" cocok dengan deskripsi tool MCP → terlampir.
+    const cari = selectTools(banyak, "cari informasi tentang kucing", 32);
+    assert.ok(cari.some(t => t.name === "mcp__e2e__search"), "mcp search harus terpilih");
+
+    // Sapaan idle: tak satu pun tool (termasuk MCP) dilampirkan.
+    const halo = selectTools(banyak, "halo", 32);
+    assert.equal(halo.some(t => isExternal(t)), false, "tool MCP tak boleh ikut saat idle");
+
+});
+
+test("tool MCP stabil untuk pesan yang sama (cache prefix)", () => {
+
+    const banyak = [];
+    for (let i = 0; i < 160; i++) banyak.push({ name: `tool_${i}`, description: `desc ${i}` });
+    banyak.push({ name: "mcp__e2e__search", description: "Cari web" });
+
+    const a = selectTools(banyak, "cari informasi", 32).map(t => t.name);
+    const b = selectTools(banyak, "cari informasi", 32).map(t => t.name);
+
+    assert.deepEqual(a, b);
 
 });
