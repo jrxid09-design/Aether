@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="id">
 <head>
     <meta charset="utf-8">
@@ -120,6 +120,7 @@
 <script src="vendor/xterm/addon-search.js"></script>
 
 <script type="module" src="app.js"></script>
+<script src="colonyChat.js"></script>
 
 </body>
 </html>
