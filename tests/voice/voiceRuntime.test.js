@@ -3,6 +3,7 @@ const assert = require("node:assert");
 
 const { StateMachine, STATES } = require("../../src/voice/stateMachine");
 const { WakeWordProvider } = require("../../src/voice/providers/wakeWord");
+const { ClapDetector } = require("../../src/voice/providers/clapDetector");
 const { VadDetector } = require("../../src/voice/providers/vad");
 const { AudioInput } = require("../../src/voice/providers/audioInput");
 const { AudioOutput } = require("../../src/voice/providers/audioOutput");
@@ -76,6 +77,75 @@ test("wake word: TIDAK mendeteksi substring (ethereum)", () => {
 test("wake word: kosong → tidak terdeteksi", () => {
     const w = new WakeWordProvider({ wakeWord: "aether" });
     assert.equal(w.detect("").detected, false);
+});
+
+// ---- ClapDetector (trigger tepuk tangan 2x) ----
+
+test("clap: dua tepukan dalam jendela → terdeteksi", () => {
+    const c = new ClapDetector({ threshold: 0.6, windowMs: 800, minGapMs: 100, minClapMs: 30 });
+    const t0 = 1000;
+
+    // Tepukan 1: naik di t0, turun di t0+50 (durasi 50ms = clap valid).
+    c.feedLevel(0.9, t0);
+    c.feedLevel(0.1, t0 + 50);
+
+    // Tepukan 2: naik di t0+300, turun di t0+350 (gap 300ms, dalam jendela).
+    c.feedLevel(0.9, t0 + 300);
+    c.feedLevel(0.1, t0 + 350);
+
+    const r = c.detect(t0 + 350);
+    assert.equal(r.detected, true);
+    assert.equal(r.claps, 2);
+    assert.ok(r.gapMs >= 100 && r.gapMs <= 800);
+});
+
+test("clap: SATU tepukan saja → tidak terdeteksi", () => {
+    const c = new ClapDetector({ threshold: 0.6, windowMs: 800, minGapMs: 100, minClapMs: 30 });
+    const t0 = 1000;
+    c.feedLevel(0.9, t0);
+    c.feedLevel(0.1, t0 + 50);
+
+    const r = c.detect(t0 + 50);
+    assert.equal(r.detected, false);
+});
+
+test("clap: dua tepukan TERLALU jauh (di luar jendela) → tidak terdeteksi", () => {
+    const c = new ClapDetector({ threshold: 0.6, windowMs: 800, minGapMs: 100, minClapMs: 30 });
+    const t0 = 1000;
+
+    c.feedLevel(0.9, t0);
+    c.feedLevel(0.1, t0 + 50);
+
+    c.feedLevel(0.9, t0 + 2000); // gap 2000ms > window 800ms
+    c.feedLevel(0.1, t0 + 2050);
+
+    const r = c.detect(t0 + 2050);
+    assert.equal(r.detected, false);
+});
+
+test("clap: bunyi panjang (bukan dua clap) → tidak terdeteksi", () => {
+    const c = new ClapDetector({ threshold: 0.6, windowMs: 800, minGapMs: 100, minClapMs: 30 });
+    const t0 = 1000;
+
+    // Satu bunyi keras panjang (naik t0, turun t0+500) = 1 clap, bukan 2.
+    c.feedLevel(0.9, t0);
+    c.feedLevel(0.1, t0 + 500);
+
+    const r = c.detect(t0 + 500);
+    assert.equal(r.detected, false);
+});
+
+test("clap: level di bawah threshold → diabaikan (noise)", () => {
+    const c = new ClapDetector({ threshold: 0.6, windowMs: 800, minGapMs: 100, minClapMs: 30 });
+    const t0 = 1000;
+
+    c.feedLevel(0.2, t0);       // di bawah threshold
+    c.feedLevel(0.1, t0 + 50);
+    c.feedLevel(0.3, t0 + 300); // masih di bawah threshold
+    c.feedLevel(0.1, t0 + 350);
+
+    const r = c.detect(t0 + 350);
+    assert.equal(r.detected, false);
 });
 
 // ---- VadDetector ----
@@ -189,6 +259,11 @@ function makeRuntime(overrides = {}) {
             maxListenMs: 1000,
             acknowledgement: "Ya?",
             language: "id",
+            clapEnabled: false,
+            clapThreshold: 0.6,
+            clapWindowMs: 800,
+            clapMinClapMs: 30,
+            clapMinGapMs: 100,
             ...overrides
         })
     });
@@ -201,6 +276,29 @@ test("VoiceRuntime: wakeDetect memicu WAKE_DETECTED + ack (tanpa LLM)", async ()
 
     const r = rt.wakeDetect("Aether");
     assert.equal(r.detected, true);
+    assert.equal(rt.machine.current, STATES.WAKE_DETECTED);
+    assert.equal(acked, "Ya?");
+
+    await rt.stop();
+});
+
+test("VoiceRuntime: clapDetect (2 tepukan) memicu WAKE_DETECTED + ack", async () => {
+    const rt = makeRuntime({ clapEnabled: true });
+    let wakeSource = null;
+    let acked = null;
+    rt.on("wake", w => { wakeSource = w.source; });
+    rt.on("ack", a => { acked = a; });
+
+    const t0 = 5000;
+    // Tepukan 1
+    rt.clapDetect(0.9, t0);
+    rt.clapDetect(0.1, t0 + 50);
+    // Tepukan 2
+    rt.clapDetect(0.9, t0 + 300);
+    const r = rt.clapDetect(0.1, t0 + 350);
+
+    assert.equal(r.detected, true);
+    assert.equal(wakeSource, "clap");
     assert.equal(rt.machine.current, STATES.WAKE_DETECTED);
     assert.equal(acked, "Ya?");
 
