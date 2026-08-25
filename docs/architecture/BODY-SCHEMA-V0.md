@@ -36,37 +36,81 @@ confidence Y". Itu bukan izin. Izin adalah ranah Authority yang dibangun
 terpisah — modul ini bahkan tidak punya tempat dalam bentuk datanya untuk
 menyatakan izin (lihat invariant A).
 
-### Jalur tulis tunggal (B§6)
+### Jalur tulis tunggal + atomik (B§6)
 
-Satu-satunya mutasi state adalah `BodySchema.ingest(event)`. Event hanya
-diterima dari produsen terdaftar (`registerProducer`) — yaitu adapter
-discovery yang dipasang operator, atau `sensorium.core` untuk event
-turunan. Event cacat / produsen asing dicatat ke dead-letter tanpa
-mengubah state apa pun.
+Satu-satunya mutasi state adalah `BodySchema.ingest(event)`, yang berjalan
+dua fase:
 
-### Identitas kanonik (B§3)
+1. **PLAN** — seluruh validasi (bentuk event, produsen, deskriptor,
+   kesamaan subjek↔target, relasi + keberadaan kedua ujung, klaim
+   kemampuan) dilakukan TANPA menyentuh state.
+2. **COMMIT** — hanya bila plan lolos seluruhnya, state diubah sekali.
+
+Konsekuensinya: `accepted:false` SELALU berarti state byte-identik, dan
+notifikasi pelanggan (`subscribe`) berjalan SETELAH komit; kegagalan
+callback terisolasi per pelanggan (dicatat di `subscriberErrors`) dan tidak
+pernah menggugurkan event yang sah.
+
+Event hanya diterima dari produsen terdaftar (`registerProducer` — tindakan
+operator; siklus discovery tidak mengangkat dirinya sendiri). Event cacat /
+produsen asing dicatat ke dead-letter tanpa mutasi apa pun.
+
+### Perlindungan event inti (B§5)
+
+Tipe kelas `"core"` (`DEVICE_DEFAULT_CHANGED`,
+`UNKNOWN_DEVICE_REQUIRES_ANALYSIS`) tidak bisa dibuat lewat `makeEvent()`
+publik. Pabrik internal `makeCoreEvent()` membubuhkan **CORE_TOKEN**,
+simbol privat modul (tidak diekspor dari pintu publik embodiment).
+`ingest()` menolak event inti tanpa token — penyamaan string
+`"sensorium.core"` saja tidak pernah cukup. `provenance:"SYSTEM_EVENT"`
+juga cadangan jalur inti; adapter eksternal memakainya ditolak.
+
+### Identitas kanonik perangkat (B§3)
 
 `<namespace>:<stable-key>` — mis. `windows.audio:{0.0.1.00000000}.1`,
 `usb:1234:5678:abc`, `network:rtsp:kamera-luar`. Nama tampilan tidak pernah
 menjadi identitas. Adapter wajib jujur soal kestabilan lewat klaim
 `identity.stability = stable|session|ephemeral`; bila sumber tidak
-menyediakan pengenal stabil, dipakai `unverified-<hash>` (B§3).
+menyediakan pengenal stabil, dipakai `unverified-<hash>` (B§3). Untuk NIC:
+kunci = nama kanonik antarmuka + MAC; MAC terduplikasi dalam satu siklus →
+kunci deterministik per-nama + klaim "session" (tidak pernah "stable" atas
+MAC ganda).
 
 ### Penggabungan observasi (urutan total, bebas arah kedatangan)
 
-Antar-pengamatan atas perangkat yang sama diselesaikan dengan urutan total:
-confidence menurun → sumber leksikografis naik → waktu terbaru → digest
-kanonik. State (kehadiran) mengikuti pengamatan terbaru secara temporal —
-rediscovery selalu dapat memulihkan perangkat yang offline/removed.
+Konten dan kehadiran masing-masing memakai urutan totalnya sendiri:
+
+- **Konten deskriptor**: confidence menurun → sumber leksikografis naik →
+  waktu terbaru → digest kanonik.
+- **Kehadiran (state)**: waktu terbaru → confidence menurun → sumber naik →
+  tie sempurna jatuh ke nama state kanonik terkecil. Pengamatan usang yang
+  datang belakangan tidak bisa menimpa state segar.
+- **Klaim kemampuan**: persis-sama = no-op; prioritas sama (confidence +
+  sumber) diselesaikan lewat JSON kanonik terkecil. Materialisasi
+  `capabilities` selalu TERURUT nama → digest durable stabil.
+
+Himpunan observasi yang sama selalu konvergen ke digest/serialize/state
+yang identik, diuji dengan permutasi urutan kedatangan.
+
+### Restore = batas input tidak terpercaya (B§8a)
+
+Kebijakan dipilih: **A — gagal-tutup penuh.** SATU SAJA baris cacat
+menolak SELURUH snapshot (tanpa karantina parsial; tubuh setengah
+dipulihkan lebih berbahaya daripada mulai dari nol). Setiap baris melewati
+validator yang sama dengan jalur ingest: `normalizeDescriptor`
+(whitelist field, enum, deviceId kanonik), normalisasi ulang klaim,
+verifikasi digest anti-tamper, validasi relasi (tipe + kedua ujung harus
+ada, termasuk relasi preferensi), validasi resolusi preferensi. Diagnostik
+lengkap ada di `error.details`.
 
 ### Ephemeral vs durable (B§8)
 
 Observasi sensor (`SENSOR_OBSERVATION`) adalah **ephemeral**: cincin memori
-terbatas, tidak pernah diserialisasi. Identitas/kemampuan/relasi/preferensi
-adalah **durable**: `serialize()` → store. V0 menyediakan store memori;
-titik integrasi sqlite masa depan terdokumentasi di
-`persistence/BodyStore.js` (tanpa menyentuh internal database yang sudah
-ada).
+terbatas, hanya kanal sensor, tidak pernah diserialisasi. Identitas/
+kemampuan/relasi/preferensi adalah **durable**: `serialize()` (terlepas
+penuh, beku) → store. Store memori MENYALIN masuk dan keluar — dua skema
+tidak pernah berbagi graf objek. Titik integrasi sqlite masa depan
+terdokumentasi di `persistence/BodyStore.js`.
 
 ## Invariant keamanan (dibuktikan di `tests/embodiment/securityInvariants.test.js`)
 
@@ -105,10 +149,23 @@ capture produksi kamera/mikrofon, kontrol keyboard/mouse, automasi OS,
 engine reverse engineering, driver otonom, Evolution Authority, mutasi
 AetherSelf, Colony, ACC C1.
 
+## Hardening tertunda (non-blocking, terdokumentasi)
+
+- Replay/dedupe event berdasar eventId pada ingest (jurnal saat ini hanya
+  informasional).
+- Cincin observasi per-perangkat (saat ini per-kanal).
+- Subjek sintetis pada `setPreference({kind:"clear"})` tanpa deviceId.
+- Slug hostname dapat tabrakan lintas mesin (tidak relevan V0 satu-host).
+- `preferredInput` ringkasan menghitung penyedia mana pun, sementara
+  `availableInputs` menghitung kelas AUDIO_INPUT — akan diselarikan saat
+  proyeksi self-model mulai dikonsumsi.
+- Batas panjang tambahan untuk field bebas lainnya.
+
 ## Menjalankan tes
 
 ```bash
-node --test tests/embodiment/*.test.js
+node --test --test-reporter=spec tests/embodiment/*.test.js
 ```
 
-34 tes, deterministik (jam manual, adapter fake, tanpa perangkat keras).
+46 tes (termasuk regresi red-team), deterministik penuh: jam manual,
+adapter fake/injected-os, tanpa perangkat keras.

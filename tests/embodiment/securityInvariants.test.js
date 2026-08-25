@@ -24,10 +24,14 @@ function makeSchema() {
 }
 
 function fake(schema, script, id = "fake.discovery") {
+    // Registrasi produsen = tindakan operator (kontrak B§5a):
+    schema.registerProducer(id);
+    // Tiap siklus memajukan jam 1ms agar urutan temporal antar-langkah nyata.
     const adapter = emb.createFakeDiscoveryAdapter({ id, script });
     const results = [];
     for (let i = 0; i < script.length; i++) {
         results.push(...emb.runDiscoveryCycle(schema, adapter));
+        schema.clock.advance(1);
     }
     return results;
 }
@@ -91,10 +95,6 @@ test("INVARIANT B: teks model tidak bisa menciptakan perangkat", () => {
     assert.equal(body.counts().devices, 0);
 
     // 3) DEVICE_CHANGED untuk perangkat asing juga ditolak:
-    const r = fake(makeSchema(), [[{ discover: [
-        { deviceId: MIC, deviceClass: "AUDIO_INPUT", displayName: "Mic" }
-    ] }]]);
-    void r;
     const body2 = makeSchema();
     body2.registerProducer("fake.discovery");
     const changed = body2.ingest(emb.makeEvent({
@@ -162,14 +162,23 @@ test("INVARIANT D + B0.32: klaim kemampuan adalah fakta+provenance, bukan izin",
     assert.ok(!("grants" in claim));
     assert.ok(!("allowedBy" in claim));
 
-    // confidence dibatasi [0..1] — tidak ada "super claim":
+    // confidence dibatasi [0..1] — "super claim" dinormalisasi clamp01:
     const r = fake(body, [[{ capability: { deviceId: MIC, claim: {
         name: "audio.capture", confidence: 999
     } } }]]);
-    assert.ok(r[0].accepted || true);   // normalisasi clamp01, bukan error
+    assert.equal(r[0].accepted, true,
+        "klaim sah dengan confidence 999 harus diterima (dinormalisasi)");
     const after = body.getDevice(MIC).capabilities.find(
         c => c.name === "audio.capture");
-    assert.ok(after.confidence >= 0 && after.confidence <= 1);
+    assert.ok(after.confidence >= 0 && after.confidence <= 1,
+        "confidence wajib terkurung [0..1]");
+    // klaim yang SAMA PERSIS diulang = NO-OP (digest tidak berubah):
+    const digestSetelahKlaimBaru = body.digestDurable();
+    fake(body, [[{ capability: { deviceId: MIC, claim: {
+        name: "audio.capture", confidence: 1
+    } } }]]);
+    assert.equal(body.digestDurable(), digestSetelahKlaimBaru,
+        "pengulangan klaim identik wajib no-op");
 });
 
 test("INVARIANT E: unknown tetap unknown sampai ada bukti klasifikasi", () => {
@@ -219,9 +228,6 @@ test("INVARIANT F: observasi sensor tidak memicu aktuasi apa pun di V0", () => {
     let reaksi = 0;
     body.subscribe(() => { reaksi++; });   // hook otonomik masa depan
 
-    const r = fake(body, [[{ capability: { deviceId: MIC, claim: {} } }]]);
-    void r;
-
     const obs = emb.makeEvent({
         type: "SENSOR_OBSERVATION", source: "fake.discovery",
         provenance: "SYSTEM_SENSOR", subject: MIC,
@@ -255,6 +261,8 @@ test("INVARIANT G: BodySchema hidup sendirian — tanpa Console/LLM/database", (
 
     // instansiasi telanjang di proses yang sama, nol dependensi lain:
     const body = emb.createBodySchema({ clock: emb.manualClock(T0) });
+    // registrasi produsen = tindakan operator (kontrak B§5a):
+    body.registerProducer("fake.discovery");
     const results = emb.runDiscoveryCycle(body, emb.createFakeDiscoveryAdapter({
         script: [[{ discover: [
             { deviceId: "host.os:sendiri", deviceClass: "HOST",
@@ -291,12 +299,18 @@ test("B0.35: paritas serialisasi/restart — digest durable identik", async () =
     const original = build();
     await original.persist();                       // simpan ke store
 
-    const restored = emb.BodySchema.restore(await store.load(), {
+    // BATAS SERIALIZASI NYATA: stringify → parse — tanpa berbagi graf
+    // objek dengan skema sumber maupun store.
+    const payload = JSON.parse(JSON.stringify(await store.load()));
+    const restored = emb.BodySchema.restore(payload, {
         clock: emb.manualClock(T0)
     });
 
     // identitas, kemampuan, relasi, preferensi — semua bertahan:
-    assert.equal(original.digestDurable(), restored.digestDurable());
+    assert.equal(original.digestDurable(), restored.digestDurable(),
+        "digest durable wajib identik lintas restart");
+    assert.deepEqual(restored.serialize(), original.serialize(),
+        "serialisasi kanonik wajib identik lintas restart");
     assert.equal(restored.getDevice(MIC).descriptor.displayName, "Mic USB");
     // attached_to (dari adapter) + default_for (kebijakan operator):
     assert.deepEqual(

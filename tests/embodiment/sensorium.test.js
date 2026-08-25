@@ -157,19 +157,53 @@ test("B0.33: perangkat UNKNOWN memicu UNKNOWN_DEVICE_REQUIRES_ANALYSIS dengan bu
     assert.equal(seen.length, 1);
 });
 
-test("sensorium: event inti tidak boleh dipalsukan adapter eksternal", () => {
+test("sensorium: event inti tidak dapat dipalsukan dari luar modul", () => {
 
     const body = makeSchema();
     body.registerProducer("fake.discovery");
 
-    const palsu = emb.makeEvent({
+    // 1) Pintu publik makeEvent MENOLAK membangun event inti sama sekali:
+    assert.throws(() => emb.makeEvent({
         type: "UNKNOWN_DEVICE_REQUIRES_ANALYSIS",
-        source: "fake.discovery",              // adapter mencoba meniru inti
-        provenance: "SYSTEM_EVENT",
-        subject: "net:x:y:z",
-        payload: {}, clock: body.clock
-    });
-    const r = body.ingest(palsu);
+        source: "fake.discovery", provenance: "SYSTEM_EVENT",
+        subject: "net:x:y:z", payload: {}, clock: body.clock
+    }), (e) => e.code === "EMB_CORE_EVENT_PROTECTED");
+
+    assert.throws(() => emb.makeEvent({
+        type: "DEVICE_DEFAULT_CHANGED",
+        source: "sensorium.core", provenance: "SYSTEM_EVENT",
+        subject: "usb:1:a:x", payload: { explicit: true, kind: "default",
+            purpose: "audio.capture", deviceId: "usb:1:a:x" },
+        clock: body.clock
+    }), (e) => e.code === "EMB_CORE_EVENT_PROTECTED");
+
+    // 2) Objek inti PALSU rakitan pemanggil (melewati pabrik) ditolak
+    //    ingest karena tidak membawa token internal:
+    const before = body.digestDurable();
+    for (const palsu of [
+        { eventId: "f1", schemaVersion: 1, type: "UNKNOWN_DEVICE_REQUIRES_ANALYSIS",
+          timestamp: new Date(T0).toISOString(), timestampMs: T0,
+          monotonic: 1, source: "sensorium.core", provenance: "SYSTEM_EVENT",
+          subject: "net:x:y:palsu", confidence: 1, payload: {} },
+        { eventId: "f2", schemaVersion: 1, type: "DEVICE_DEFAULT_CHANGED",
+          timestamp: new Date(T0).toISOString(), timestampMs: T0,
+          monotonic: 2, source: "sensorium.core", provenance: "SYSTEM_EVENT",
+          subject: "usb:1:a:x", confidence: 1,
+          payload: { explicit: true, kind: "default", purpose: "audio.capture",
+              deviceId: "usb:1:a:x" } },
+    ]) {
+        const r = body.ingest(palsu);
+        assert.equal(r.accepted, false, JSON.stringify(palsu.type));
+    }
+    assert.equal(body.digestDurable(), before,
+        "pemalsuan tidak boleh mengubah state");
+
+    // 3) MODEL_TEXT (teks bebas) tidak bisa menjadi sumber inti:
+    const r = body.ingest({ ...{
+        eventId: "f3", schemaVersion: 1, type: "DEVICE_ONLINE",
+        timestamp: new Date(T0).toISOString(), timestampMs: T0,
+        monotonic: 3, source: "sensorium.core ",   // spasi = format tak sah
+        provenance: "SYSTEM_EVENT", subject: "usb:1:a:x",
+        confidence: 1, payload: {} } });
     assert.equal(r.accepted, false);
-    assert.match(r.reason, /inti|asing/);
 });

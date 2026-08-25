@@ -13,6 +13,7 @@ const T0 = 1_000_000;
 test("B0.24: fake adapter membuktikan siklus hidup penuh tanpa perangkat keras", () => {
 
     const body = emb.createBodySchema({ clock: emb.manualClock(T0) });
+    body.registerProducer("fake.discovery");
 
     const adapter = emb.createFakeDiscoveryAdapter({
         id: "fake.discovery",
@@ -58,6 +59,7 @@ test("B0.24: fake adapter membuktikan siklus hidup penuh tanpa perangkat keras",
 test("B0.24b: siklus habis → tenang; adapter divalidasi gagal-tutup", () => {
 
     const body = emb.createBodySchema({ clock: emb.manualClock(T0) });
+    body.registerProducer("fake.discovery");
     const adapter = emb.createFakeDiscoveryAdapter({
         script: [[{ discover: [] }]]
     });
@@ -75,6 +77,7 @@ test("B0.24b: siklus habis → tenang; adapter divalidasi gagal-tutup", () => {
 test("adapter host nyata: tubuh minimal dengan kejujuran identitas", () => {
 
     const body = emb.createBodySchema({ clock: emb.manualClock(T0) });
+    body.registerProducer("host.os");
 
     // injeksi os palsu agar deterministik & tanpa sentuhan sistem:
     const fakeOs = {

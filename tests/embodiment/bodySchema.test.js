@@ -20,11 +20,15 @@ function makeSchema() {
 }
 
 function fake(schema, script, id = "fake.discovery") {
-    // adapter memakan skrip satu langkah per siklus:
+    // Registrasi produsen = tindakan operator (kontrak B§5a):
+    schema.registerProducer(id);
+    // adapter memakan skrip satu langkah per siklus; tiap siklus juga
+    // memajukan jam 1ms agar urutan temporal antar-langkah nyata.
     const adapter = emb.createFakeDiscoveryAdapter({ id, script });
     const results = [];
     for (let i = 0; i < script.length; i++) {
         results.push(...emb.runDiscoveryCycle(schema, adapter));
+        schema.clock.advance(1);
     }
     return results;
 }
@@ -173,14 +177,33 @@ test("B0.9+B0.10: relasi struktural terdaftar dan bisa dikueri", () => {
     assert.equal(attached[0].toId, HOST);
     const provides = body.getRelationships({ fromId: MIC_A, type: "provides" });
     assert.equal(provides[0].toId, "cap:audio.capture");
+});
 
-    // ujung hantu ditolak — host belum terdaftar:
+test("B0.9b: relasi dengan ujung hantu ditolak atomik — nol mutasi", () => {
+
+    const body = makeSchema();
+    fake(body, [[
+        { discover: [{ deviceId: HOST, deviceClass: "HOST", displayName: "h" }] }
+    ]]);
+    // registrasi produsen kedua = tindakan operator (mengubah state durable
+    // secara sah) — snapshot diambil SETELAHnya:
+    body.registerProducer("fake.discovery2");
+    const digestSebelum = body.digestDurable();
+
+    // relasi menunjuk host yang tidak ada → event ditolak utuh:
     const r = fake(body, [[{ discover: [{
         deviceId: "usb:3333:cccc:cam", deviceClass: "CAMERA", displayName: "c",
-        relationships: [{ type: "attached_to", fromId: "usb:3333:cccc:cam", toId: "host.os:ngasal" }]
+        relationships: [
+            { type: "attached_to", fromId: "usb:3333:cccc:cam", toId: "host.os:ngasal" }
+        ]
     }] }]], "fake.discovery2");
-    // produsen baru harus didaftarkan dulu; tanpa itu event bahkan tidak masuk
-    void r;
+
+    assert.equal(r[0].accepted, false);
+    assert.equal(r[0].reason, "EMB_RELATIONSHIP_DANGLING_TO");
+    assert.equal(body.getDevice("usb:3333:cccc:cam"), null,
+        "perangkat tidak boleh terpasang karena reliksinya gagal");
+    assert.equal(body.digestDurable(), digestSebelum,
+        "penolakan wajib meninggalkan state byte-identik");
 });
 
 test("B0.11: urutan preferensi deterministik default→preferred→fallback→lain", () => {

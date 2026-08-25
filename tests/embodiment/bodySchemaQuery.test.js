@@ -15,10 +15,14 @@ function makeSchema() {
 }
 
 function fake(schema, script, id = "fake.discovery") {
+    // Registrasi produsen = tindakan operator (kontrak B§5a):
+    schema.registerProducer(id);
+    // Tiap siklus memajukan jam 1ms agar urutan temporal antar-langkah nyata.
     const adapter = emb.createFakeDiscoveryAdapter({ id, script });
     const results = [];
     for (let i = 0; i < script.length; i++) {
         results.push(...emb.runDiscoveryCycle(schema, adapter));
+        schema.clock.advance(1);
     }
     return results;
 }
@@ -161,10 +165,10 @@ test("B0.26: observasi konflik — urutan kedatangan berbeda, state akhir identi
         });
 
         for (const step of order) body.ingest(step(ev));
-        return body.digestDurable();
+        return body;
     };
 
-    const aLebihPercayaDiri = build([
+    const menang = build([
         (e) => e("a.discovery", "Nama Dari A", 0.9),
         (e) => e("b.discovery", "Nama Dari B", 0.4),
     ]);
@@ -173,8 +177,14 @@ test("B0.26: observasi konflik — urutan kedatangan berbeda, state akhir identi
         (e) => e("a.discovery", "Nama Dari A", 0.9),
     ]);
 
-    assert.equal(aLebihPercayaDiri, terbalik,
-        "state akhir wajib bebas arah kedatangan");
+    // konvergensi dibandingkan pada TIGA lapis: digest, serialisasi, state.
+    assert.equal(menang.digestDurable(), terbalik.digestDurable(),
+        "digest durable wajib identik");
+    assert.deepEqual(terbalik.serialize(), menang.serialize(),
+        "serialisasi kanonik wajib identik");
+    assert.equal(
+        terbalik.getDevice("usb:9:z:dev").descriptor.displayName,
+        "Nama Dari A", "konten pemenang (confidence tertinggi) wajib sama");
 });
 
 test("B0.20: monotonic naik ketat; urutan event tidak merusak konvergensi", () => {
