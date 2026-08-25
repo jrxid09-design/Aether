@@ -80,23 +80,22 @@ tersedia**.
 
 ---
 
-## Embedding tanpa Ollama
+## Embedding opsional
 
-Titik desain terpenting: Ollama sering tidak tersedia — saat
+Titik desain terpenting: endpoint embedding sering tidak tersedia — saat
 pengembangan di laptop, saat PC rumah reboot, saat model belum diunduh.
 
 Karena itu embedding diperlakukan sebagai **peningkatan kualitas, bukan
 syarat**:
 
 1. Memori tetap tersimpan dan tetap bisa dicari lewat kata kunci.
-2. Vektornya diisi belakangan oleh backfill saat Ollama hidup.
+2. Vektornya diisi belakangan oleh backfill saat endpoint hidup.
 3. Status ditampilkan jujur di Console (`Mati` + alasannya).
 
 Model embedding diatur lewat `AETHER_EMBED_MODEL` (default
 `nomic-embed-text`). Di PC rumah, unduh dulu:
 
 ```bash
-ollama pull nomic-embed-text
 ```
 
 Backfill jalan otomatis tiap 60 detik, atau manual lewat tombol
@@ -208,5 +207,5 @@ ini cukup dan tidak menambah dependensi native. Bila kelak membengkak,
 | Variabel | Default | Guna |
 |---|---|---|
 | `AETHER_MEMORY_DB` | `data/memory.db` | Lokasi basis data memori |
-| `AETHER_EMBED_MODEL` | `nomic-embed-text` | Model embedding di Ollama |
-| `AETHER_OLLAMA_URL` | `http://localhost:11434` | Sumber embedding |
+| `AETHER_EMBED_MODEL` | - | Model embedding (opsional) |
+| `AETHER_EMBED_URL` | - | Endpoint embedding OpenAI-compatible (opsional) |

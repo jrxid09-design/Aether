@@ -16,7 +16,7 @@ Stack target butuh PostgreSQL, Neo4j, Qdrant, dan MinIO. Audit disk:
 | D: | 815,8 GB | HDD SATA |
 | E: | 619,9 GB | HDD SATA (disk dinamis) |
 
-C: sudah menanggung Windows, Docker image store (7,9 GB), model Ollama (23,4 GB), dan sisa state Docker rusak yang tak terhapus (6,38 GB).
+C: sudah menanggung Windows, Docker image store (7,9 GB), dan sisa state Docker rusak yang tak terhapus (6,38 GB).
 
 ## Masalah
 
@@ -36,7 +36,7 @@ Di mana volume data infrastruktur diletakkan?
 | Data | Lokasi | Alasan |
 |---|---|---|
 | Kode Aether OS | `C:\Workspace\AetherOS` | Kecil; kompilasi & tooling diuntungkan NVMe |
-| Model Ollama | `C:\Users\jrxid\.ollama` (tetap) | **Terukur**: cold load 10,2 s dari NVMe vs 65,3 s dari HDD |
+| Model lokal | `models/` proyek (tetap) | **Terukur**: cold load jauh lebih cepat dari NVMe vs HDD |
 | PostgreSQL | `D:\AetherOS\data\postgres` | Butuh ruang, toleran latensi |
 | Neo4j | `D:\AetherOS\data\neo4j` | Idem |
 | Qdrant | `D:\AetherOS\data\qdrant` | Idem |

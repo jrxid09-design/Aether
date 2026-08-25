@@ -199,20 +199,24 @@ test("hanya langkah BACA yang boleh diulang sendiri", async () => {
 
     // Tool destruktif tidak boleh diulang tanpa sepengetahuan
     // pemilik — mengulanginya dapat mengeksekusi perintah dua kali.
+    // D Round-3: penulisan berkas berefek samping → masuk kelas
+    // destruktif (tidak boleh diulang sendiri), bukan "aman".
     const p = new ExecutionPlan({ goal: "uji triage" });
 
     p.addStep({ tool: "memory_recall" });        // aman
-    p.addStep({ tool: "filesystem.writeFile" }); // aman
+    p.addStep({ tool: "filesystem.writeFile" }); // efek samping → izin
     p.addStep({ tool: "whatsapp_send_photo" });  // aman
     p.addStep({ tool: "terminal_run" });         // destruktif
 
     const { otomatis, perluIzin } = planStore.triage(p);
 
+    // E-F: outbound messaging & penulisan berkas = efek samping nyata →
+    // semua masuk kelas perlu-izin; hanya baca murni yang otomatis.
+    assert.deepEqual(otomatis.map(s => s.tool), ["memory_recall"]);
     assert.deepEqual(
-        otomatis.map(s => s.tool),
-        ["memory_recall", "filesystem.writeFile", "whatsapp_send_photo"]
+        perluIzin.map(s => s.tool).sort(),
+        ["filesystem.writeFile", "terminal_run", "whatsapp_send_photo"]
     );
-    assert.deepEqual(perluIzin.map(s => s.tool), ["terminal_run"]);
 
 });
 
@@ -332,19 +336,25 @@ test("OFFLINE: model lokal menjawab tanpa jalur keluar", async () => {
 
     try {
 
-        const res = await globalThis.fetch("http://localhost:11434/api/tags")
-            .catch(() => null);
+        const fs = require("node:fs");
+        const path = require("node:path");
+        const dirModel = path.join(__dirname, "..", "..", "models");
 
-        if (!res?.ok) {
-            assert.ok(true, "Ollama tidak berjalan di lingkungan ini — uji offline dilewati");
+        let gguf = [];
+        try {
+            gguf = fs.readdirSync(dirModel)
+                .filter(f => f.toLowerCase().endsWith(".gguf"));
+        }
+        catch { /* folder models/ tidak ada */ }
+
+        if (gguf.length === 0) {
+            assert.ok(true, "Tidak ada model GGUF lokal di lingkungan ini — uji offline dilewati");
             return;
         }
 
-        const data = await res.json();
-
         assert.ok(
-            (data.models ?? []).length > 0,
-            "harus ada model lokal yang terpasang agar Aether dapat bekerja offline"
+            gguf.length > 0,
+            "harus ada model GGUF di models/ agar Aether dapat bekerja offline"
         );
 
         await assert.rejects(
@@ -375,7 +385,7 @@ const jeda = ms => new Promise(r => setTimeout(r, ms));
 
 test("beberapa BACAAN dalam satu putaran berjalan bersamaan", async () => {
 
-    loopGuard.reset();
+    loopGuard.resetAll();
 
     const registry = new AIToolRegistry();
 
@@ -417,7 +427,13 @@ test("beberapa BACAAN dalam satu putaran berjalan bersamaan", async () => {
     exec.setToolRegistry(registry);
 
     const mulai = Date.now();
-    await exec.execute({ messages: [{ role: "user", content: "tiga bacaan" }] });
+    // Kontrak otorisasi kini hidup: identitas eksplisit pemilik.
+    // Tanpa identitas, probe non-allowlist akan DENY fail-closed dan
+    // puncak paralel tidak pernah tercapai.
+    await exec.execute({
+        messages: [{ role: "user", content: "tiga bacaan" }],
+        exec: { role: "superadmin", channel: "console", sessionId: "tes-paritas-baca" }
+    });
     const durasi = Date.now() - mulai;
 
     assert.ok(puncak > 1, `bacaan harus tumpang tindih, puncak=${puncak}`);
@@ -429,7 +445,7 @@ test("tindakan berefek samping TETAP berurutan", async () => {
 
     // Dua tulisan atau dua pesan yang berangkat bersamaan sulit
     // ditelusuri dan bisa saling mendahului.
-    loopGuard.reset();
+    loopGuard.resetAll();
 
     const registry = new AIToolRegistry();
 
@@ -469,7 +485,10 @@ test("tindakan berefek samping TETAP berurutan", async () => {
 
     exec.setToolRegistry(registry);
 
-    await exec.execute({ messages: [{ role: "user", content: "dua tindakan" }] });
+    await exec.execute({
+        messages: [{ role: "user", content: "dua tindakan" }],
+        exec: { role: "superadmin", channel: "console", sessionId: "tes-paritas-tulis" }
+    });
 
     assert.equal(puncak, 1, "tindakan berefek samping tidak boleh tumpang tindih");
 
@@ -477,7 +496,7 @@ test("tindakan berefek samping TETAP berurutan", async () => {
 
 test("urutan hasil tetap sesuai permintaan model", async () => {
 
-    loopGuard.reset();
+    loopGuard.resetAll();
 
     const registry = new AIToolRegistry();
 

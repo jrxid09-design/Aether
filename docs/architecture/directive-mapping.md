@@ -92,8 +92,8 @@ Direktif menganggap ini harus dibangun; sebagian sudah ada dan bekerja.
 | 39 | Skill system | `src/skillEngine/`, `src/skills/` |
 | 42 | Sistem agen | `src/agent/` |
 | 26 | Provider model | `src/ai/providers/` — factory + mapper + fallback |
-| 79 | Mode offline | Ollama lokal terbukti bekerja tanpa internet |
-| 80 | Mode terdegradasi | Rantai fallback Groq → Ollama terbukti (tanpa satu permintaan gagal) |
+| 79 | Mode offline | Otak lokal llama.cpp terbukti bekerja tanpa internet |
+| 80 | Mode terdegradasi | Rantai fallback cloud → otak lokal terbukti (tanpa satu permintaan gagal) |
 | 62 | Audio | STT/TTS terpasang (container perlu dipulihkan) |
 | 88–91 | Avatar | Hologram Three.js + mood + kegiatan mandiri + berjalan |
 | 93 | Communication bus | WhatsApp, Telegram, Console, CLI — satu core |

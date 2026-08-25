@@ -206,7 +206,7 @@ test("mode 'backbone' mengembalikan perilaku lama", () => {
 test("sapaan tidak memborong anggaran dengan tool tak relevan", () => {
 
     // Diukur pada sistem sungguhan: "halo" mengirim 32 definisi
-    // (± 1.900 token) berisi openclaw, hermes, WhatsApp, dan kamera —
+    // (± 1.900 token) berisi tool WhatsApp, kamera, dan lainnya —
     // semuanya berskor nol, terpilih hanya karena urutan pendaftaran.
     // Di inferensi CPU tiap token prompt dibayar dengan waktu.
     // Anggaran harus di bawah jumlah tool, jika tidak jalan pintas
@@ -257,7 +257,7 @@ test("urutan keluaran stabil: inti dulu, lalu tambahan profil", () => {
     // Tes ini dulu menuntut URUTAN PENDAFTARAN — warisan dari pemilih
     // versi skor yang merakit daftar segar tiap pesan. Pemilih
     // sekarang sengaja tidak begitu: inti selalu di depan dengan
-    // urutan tetap, karena Ollama memakai ulang prefix prompt di
+    // urutan tetap, karena inferensi lokal memakai ulang prefix prompt di
     // tingkat token. Diukur: daftar sama diulang → prompt eval
     // 0,19–0,39 dtk; daftar berubah → 7,6–12,5 dtk. Urutannya bagian
     // dari kontrak, jadi itulah yang dikunci di sini.

@@ -66,7 +66,6 @@ Lingkungan ini **layak** menjadi host Aether OS, tetapi **empat temuan mengubah 
 | Python (launcher) | 3.13.14 | via `py` |
 | uv | 0.12.3 | Package manager Python |
 | WSL | 2 — Ubuntu (stopped), docker-desktop (running) | |
-| Ollama | 0.32.6 | |
 
 ### Belum ada — dibutuhkan stack target
 
@@ -92,7 +91,7 @@ Lingkungan ini **layak** menjadi host Aether OS, tetapi **empat temuan mengubah 
 | `qwen2.5vl:3b` | 3,2 GB | vision (ringan) |
 | `nomic-embed-text` | 274 MB | embedding |
 
-**Total ± 23,4 GB**, tersimpan di `C:\Users\jrxid\.ollama\models` (NVMe — disengaja, cold-load 6× lebih cepat daripada HDD).
+Model lokal kini berupa berkas GGUF di folder `models/` proyek (NVMe).
 
 ### Performa terukur (CPU-only)
 
@@ -141,7 +140,6 @@ Data Immich: library foto di `D:\AetherNAS\immich\library`, database di `E:\Aeth
 | Layanan | Port | Status | Autostart |
 |---|---|---|---|
 | Aether daemon (legacy) | 3000 | Berjalan | Scheduled Task "Aether Daemon" |
-| Ollama | 11434 | Berjalan | Startup folder |
 | Docker Desktop | — | Berjalan | Registry Run + `AutoStart=true` |
 
 ### Rusak / hilang
@@ -182,7 +180,7 @@ skillEngine  skills  tools_old  utils  ws
 | Komponen | Nilai bagi Aether OS |
 |---|---|
 | `src/core/events/` | Kelas event terstruktur (`AIRequestStarted/Completed/Failed`, `ToolExecuted`, `PluginLoaded`) — pola matang, konsepnya dapat diadopsi |
-| `src/ai/providers/` | Abstraksi provider (Ollama/OpenAI-compatible) dengan factory + mapper — pemisahan yang bersih |
+| `src/ai/providers/` | Abstraksi provider (lokal llama.cpp/OpenAI-compatible) dengan factory + mapper — pemisahan yang bersih |
 | `src/ai/tools/AIToolRegistry` | Registry tool dengan skema |
 | `src/memory/` | Memori SQLite + embedding + strategi recall keyword & vector |
 | `src/coding/` | `CodingBrain`, `Planner`, `testRunner`, `bugMemory`, adapter graphify |
@@ -256,7 +254,7 @@ Lingkungan **siap** untuk Aether OS dengan tiga syarat arsitektural:
 
 Empat pertanyaan verifikasi §276 yang sudah bisa dijawab sekarang:
 
-- *Can Aether operate offline?* — Ya. Ollama + model lokal tersedia dan terukur.
+- *Can Aether operate offline?* — Ya. Otak lokal in-process + model GGUF tersedia dan terukur.
 - *Can Aether use tools?* — Legacy sudah membuktikan konsepnya (75 tool aktif).
 - *Can Aether remember?* — Legacy punya memori SQLite + vector; konsepnya terbukti, implementasinya perlu ditulis ulang.
 - *Can Aether verify actions?* — **Belum.** Tidak ada verification engine di legacy. Ini gap terbesar.

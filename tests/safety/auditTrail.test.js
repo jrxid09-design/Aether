@@ -69,7 +69,7 @@ test("PENOLAKAN tercatat — inilah yang paling perlu terlihat", () => {
     // Gerbang izin kini DIMATIKAN (Aether langsung bertindak). Yang
     // masih menolak adalah kill switch: tarik STOP, lalu coba tool.
     const killSwitch = require("../../src/core/safety/killSwitch");
-    loopGuard.reset();
+    loopGuard.resetAll();
 
     const sebelum = bacaSemua().length;
 
@@ -93,7 +93,7 @@ test("PENOLAKAN tercatat — inilah yang paling perlu terlihat", () => {
 
 test("kegagalan tool tercatat", () => {
 
-    loopGuard.reset();
+    loopGuard.resetAll();
 
     const sebelum = bacaSemua().length;
 
@@ -152,7 +152,9 @@ test("menulis berkas TERCATAT — disk berubah, pemilik berhak tahu", async () =
     const entri = baru.find(e => e.tool === "filesystem.writeFile");
 
     assert.ok(entri, "penulisan berkas harus tercatat");
-    assert.equal(entri.risk, "safe");
+    // Kontrak D Round-3: penulisan berkas berefek samping → tercatat
+    // sebagai 'destructive' (tetap tercatat; label risikonya jujur).
+    assert.equal(entri.risk, "destructive");
 
     // Berkasnya memang tidak ada — verifikasi harus mengatakannya,
     // bukan ikut mengklaim berhasil.

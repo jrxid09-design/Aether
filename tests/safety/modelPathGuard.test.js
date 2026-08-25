@@ -29,7 +29,7 @@ test("tool asli model dijaga rem kebuntuan", async () => {
 
     const exec = new ToolExecutor(registryWith(probe("memory_recall")));
 
-    loopGuard.reset();
+    loopGuard.resetAll();
 
     const hasil = [];
 
@@ -50,7 +50,7 @@ test("tool asli model dijaga rem kebuntuan", async () => {
 
 });
 
-test("tool destruktif asli model berjalan tanpa izin (mode izin mati)", async () => {
+test("tool destruktif asli model berjalan dengan identitas sah (tanpa konfirmasi manual)", async () => {
 
     let dijalankan = false;
 
@@ -58,14 +58,38 @@ test("tool destruktif asli model berjalan tanpa izin (mode izin mati)", async ()
         registryWith(probe("terminal_run", () => { dijalankan = true; return { ok: true }; }))
     );
 
-    loopGuard.reset();
+    loopGuard.resetAll();
 
-    // Mode izin dimatikan: tool destruktif tidak lagi ditahan,
-    // tapi tetap tercatat & terverifikasi.
-    const r = await exec.execute({ id: "r1", name: "terminal_run", arguments: { command: "echo x" } });
+    // Kontrak BARU (otorisasi kini hidup): jalur pemilik berjalan dengan
+    // identitas eksplisit; tanpa identitas = 'user' fail-closed DENY.
+    // Yang dikunci di sini: tool destruktif TIDAK ditahan gerbang
+    // konfirmasi, tetap tercatat & terverifikasi.
+    const r = await exec.execute(
+        { id: "r1", name: "terminal_run", arguments: { command: "echo x" } },
+        { role: "superadmin", channel: "console", sessionId: "tes-owner" });
 
-    assert.equal(dijalankan, true, "tool berjalan tanpa meminta izin");
+    assert.equal(dijalankan, true, "tool berjalan dengan otorisasi pemilik");
     assert.ok(r.result, "hasil dikembalikan");
+
+});
+
+test("tool destruktif asli model TANPA identitas DITOLAK fail-closed", async () => {
+
+    let dijalankan = false;
+
+    const exec = new ToolExecutor(
+        registryWith(probe("terminal_run", () => { dijalankan = true; return { ok: true }; }))
+    );
+
+    loopGuard.resetAll();
+
+    await assert.rejects(
+        () => exec.execute({ id: "r2", name: "terminal_run", arguments: {} }),
+        e => e.code === "PERMISSION_DENIED",
+        "identitas hilang = 'user', terminal_run bukan allowlist user"
+    );
+
+    assert.equal(dijalankan, false);
 
 });
 
@@ -79,12 +103,14 @@ test("tool jembatan TIDAK dijaga dua kali", async () => {
 
     const exec = new ToolExecutor(registryWith(bridged));
 
-    loopGuard.reset();
+    loopGuard.resetAll();
 
     let lolos = 0;
 
     for (let i = 0; i < 4; i++) {
-        await exec.execute({ id: `b${i}`, name: "filesystem__readFile", arguments: { path: "x" } });
+        await exec.execute(
+            { id: `b${i}`, name: "filesystem__readFile", arguments: { path: "x" } },
+            { role: "superadmin", channel: "console", sessionId: "tes-owner" });
         lolos += 1;
     }
 
@@ -96,7 +122,7 @@ test("hasil tool asli model membawa laporan verifikasi", async () => {
 
     const exec = new ToolExecutor(registryWith(probe("memory_recall")));
 
-    loopGuard.reset();
+    loopGuard.resetAll();
 
     const r = await exec.execute({
         id: "v1",
@@ -122,7 +148,7 @@ test("STOP tetap menghentikan tool asli model", async () => {
         registryWith(probe("memory_recall", () => { dijalankan = true; return { ok: true }; }))
     );
 
-    loopGuard.reset();
+    loopGuard.resetAll();
 
     killSwitch.engage({ reason: "tes", actor: "tes" });
 

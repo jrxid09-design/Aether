@@ -12,7 +12,7 @@
  *
  * Tiap repo di-clone tipis (depth 1, tanpa blob Git) ke folder sementara,
  * lalu berkas markdown/teksnya dibaca DocumentService.ingestDirectory
- * (ekstraksi → chunk → simpan → embedding bila Ollama hidup).
+ * (ekstraksi → chunk → simpan → embedding bila endpoint tersedia).
  *
  * Pemakaian:
  *   node scripts/ingest-knowledge.js            # semua repo

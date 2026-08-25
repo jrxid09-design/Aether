@@ -18,7 +18,7 @@ const dns = require("node:dns");
  *
  * Di sini jalur keluar diputus pada lapisan SOCKET, bukan pada satu
  * API: fetch/undici, http, https, dan pustaka apa pun yang membuka
- * koneksi ikut terblokir. Localhost tetap boleh supaya Ollama —
+ * koneksi ikut terblokir. Localhost tetap boleh supaya layanan lokal —
  * yang memang berjalan di mesin ini — tetap terjangkau.
  *
  * Jaringan pengguna TIDAK disentuh. Memutusnya sungguhan dapat
@@ -92,10 +92,14 @@ function pulihkanJalurKeluar() {
     dns.lookup = aslinya.lookup;
 }
 
-const ollamaHidup = async () => {
+// Otak lokal kini in-process (node-llama-cpp) — tidak butuh server.
+// Prasyaratnya cuma satu: ada berkas GGUF di models/.
+const modelLokalAda = () => {
     try {
-        const res = await fetch("http://localhost:11434/api/tags");
-        return res.ok;
+        const fs = require("node:fs");
+        const path = require("node:path");
+        const dir = path.join(__dirname, "..", "..", "models");
+        return fs.readdirSync(dir).some(f => f.toLowerCase().endsWith(".gguf"));
     }
     catch {
         return false;
@@ -131,18 +135,23 @@ test("blokir jalur keluar benar-benar memutus host non-lokal", async () => {
 
 test("blokir jalur keluar TIDAK ikut memutus localhost", async (t) => {
 
-    if (!await ollamaHidup()) {
-        return t.skip("Ollama tidak berjalan di mesin ini");
-    }
+    // Server kecil DI DALAM uji ini: deterministik, tak bergantung
+    // layanan luar mana pun yang mungkin tidak berjalan.
+    const http = require("node:http");
+    const server = http.createServer((_req, res) => res.end("ok"));
+
+    await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+    const { port } = server.address();
 
     putuskanJalurKeluar();
 
     try {
-        const res = await fetch("http://localhost:11434/api/tags");
-        assert.ok(res.ok, "Ollama lokal ikut terputus — blokirnya terlalu luas");
+        const res = await fetch(`http://127.0.0.1:${port}/`);
+        assert.ok(res.ok, "layanan localhost ikut terputus — blokirnya terlalu luas");
     }
     finally {
         pulihkanJalurKeluar();
+        server.close();
     }
 
 });
@@ -160,8 +169,8 @@ test("blokir jalur keluar TIDAK ikut memutus localhost", async (t) => {
 
 test("Aether tetap menjawab dengan seluruh jalur keluar mati", async (t) => {
 
-    if (!await ollamaHidup()) {
-        return t.skip("Ollama tidak berjalan di mesin ini");
+    if (!modelLokalAda()) {
+        return t.skip("Tidak ada model GGUF di models/ — otak lokal tak bisa diuji");
     }
 
     const { spawnSync } = require("node:child_process");

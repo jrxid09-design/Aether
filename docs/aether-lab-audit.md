@@ -11,11 +11,11 @@
 
 | Subsistem | Lokasi | Kondisi | Reusability utk Lab |
 |---|---|---|---|
-| **AgentHub** (13 agent: aether, openclaw, hermes + 10 worker) | `src/services/agentHub.js` (380 baris) | Aktif; worker = chat + bias peran | TINGGI — registry agent kanonik |
+| **AgentHub** (11 agent: aether + 10 worker) | `src/services/agentHub.js` (380 baris) | Aktif; worker = chat + bias peran | TINGGI — registry agent kanonik |
 | **Profil tool per-agent** | `src/agent/agentTools.js` (WORKER_PROFILES + CAPABILITY_ALIAS → resolver `tail()`) | Aktif; resolve vs registry nyata (186 tool) | TINGGI — ini persis §10 spec |
 | **Orkestrator** (plan → step → final, SSE) | `src/services/orchestrator.js` (224 baris) | Aktif; planner LLM + fallback 1-langkah | TINGGI — mesin eksekusi misi |
 | **OpenCode bridge** | `src/services/opencodeTools.js` (`opencode_run`, sesi per-purpose in-memory, WSL-aware) | Aktif teruji | TINGGI — butuh sesi persisten (§12) |
-| **AI Runtime** (model-agnostic, multi-provider, fallback) | `src/services/aiRuntimeService.js` (1088 baris) + `src/ai/**` | Aktif; provider openai-compatible/ollama, switch model runtime | TINGGI — §2 & §35 sudah terpenuhi |
+| **AI Runtime** (model-agnostic, multi-provider, fallback) | `src/services/aiRuntimeService.js` (1088 baris) + `src/ai/**` | Aktif; provider openai-compatible + otak lokal llama.cpp, switch model runtime | TINGGI — §2 & §35 sudah terpenuhi |
 | **Memory Engine** (LTM/KG/STM/retrieval/consolidation) | `src/memory/**` (11 subsistem) | Aktif; SQLite `data/memory.db` | TINGGI — perlu scope PROJECT (§16) |
 | **Knowledge/Document ingest** | `src/memory/services/DocumentService.js` + extractors + `scripts/ingest-knowledge.js` | Aktif (174+ dokumen 5 repo) | TINGGI — basis Knowledge Lab §17 |
 | **Governance** (proposal/approve/audit) | `src/memory/governance/Governor.js` | ADA tapi **dimatikan** (auto-commit per kebijakan user) | DIPAKAI ULANG sebagai approval gate §32 |

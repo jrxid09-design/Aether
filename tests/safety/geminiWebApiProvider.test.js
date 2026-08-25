@@ -20,16 +20,38 @@ test("preset GeminiWebApi ada, keyless, endpoint candidate benar", () => {
     assert.match(p.label, /GeminiWebApi/);
 });
 
+/**
+ * HERMETIS: describe() membaca configs/providers.json milik pemilik
+ * (gitignored) dan seedFromEnv() menarik kunci dari process.env bila
+ * `active` belum diset. Tes ini menegaskan "keyless" — jadi ia WAJIB
+ * memakai fixture tanpa kunci, bukan mengintip konfigurasi lokal siapa
+ * pun. Dukungan kunci provider yang sungguhan tidak diubah; .env
+ * pengguna tidak disentuh.
+ */
+function withKeylessConfig(fn) {
+    const realRead = providerConfig.store.read;
+    providerConfig.store.read = () => ({
+        active: "llamacpp",     // `active` terisi -> seedFromEnv dilewati
+        providers: {}           // tidak ada satu pun apiKey
+    });
+    try { return fn(); }
+    finally { providerConfig.store.read = realRead; }
+}
+
 test("GeminiWebApi muncul di Settings tanpa mewajibkan key", () => {
-    const d = providerConfig.describe();
-    const g = d.providers.geminiwebapi;
-    assert.ok(g, "GeminiWebApi harus terdaftar di describe() (Settings)");
-    assert.equal(g.hasKey, false);
-    assert.equal(g.defaultBaseUrl, "http://localhost:4981/openai/v1");
+    withKeylessConfig(() => {
+        const d = providerConfig.describe();
+        const g = d.providers.geminiwebapi;
+        assert.ok(g, "GeminiWebApi harus terdaftar di describe() (Settings)");
+        assert.equal(g.hasKey, false);
+        assert.equal(g.defaultBaseUrl, "http://localhost:4981/openai/v1");
+    });
 });
 
 test("terpisah dari provider custom", () => {
-    const d = providerConfig.describe();
-    assert.ok(d.providers.custom, "custom tetap ada");
-    assert.notEqual(d.providers.geminiwebapi.baseUrl, d.providers.custom.baseUrl || "");
+    withKeylessConfig(() => {
+        const d = providerConfig.describe();
+        assert.ok(d.providers.custom, "custom tetap ada");
+        assert.notEqual(d.providers.geminiwebapi.baseUrl, d.providers.custom.baseUrl || "");
+    });
 });

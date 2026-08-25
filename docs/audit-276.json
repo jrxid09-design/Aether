@@ -56,7 +56,7 @@
   {
     "pertanyaan": "Dapat bekerja offline?",
     "keadaan": "SEBAGIAN",
-    "bukti": "ollama hidup=true, platform lokal=false, model terpasang=5, inferensi offline=true (-)",
+    "bukti": "model GGUF ada, platform lokal=false, 5 berkas, inferensi offline=true (-)",
     "catatan": "inferensi dijalankan di proses anak yang jalur keluarnya diputus pada lapisan socket — jaringan pengguna tidak disentuh"
   },
   {

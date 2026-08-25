@@ -135,7 +135,7 @@ masih terbuka, dinyatakan di sini supaya tidak hilang di balik centang:
   sana. Jaringan sungguhan tidak pernah diputus (itu dapat memutus Tailscale
   dan akses pemilik) — jadi yang terbukti: menjawab tidak membutuhkan host di
   luar mesin ini. Yang belum: perilaku saat jaringan putus **di tengah**
-  permintaan, dan saat Ollama sendiri mati.
+  permintaan, dan saat layanan luar sedang mati.
   Versi pertama pemeriksaan ini lulus karena cacat alat ukur; lihat
   `docs/status.md` baris "Uji offline". Satu pemeriksaan yang lulus karena
   alasan salah adalah alasan cukup untuk menelaah lima belas sisanya dengan

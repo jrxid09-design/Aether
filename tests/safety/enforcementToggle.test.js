@@ -39,7 +39,7 @@ test("keadaan kebijakan selalu tanpa gerbang", () => {
 test("STOP tetap menghentikan segalanya walau gerbang sudah dihapus", () => {
 
     // Pasal 2.1: pemilik harus selalu dapat menghentikan Aether.
-    loopGuard.reset();
+    loopGuard.resetAll();
 
     killSwitch.engage({ reason: "uji", actor: "uji" });
 
@@ -57,7 +57,7 @@ test("STOP tetap menghentikan segalanya walau gerbang sudah dihapus", () => {
 
 test("sandbox jalur tetap berlaku walau gerbang sudah dihapus", () => {
 
-    loopGuard.reset();
+    loopGuard.resetAll();
 
     assert.throws(
         () => toolGuard.before("filesystem.writeFile", {
@@ -71,7 +71,7 @@ test("sandbox jalur tetap berlaku walau gerbang sudah dihapus", () => {
 
 test("rem kebuntuan tetap berlaku walau gerbang sudah dihapus", () => {
 
-    loopGuard.reset();
+    loopGuard.resetAll();
 
     for (let i = 0; i < 4; i++) {
         toolGuard.before("memory_recall", { query: "identik" });

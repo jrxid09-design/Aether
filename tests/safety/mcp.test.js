@@ -34,7 +34,11 @@ test("initialize mengembalikan protokol & serverInfo", async () => {
 });
 
 test("tools/list menyembunyikan tool destruktif secara default + skema ternormalisasi", async () => {
-    const r = await mk().handle({ jsonrpc: "2.0", id: 2, method: "tools/list" });
+    // Identitas sistem eksplisit (H9): tanpa identitas → fail-closed
+    // sebagai user anonim yang melihat sangat sedikit.
+    const r = await mk().handle(
+        { jsonrpc: "2.0", id: 2, method: "tools/list" },
+        { exec: { role: "system", channel: "mcp" } });
     const names = r.result.tools.map(t => t.name);
     assert.ok(names.includes("math.calc"));
     assert.ok(!names.includes("terminal_run"), "destruktif harus tersembunyi");
@@ -61,11 +65,61 @@ test("tools/call destruktif DITOLAK default, tak dieksekusi", async () => {
 test("allowDestructive=true membuka tool destruktif", async () => {
     const calls = [];
     const h = mk(true, calls);
-    const list = await h.handle({ jsonrpc: "2.0", id: 5, method: "tools/list" });
+    const list = await h.handle(
+        { jsonrpc: "2.0", id: 5, method: "tools/list" },
+        { exec: { role: "system", channel: "mcp" } });
     assert.ok(list.result.tools.map(t => t.name).includes("terminal_run"));
     const call = await h.handle({ jsonrpc: "2.0", id: 6, method: "tools/call", params: { name: "terminal_run", arguments: {} } });
     assert.ok(!call.result.isError);
     assert.equal(calls.length, 1);
+});
+
+// ---- H9: PERMISSION-BEFORE-DISCLOSURE ---------------------------------
+
+const Authorization = require("../../src/ai/tools/Authorization");
+
+test("H9: user TIDAK melihat kapabilitas yang tak bisa ia eksekusi", async () => {
+
+    // tools/list tanpa identitas → fail-closed sebagai user anonim.
+    const r = await mk().handle({ jsonrpc: "2.0", id: 20, method: "tools/list" });
+
+    const names = r.result.tools.map(t => t.name);
+
+    // 'terminal_run' destruktif (tersembunyi terpisah); 'math.calc'
+    // bukan allowlist user → juga tidak boleh muncul.
+    assert.equal(names.length, 0,
+        `user hanya boleh melihat yang bisa dieksekusi; dapat: ${names}`);
+
+});
+
+test("H9: paritas disklosur vs eksekusi untuk peran user", async () => {
+
+    const privileged = ["terminal_run", "math.calc"];
+
+    for (const name of privileged) {
+        let execDenied = false;
+        try {
+            Authorization.assertExecution(
+                { name }, { role: "user", channel: "mcp" });
+        } catch { execDenied = true; }
+
+        const r = await mk(true).handle(
+            { jsonrpc: "2.0", id: 21, method: "tools/list" },
+            { exec: { role: "user", channel: "mcp" } });
+
+        const disclosed = r.result.tools.some(t => t.name === name);
+
+        assert.equal(disclosed, !execDenied,
+            `'${name}': disclosure=${disclosed} tapi executionDenied=${execDenied}`);
+    }
+
+});
+
+test("H9: system tetap melihat kapabilitas yang diizinkan", async () => {
+    const r = await mk().handle(
+        { jsonrpc: "2.0", id: 22, method: "tools/list" },
+        { exec: { role: "system", channel: "mcp" } });
+    assert.ok(r.result.tools.some(t => t.name === "math.calc"));
 });
 
 test("tool tak dikenal → error -32602", async () => {

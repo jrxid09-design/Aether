@@ -39,7 +39,7 @@ test("beberapa panggilan lambat TIDAK menumpuk jadi kegagalan", async () => {
 
     // Tiga putaran, masing-masing 120 ms. Total 360 ms — jauh di atas
     // batas per panggilan 250 ms, namun tiap panggilan sendiri sehat.
-    loopGuard.reset();
+    loopGuard.resetAll();
 
     let giliran = 0;
 
@@ -64,7 +64,7 @@ test("beberapa panggilan lambat TIDAK menumpuk jadi kegagalan", async () => {
 
 test("satu panggilan yang benar-benar menggantung tetap dihentikan", async () => {
 
-    loopGuard.reset();
+    loopGuard.resetAll();
 
     const exec = buat(async () => { await jeda(5000); }, { callTimeout: 150 });
 
@@ -79,7 +79,7 @@ test("pesan galat menyebut putaran keberapa yang mandek", async () => {
 
     // "Request timeout." tanpa konteks tidak memberi tahu apakah
     // modelnya lambat atau loopnya yang kepanjangan.
-    loopGuard.reset();
+    loopGuard.resetAll();
 
     let giliran = 0;
 
@@ -104,7 +104,7 @@ test("pesan galat menyebut putaran keberapa yang mandek", async () => {
 
 test("batas 0 berarti tanpa batas per panggilan", async () => {
 
-    loopGuard.reset();
+    loopGuard.resetAll();
 
     const exec = buat(async () => {
         await jeda(80);
@@ -119,7 +119,7 @@ test("batas 0 berarti tanpa batas per panggilan", async () => {
 
 test("penghitung waktu dibersihkan agar proses tidak tertahan", async () => {
 
-    loopGuard.reset();
+    loopGuard.resetAll();
 
     const exec = buat(async () => ({ content: "cepat", toolCalls: [] }), { callTimeout: 60000 });
 

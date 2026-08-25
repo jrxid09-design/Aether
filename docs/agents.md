@@ -1,20 +1,17 @@
 # Aether Multi-Agent
 
 Aether bukan satu model — ia bisa mendelegasikan tugas ke beberapa
-"pekerja" dan mengoordinasikannya (gaya Hermes-agent).
+"pekerja" dan mengoordinasikannya.
 
 ## Agent
 
 | Agent | Peran |
 |---|---|
 | **aether** | Otak LLM lokal: menalar, menulis, menghitung, memakai memori & tool internal. Default untuk berpikir. |
-| **openclaw** | "Tangan digital" — mengoperasikan aplikasi desktop/website tanpa API (klik, isi form). Untuk AKSI di antarmuka. |
-| **hermes** | Runtime agent terpisah untuk tugas agentik berlapis. |
+| **10 anak buah** | Spesialis berbasis peran di runtime yang sama: vanta (riset), forge (coding), nexus (sistem), sera (vision), echo (suara), cipher (keamanan), atlas (otomatisasi), mira (memori), pulse (monitoring), lumen (antarmuka). |
 
-Aether-LLM selalu tersedia (lokal). OpenClaw & Hermes disambungkan
-lewat `configs/integrations.json` dan dipakai bila online — kalau
-offline, orkestrasi tetap jalan dan langkah itu ditandai gagal, bukan
-menjatuhkan semuanya.
+Semua agent hidup di runtime Aether yang sama — selalu online selama
+daemon berjalan.
 
 ## Cara kerja orkestrasi
 
@@ -48,9 +45,7 @@ Kalau permintaannya sederhana, perencana cukup membuat satu langkah
 ## Catatan
 
 - Kualitas rencana bergantung pada model AI aktif. Untuk hasil bagus,
-  pakai model kuat (Ollama lokal yang mumpuni atau platform berbayar
+  pakai model kuat (model lokal yang mumpuni atau platform berbayar
   lewat Settings).
-- OpenClaw & Hermes: bentuk API tiap instance bisa beda; konektor
-  memakai gaya OpenAI chat-completions sebagai default dan bisa
-  disesuaikan di `configs/integrations.json`. Verifikasi ke instance
-  sungguhan dilakukan saat keduanya online.
+- Anak buah memakai tool sesuai topiknya (profil per agent) — lihat
+  `src/agent/agentTools.js`.

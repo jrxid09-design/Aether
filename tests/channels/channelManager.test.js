@@ -9,7 +9,7 @@ const { SessionStore } = require("../../src/channels/sessionStore");
 
 /**
  * Registry kanal + konteks permintaan (AsyncLocalStorage) — abstraksi
- * kanal yang diadopsi dari pola ChannelPlugin OpenClaw.
+ * kanal dengan antarmuka plugin seragam.
  */
 
 function makeManager() {

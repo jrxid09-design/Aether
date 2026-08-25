@@ -28,7 +28,7 @@ const chunk = fields => new AIStreamChunk(fields);
 
 function buatExecutor(service, daftarTool = [], opsi = {}) {
 
-    loopGuard.reset();
+    loopGuard.resetAll();
 
     const registry = new AIToolRegistry();
 
@@ -36,11 +36,20 @@ function buatExecutor(service, daftarTool = [], opsi = {}) {
         registry.register(tool);
     }
 
-    const exec = new RuntimeExecutor(service, opsi);
+    const executor = new RuntimeExecutor(service, opsi);
 
-    exec.setToolRegistry(registry);
+    executor.setToolRegistry(registry);
 
-    return exec;
+    // Identitas eksekusi eksplisit (invariant G — Round-2): mekanika
+    // streaming diuji sebagai superadmin; otorisasi diuji terpisah.
+    const asli = executor.execute.bind(executor);
+    const asliStream = executor.stream.bind(executor);
+    executor.execute = (r) => asli({ exec: { role: "superadmin", channel: "test" }, ...r });
+    executor.stream = async function* (r) {
+        yield* asliStream({ exec: { role: "superadmin", channel: "test" }, ...r });
+    };
+
+    return executor;
 
 }
 
@@ -142,7 +151,7 @@ test("stream live: potongan tiba sebelum generator selesai", async () => {
 
 test("stream: satu tool dipanggil, diumumkan utuh, lalu dijawab", async () => {
 
-    loopGuard.reset();
+    loopGuard.resetAll();
 
     let giliran = 0;
     const dilihatOlehModel = [];
@@ -239,7 +248,7 @@ test("stream: satu tool dipanggil, diumumkan utuh, lalu dijawab", async () => {
 
 test("stream: beberapa panggilan tool dikumpulkan & diumumkan sekaligus", async () => {
 
-    loopGuard.reset();
+    loopGuard.resetAll();
 
     let giliran = 0;
 
@@ -303,7 +312,7 @@ async function kumparkan(gen) {
 
 test("stream: tool gagal — pesan error dikembalikan ke model", async () => {
 
-    loopGuard.reset();
+    loopGuard.resetAll();
 
     let giliran = 0;
     let kontenTool = null;

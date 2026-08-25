@@ -10,8 +10,6 @@ test("tool destruktif terklasifikasi destruktif", () => {
 
     assert.equal(riskOf("filesystem.deleteFile"), true);
     assert.equal(riskOf("run-command.runCommand"), true);
-    assert.equal(riskOf("aetherSkills.hermes_run"), true);
-    assert.equal(riskOf("aetherSkills.openclaw_do"), true);
     assert.equal(riskOf("terminal_run"), true);
 
 });
@@ -37,10 +35,17 @@ test("kendali dunia fisik terklasifikasi destruktif", () => {
 
 });
 
-test("mengirim pesan bukan destruktif — alur WhatsApp tidak terganggu", () => {
+test("E-F: outbound messaging destruktif — TIDAK parallel-safe/read-only", () => {
 
-    assert.equal(riskOf("aetherSkills.wa_send"), false);
-    assert.equal(riskOf("aetherSkills.wa_broadcast"), false);
+    // Temuan E: dulu wa_send/wa_broadcast terklasifikasi read-only
+    // karena katalog memuat nama bare sementara model menjalankan
+    // nama bridged — dua pesan keluar bisa dirangkai Promise.all.
+    // Klasifikasi kanonik kini menangkap SEMUA bentuk live-nya.
+    assert.equal(riskOf("aetherSkills.wa_send"), true);
+    assert.equal(riskOf("aetherSkills.wa_broadcast"), true);
+    assert.equal(riskOf("aetherSkills__wa_send"), true);
+    assert.equal(riskOf("wa_send"), true);
+    // HTTP post biasa bukan outbound messaging Aether.
     assert.equal(riskOf("http.post"), false);
 
 });

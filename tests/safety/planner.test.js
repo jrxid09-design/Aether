@@ -270,7 +270,7 @@ function runtimeWith(chat, toolFn) {
 
 test("permintaan yang MATI di tengah rantai meninggalkan checkpoint", async () => {
 
-    loopGuard.reset();
+    loopGuard.resetAll();
 
     const sebelum = planStore.unfinished().map(p => p.id);
 
@@ -304,7 +304,7 @@ test("permintaan yang MATI di tengah rantai meninggalkan checkpoint", async () =
 
 test("permintaan yang TUNTAS tidak meninggalkan puing", async () => {
 
-    loopGuard.reset();
+    loopGuard.resetAll();
 
     const sebelum = planStore.unfinished().map(p => p.id);
 
@@ -332,7 +332,7 @@ test("permintaan yang TUNTAS tidak meninggalkan puing", async () => {
 
 test("pencatatan tidak menjatuhkan permintaan bila penyimpanan bermasalah", async () => {
 
-    loopGuard.reset();
+    loopGuard.resetAll();
 
     const asli = planStore.save;
 

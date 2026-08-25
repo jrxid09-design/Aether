@@ -35,7 +35,46 @@ test("catatan tanpa perubahan DITOLAK", async () => {
 
 });
 
+/**
+ * FIXTURE KORPUS EKSPLISIT.
+ *
+ * `confidence` diturunkan dari keywordScore BM25 (buildMemory.js:146).
+ * BM25 memberi IDF nol pada istilah yang muncul di SEMUA dokumen, jadi
+ * pada korpus berisi satu catatan bahkan kecocokan teks yang PERSIS
+ * ber-keywordScore 0,000 dan terbaca "lemah" — persis yang dijelaskan
+ * komentar sumbernya. Tes ini dulu bergantung pada korpus ambient untuk
+ * kebetulan berisi cukup dokumen.
+ *
+ * Sekarang korpusnya disemai di sini secara eksplisit (basis data
+ * memori sudah diisolasi per proses oleh tests/helpers/testEnv.js).
+ * Semantik confidence produksi TIDAK diubah — hanya prasyarat korpusnya
+ * yang dibuat deterministik.
+ */
+const KORPUS_DASAR = [
+    ["router", "memisahkan router dari controller",
+        "supaya rute tidak tahu detail penyimpanan"],
+    ["cache", "menambah lapisan cache pada pembacaan berkas",
+        "karena pembacaan berulang mendominasi profil"],
+    ["logger", "menyeragamkan format log antar modul",
+        "agar penelusuran insiden tidak menebak format"],
+    ["queue", "memindahkan pengiriman ke antrean latar",
+        "supaya permintaan tidak menunggu jaringan"],
+    ["schema", "memvalidasi skema masukan di batas HTTP",
+        "karena data buruk lebih murah ditolak di tepi"],
+    ["retry", "membatasi percobaan ulang menjadi tiga",
+        "karena percobaan tanpa batas menyembunyikan kegagalan"]
+];
+
+async function semaiKorpus() {
+    for (const [area, change, why] of KORPUS_DASAR) {
+        await buildMemory.record({ area, change, why, files: [`src/${area}.js`] });
+    }
+}
+
 test("keputusan rekayasa tersimpan dan dapat diingat kembali", async () => {
+
+    // Korpus disemai lebih dulu supaya IDF istilah penanda tidak nol.
+    await semaiKorpus();
 
     const simpan = await buildMemory.record({
         area: "uji",

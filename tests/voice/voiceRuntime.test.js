@@ -244,6 +244,47 @@ test("AudioInput: argumen ffmpeg/arecord benar (16kHz mono WAV)", () => {
     assert.ok(ar.args.includes("16000"));
 });
 
+test("AudioInput._rms: menghitung RMS 0..1 dari PCM s16le", () => {
+    const a = new AudioInput({ backend: "cli" });
+
+    // Amplitudo penuh (32767) → RMS ~1
+    const penuh = Buffer.alloc(4);
+    penuh.writeInt16LE(32767, 0);
+    penuh.writeInt16LE(32767, 2);
+    assert.ok(a._rms(penuh) > 0.99);
+
+    // Setengah amplitudo (16384) → RMS ~0.5
+    const setengah = Buffer.alloc(4);
+    setengah.writeInt16LE(16384, 0);
+    setengah.writeInt16LE(16384, 2);
+    assert.ok(Math.abs(a._rms(setengah) - 0.5) < 0.01);
+
+    // Diam → RMS 0
+    assert.equal(a._rms(Buffer.alloc(4)), 0);
+
+    // Buffer kosong → 0
+    assert.equal(a._rms(Buffer.alloc(0)), 0);
+});
+
+test("AudioInput._levelArgs: ffmpeg stream PCM ke pipe:1", () => {
+    const a = new AudioInput({ backend: "cli" });
+    a._recorder = "ffmpeg";
+    const { cmd, args } = a._levelArgs();
+    assert.equal(cmd, "ffmpeg");
+    assert.ok(args.includes("s16le"), "harus PCM s16le");
+    assert.ok(args.includes("pipe:1"), "harus stream ke stdout");
+    assert.ok(args.includes("16000"));
+});
+
+test("AudioInput._levelArgs: arecord stream raw ke stdout", () => {
+    const a = new AudioInput({ backend: "cli" });
+    a._recorder = "arecord";
+    const { cmd, args } = a._levelArgs();
+    assert.equal(cmd, "arecord");
+    assert.ok(args.includes("raw"));
+    assert.ok(args.includes("16000"));
+});
+
 // ---- VoiceRuntime (graceful degradation + wake + ack) ----
 
 function makeRuntime(overrides = {}) {
@@ -303,6 +344,41 @@ test("VoiceRuntime: clapDetect (2 tepukan) memicu WAKE_DETECTED + ack", async ()
     assert.equal(acked, "Ya?");
 
     await rt.stop();
+});
+
+test("VoiceRuntime._startStandbyStream: alirkan RMS mic → clapDetect (wiring)", async () => {
+    const rt = makeRuntime({ clapEnabled: true });
+
+    // Mock input: backend cli + startLevelStream yang menangkap onLevel.
+    let fed = null;
+    rt.input.available = true;
+    rt.input.startLevelStream = async (onLevel) => {
+        fed = onLevel;
+        return { stop() { rt.input.stopped = true; } };
+    };
+
+    // Spy pada clapDetect untuk memastikan stream meneruskannya.
+    const calls = [];
+    const orig = rt.clapDetect.bind(rt);
+    rt.clapDetect = (rms, t) => {
+        calls.push(rms);
+        return orig(rms, t);
+    };
+
+    await rt._startStandbyStream();
+
+    assert.ok(rt._levelStream, "level stream harus aktif");
+    assert.equal(typeof fed, "function");
+
+    // Alirkan sampel RMS — callback stream harus memanggil clapDetect.
+    fed(0.9);
+    fed(0.1);
+
+    assert.ok(calls.length >= 2, "callback stream harus meneruskan RMS ke clapDetect");
+
+    await rt.stop();
+    assert.equal(rt._levelStream, null, "stop harus menutup stream");
+    assert.equal(rt.input.stopped, true, "stop harus memanggil stream.stop()");
 });
 
 test("VoiceRuntime: nonaktif default — start tidak mengaktifkan loop", async () => {
