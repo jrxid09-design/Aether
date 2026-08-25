@@ -1,4 +1,4 @@
-# ACC GATES RUNNER — Windows-native (interop WSL tidak dipakai).
+﻿# ACC GATES RUNNER â€” Windows-native (interop WSL tidak dipakai).
 # Jalankan dari C:\Workspace\Aether:
 #   powershell -ExecutionPolicy Bypass -File scripts\acc-gates.ps1
 param()
@@ -12,11 +12,13 @@ $totals = New-Object System.Collections.ArrayList
 
 function Run([string]$name, [string[]]$cmd) {
   "===== STEP $name =====" | Out-File $log -Append -Encoding UTF8
-  $out = & $cmd[0] $cmd[1..($cmd.Length-1)] 2>&1
+    $exe = $cmd[0]
+  $cmdArgs = $cmd[1..($cmd.Length-1)]
+  $out = & $exe @cmdArgs 2>&1
   $code = $LASTEXITCODE
   $out | Out-File $log -Append -Encoding UTF8
   $txt = ($out | Out-String)
-  $row = ordered @{ step=$name; exit=$code; tests=$null; pass=$null; fail=$null; skipped=$null }
+  $row = [ordered]@{ step=$name; exit=$code; tests=$null; pass=$null; fail=$null; skipped=$null }
   foreach ($k in @('tests','pass','fail','skipped')) {
     $line = ($txt -split "`n" | Where-Object { $_ -match "(^|\s)$k \d+\s*$" } | Select-Object -Last 1)
     if ($line -match "$k (\d+)\s*$") { $row[$k] = [int]$Matches[1] }
@@ -36,7 +38,7 @@ Run "c0_5_witness_meta_prediction" @("node","--test",$T[0],$T[1],$T[2],$T[3],"te
 Run "c0_678_bio_substrate_security" @("node","--test",$T[0],$T[1],$T[2],$T[3],
    "tests/cognition/accAutobiographySubstrateSecurity.test.js")
 
-# ---- Foundation regressions (§111): ACC tidak boleh menyentuh ini ----
+# ---- Foundation regressions (Â§111): ACC tidak boleh menyentuh ini ----
 Run "foundation_authority" @("node","--test",$T[0],$T[1],$T[2],$T[3],
   "tests/safety/authoritySurface.test.js",
   "tests/safety/delegationAuthority.test.js",
@@ -52,3 +54,5 @@ foreach ($t in $totals) {
 }
 "ACC_GATES_DONE" | Out-File $log -Append -Encoding UTF8
 Write-Host "Log: $log"
+
+
