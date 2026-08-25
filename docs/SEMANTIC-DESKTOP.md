@@ -44,16 +44,41 @@ browser.
 1. **Satu jalur mutasi.** Keadaan kanonik hanya berubah lewat
    `core.ingest()` dari adapter TERDAFTAR + tepercaya. Output model
    secara struktural tidak bisa memproduksi observasi.
-2. **Idempoten.** Observasi dedupe by `observationId`; duplikat ditolak.
-3. **Invalidasi deterministik.** Menutup jendela menginvalidasi
-   dokumen/seleksi/visual anaknya (`staleReason=WINDOW_CLOSED`);
-   seleksi/dokumen/clipboard baru membuat yang lama basi
-   (`SUPERSEDED_*`). Entitas basi disimpan dengan alasan, tidak
-   dihapus diam-diam.
-4. **Riwayat berbatas.** Ring buffer transisi (default 50) untuk frasa
-   seperti "yang tadi" — bukan surveillance sejarah tanpa batas.
-5. **Tidak menebak.** Resolver dengan beberapa kandidat sama-sama sah
-   mengembalikan `status:"ambiguous"` + kandidat, bukan pilihan senyap.
+2. **Atomik.** Satu observasi = satu transisi keadaan: seluruh efek
+   dihitung pada salinan state lalu dikomit sekali. Observasi ditolak
+   (atribut siklus/oversize, subject menggantung, relasi hantu, tipe
+   salah) → nol mutasi, nol versi, nol transisi.
+3. **Idempoten + deteksi konflik.** Observasi dedupe by
+   `observationId` (LRU berbatas); ID sama dengan payload beda →
+   `CONFLICTING_OBSERVATION`, bukan duplikat biasa. Identitas
+   observasi menyertakan nonce instance adapter sehingga restart
+   tidak menabrak ID lama (`adapterId:instanceNonce:sequence`).
+4. **Urutan konvergen.** Pemenang kanonik entitas dan pointer aktif
+   dipilih total order deterministik:
+   `timestamp → confidence → adapterId → observationId`.
+   Observasi basa yang terlambat tidak menimpa state baru; set
+   observasi sama dengan urutan tiba berbeda menghasilkan snapshot
+   byte-identik (entitas/relasi/riwayat terurut; revisi = hitungan
+   observasi; id snapshot = hash konten).
+5. **Invalidasi terikat lingkup.** Penggantian dokumen/seleksi hanya
+   dalam lingkup jendela yang dihubungkan relasi EKSPLISIT
+   (displayed_in/selected_in); tanpa lingkup → state jendela lain
+   tidak disentuh, tanpa fallback jendela aktif.
+6. **Provenance terpercaya.** Provenance kanonik dicap core dari
+   registrasi (`adapter:<id>`); klaim payload disimpan terpisah
+   sebagai `claimedProvenance`. Adapter hanya boleh mengirim event
+   sesuai kapabilitas terdeklarasinya.
+7. **Snapshot = batas input tak terpercaya.** `deserialize()`
+   memvalidasi skema penuh (enum, endpoint, tipe pointer, field
+   asing) DAN integritas hash konten — state palsu gagal tertutup
+   dengan `INVALID_SNAPSHOT`, tidak pernah menjadi state kognisi.
+8. **Berbatas sungguhan.** Entitas, entitas basi, relasi, ID dedupe,
+   atribut (byte), riwayat, dan ukuran snapshot punya batas terpusat
+   dengan eviksi deterministik dan indeks relasi (tanpa full scan).
+9. **View terdetach.** Tidak ada accessor yang membocorkan referensi
+   mutable; `getView()` mengembalikan salinan beku.
+10. **Tidak menebak.** Resolver dengan beberapa kandidat sama-sama
+    sah mengembalikan `status:"ambiguous"` + kandidat.
 
 ## Resolusi referensi
 
@@ -115,11 +140,18 @@ tersertifikasi tidak disentuh.
 node --test --test-concurrency=1 --require ./tests/helpers/testEnv.js "tests/desktop/*.test.js"
 ```
 
-35 tes mencakup matriks: aktivasi aplikasi/jendela, dokumen, seleksi
-teks & file, visual, workspace, clipboard, riwayat & batas, snapshot
-immutable & pemisahan live, idempotensi, invalidasi basi/window-close,
-relasi, resolusi semua kind, ambiguitas, reason deterministik,
-provenance/confidence, event cacat, UNKNOWN aman, lifecycle adapter,
-model-boundary, nol otoritas, minimisasi, anti-screenshot-kontinu,
-referensi visual tanpa byte, mandiri tanpa Console, parity
-serialisasi.
+70 tes dalam empat suite:
+
+- `semanticDesktopCore` — konteks aktif, event model, riwayat
+  berbatas, invalidasi, snapshot, lifecycle adapter.
+- `semanticDesktopResolver` — resolusi semua kind, ambiguitas,
+  provenance/confidence, resolusi atas snapshot.
+- `semanticDesktopBoundaries` — model boundary, nol otoritas,
+  minimisasi konten, mandiri tanpa Console.
+- `semanticDesktopRedteam` — sertifikasi perbaikan: restore attack
+  (deserialize tak terpercaya), atomic ingest failure, urutan
+  kedatangan konvergen, ID collision lintas restart adapter,
+  provenance palsu, invalidasi lintas jendela, mutasi live view,
+  badai sumber daya (bounds), referensi menggantung, lifecycle poll
+  PowerShell (single-flight/kill child/stderr), anti-surveillance
+  mekanis per file adapter.

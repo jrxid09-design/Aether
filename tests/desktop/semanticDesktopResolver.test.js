@@ -5,28 +5,20 @@ const {
     DesktopContextCore,
     ContextReferenceResolver,
     ENTITY_TYPE,
+    DESKTOP_EVENT,
     TRANSITION
 } = require("../../src/desktop");
-const { FakeDesktopAdapter } = require("../../src/desktop/adapters/FakeDesktopAdapter");
+const { makeHarness, rawObservation, E } = require("./helpers");
 
 /**
  * SUITE RESOLVER — resolusi referensi deterministik ("ini", "yang
  * tadi") dengan confidence, provenance, reason code, ambiguitas.
  */
 
-function harness({ clockValue = 1000 } = {}) {
-    const clock = () => clockValue;
-    const core = new DesktopContextCore({ clock });
-    core.registerAdapter({ adapterId: "fake-desktop", trusted: true, capabilities: [] });
-    const adapter = new FakeDesktopAdapter({ emit: (o) => core.ingest(o), clock });
-    adapter.start();
-    return { core, adapter, resolve: (req) => ContextReferenceResolver.resolve(core.getView(), req) };
-}
-
 // ---- 17. seleksi saat ini ------------------------------------------------
 
 test("resolve current_selection mengembalikan seleksi aktif", () => {
-    const { adapter, resolve } = harness();
+    const { adapter, resolve } = makeHarness();
     adapter.activateWindow({ windowId: "w1", appId: "a1" });
     adapter.selectText({ selectionId: "s1", text: "paragraf ini", length: 12, windowId: "w1" });
 
@@ -39,8 +31,8 @@ test("resolve current_selection mengembalikan seleksi aktif", () => {
 
 // ---- 18. dokumen aktif ------------------------------------------------------
 
-test("resolve active_document dan active_application", () => {
-    const { adapter, resolve } = harness();
+test("resolve active_document, active_window, dan active_application", () => {
+    const { adapter, resolve } = makeHarness();
     adapter.activateWindow({
         windowId: "w1",
         appId: "app-notepad",
@@ -56,7 +48,7 @@ test("resolve active_document dan active_application", () => {
 // ---- 19. visual aktif ---------------------------------------------------------
 
 test("resolve active_visual mengembalikan referensi visual (bukan byte)", () => {
-    const { adapter, resolve } = harness();
+    const { adapter, resolve } = makeHarness();
     adapter.showVisualReference({ imageId: "img-1", sourceRef: "kucing.png", width: 64 });
 
     const r = resolve({ kind: "active_visual" });
@@ -67,7 +59,7 @@ test("resolve active_visual mengembalikan referensi visual (bukan byte)", () => 
 // ---- 20. file terpilih -------------------------------------------------------------
 
 test("resolve selected_files mengembalikan seluruh anggota grup", () => {
-    const { adapter, resolve } = harness();
+    const { adapter, resolve } = makeHarness();
     adapter.selectFiles({
         groupId: "g1",
         files: [
@@ -86,7 +78,7 @@ test("resolve selected_files mengembalikan seluruh anggota grup", () => {
 // ---- 21. konteks terbaru ("yang tadi") ------------------------------------------------
 
 test("resolve recent_context menelusuri riwayat dari yang terbaru", () => {
-    const { adapter, resolve } = harness();
+    const { adapter, resolve } = makeHarness();
     adapter.activateWindow({ windowId: "w1", appId: "a1" });
     adapter.selectText({ selectionId: "s1", text: "satu", length: 4, windowId: "w1" });
     adapter.selectText({ selectionId: "s2", text: "dua", length: 3, windowId: "w1" }); // s1 basi
@@ -111,34 +103,32 @@ test("resolve recent_context menelusuri riwayat dari yang terbaru", () => {
 
 // ---- 22. ambiguitas ---------------------------------------------------------------------
 
-test("dua seleksi hidup di jendela berbeda → AMBIGUOUS, tidak menebak", () => {
-    const { core, adapter, resolve } = harness();
+test("dua seleksi hidup di jendela berbeda → AMBIGUOUS; constraint jendela memutus", () => {
+    const { core, adapter } = makeHarness();
 
-    // Jendela A + seleksinya
     adapter.activateWindow({ windowId: "wa", appId: "a1" });
     adapter.selectText({ selectionId: "sa", text: "A", length: 1, windowId: "wa" });
-    // Jendela B aktif + seleksinya — pointer pindah ke B.
     adapter.activateWindow({ windowId: "wb", appId: "a2" });
     adapter.selectText({ selectionId: "sb", text: "B", length: 1, windowId: "wb" });
 
-    const r = resolve({ kind: "current_selection" });
+    const r = ContextReferenceResolver.resolve(core.getView(), { kind: "current_selection" });
     assert.equal(r.status, "ambiguous");
     assert.equal(r.reasonCode, "AMBIGUOUS_TARGETS");
-    assert.equal(r.candidates.length, 2);
+    // Tepat DUA kandidat valid (sa & sb) — bukan satu kandidat tersamar.
     assert.deepEqual([...r.candidates.map((c) => c.id)].sort(), ["sa", "sb"]);
     assert.equal(r.targets.length, 0);
 
     // Constraint jendela membuat keputusan deterministik lagi.
-    const scoped = resolve({ kind: "current_selection", constraints: { windowId: "wa" } });
+    const scoped = ContextReferenceResolver.resolve(core.getView(),
+        { kind: "current_selection", constraints: { windowId: "wa" } });
     assert.equal(scoped.status, "resolved");
     assert.equal(scoped.targets[0].id, "sa");
-    void core;
 });
 
 // ---- 23. ketiadaan konteks → alasan deterministik -------------------------------------------
 
 test("konteks hilang menghasilkan reason code deterministik per jenis", () => {
-    const { resolve } = harness();
+    const { resolve } = makeHarness();
 
     const expectations = [
         [{ kind: "current_selection" }, "NO_SELECTION"],
@@ -160,41 +150,37 @@ test("konteks hilang menghasilkan reason code deterministik per jenis", () => {
 
 // ---- 24-25. provenance & confidence tertanam --------------------------------------------------
 
-test("provenance dan confidence entitas dipertahankan sampai hasil resolusi", () => {
+test("provenance kanonik dari registrasi + confidence dipertahankan sampai resolusi", () => {
     const clock = () => 1000;
     const core = new DesktopContextCore({ clock });
-    core.registerAdapter({ adapterId: "fake-desktop", trusted: true, capabilities: [] });
-    core.ingest({
-        type: DESKTOP_EVENT_WORKSPACE(),
+    core.registerAdapter({ adapterId: "fake-desktop", trusted: true, capabilities: ["workspace_context"] });
+
+    const r = core.ingest(rawObservation({
+        type: DESKTOP_EVENT.WORKSPACE_CHANGED,
         observationId: "o1",
-        timestamp: 5,
-        source: { adapterId: "fake-desktop", trusted: true },
         subject: "ws-lowconf",
         entities: [{
             id: "ws-lowconf",
             type: ENTITY_TYPE.WORKSPACE,
             label: "lab",
             confidence: 0.7,
-            provenance: "adapter:fake-desktop"
-        }],
-        relationships: [],
-        payload: {}
-    });
+            provenance: "adapter:sumber-palsu-klaim"
+        }]
+    }));
+    assert.equal(r.accepted, true);
 
-    const r = ContextReferenceResolver.resolve(core.getView(), { kind: "current_workspace" });
-    assert.equal(r.status, "resolved");
-    assert.equal(r.confidence, 0.7);
-    assert.ok(r.provenance[0].includes("fake-desktop"));
+    const resolved = ContextReferenceResolver.resolve(core.getView(), { kind: "current_workspace" });
+    assert.equal(resolved.status, "resolved");
+    assert.equal(resolved.confidence, 0.7);
+    // Provenance kanonik = identitas registrasi, bukan klaim payload.
+    assert.equal(resolved.provenance[0], "adapter:fake-desktop");
+    assert.equal(resolved.targets[0].claimedProvenance, "adapter:sumber-palsu-klaim");
 });
-
-function DESKTOP_EVENT_WORKSPACE() {
-    return require("../../src/desktop").DESKTOP_EVENT.WORKSPACE_CHANGED;
-}
 
 // ---- resolusi atas snapshot (bukan live core) -----------------------------------------------
 
 test("resolver bekerja sama pada snapshot immutable", () => {
-    const { core, adapter, resolve } = harness();
+    const { core, adapter, resolve } = makeHarness();
     adapter.selectText({ selectionId: "s1", text: "x", length: 1, windowId: "w0" });
     const snap = core.snapshot();
 

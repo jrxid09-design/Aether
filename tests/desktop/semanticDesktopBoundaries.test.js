@@ -13,25 +13,20 @@ const {
 } = require("../../src/desktop");
 const { FakeDesktopAdapter } = require("../../src/desktop/adapters/FakeDesktopAdapter");
 const { FORBIDDEN_VERBS } = require("../../src/desktop/CognitionProjection");
+const { makeHarness, rawObservation, E } = require("./helpers");
 
 /**
  * SUITE BATAS (BOUNDARIES) — model boundary, nol otoritas,
- * minimisasi konten, anti-surveillance, kemandirian dari Console.
+ * minimisasi konten, kemandirian dari Console.
+ *
+ * Pemeriksaan mekanis anti-tangkapan-layar ada di
+ * semanticDesktopRedteam.test.js (B11).
  */
-
-function harness({ clockValue = 1000 } = {}) {
-    const clock = () => clockValue;
-    const core = new DesktopContextCore({ clock });
-    core.registerAdapter({ adapterId: "fake-desktop", trusted: true, capabilities: [] });
-    const adapter = new FakeDesktopAdapter({ emit: (o) => core.ingest(o), clock });
-    adapter.start();
-    return { core, adapter };
-}
 
 // ---- 29. tidak ada jalur mutasi oleh model ---------------------------------------------
 
 test("proyeksi kognisi tidak punya metode mutasi apa pun", () => {
-    const { core } = harness();
+    const { core } = makeHarness();
     const projection = createCognitionProjection(core);
 
     const keys = Object.keys(projection);
@@ -42,33 +37,25 @@ test("proyeksi kognisi tidak punya metode mutasi apa pun", () => {
     }
 
     // Core hanya menerima ingest dari adapter terdaftar + tepercaya.
-    const r = core.ingest({
+    const result = core.ingest(rawObservation({
         type: DESKTOP_EVENT.WINDOW_ACTIVATED,
         observationId: "model-fake-1",
-        timestamp: 1,
-        source: { adapterId: "llm-output", trusted: true },
         subject: "win-halusinasi",
-        entities: [{ id: "win-halusinasi", type: ENTITY_TYPE.WINDOW, label: "jendela khayalan" }],
-        relationships: [],
-        payload: {}
-    });
-    assert.equal(r.accepted, false);
-    assert.equal(r.reasonCode, "REJECTED_UNTRUSTED_SOURCE");
+        entities: [E("win-halusinasi", ENTITY_TYPE.WINDOW, "jendela khayalan")],
+        adapterId: "llm-output"
+    }));
+    assert.equal(result.accepted, false);
+    assert.equal(result.reasonCode, "REJECTED_UNTRUSTED_SOURCE");
     assert.equal(core.getActiveWindow(), null);
 });
 
 test("interpret() model tidak mengubah keadaan kanonik sedikit pun", () => {
-    const { core, adapter } = harness();
+    const { core, adapter } = makeHarness();
     adapter.selectText({ selectionId: "s1", text: "abc", length: 3, windowId: "w" });
 
-    // Bandingkan konten snapshot tanpa id unik per-snapshot (id memang
-    // berbeda antar potret; keadaan harus identik).
-    const strip = (s) => {
-        const o = JSON.parse(s);
-        delete o.desktopContextId;
-        return JSON.stringify(o);
-    };
-    const before = strip(ContextSnapshot.serialize(core.snapshot()));
+    // Identitas snapshot kini diturunkan dari konten → perbandingan
+    // penuh byte-per-byte sah tanpa pengecualian apa pun.
+    const before = ContextSnapshot.serialize(core.snapshot());
     const versionBefore = core.version;
 
     const projection = createCognitionProjection(core);
@@ -77,13 +64,13 @@ test("interpret() model tidak mengubah keadaan kanonik sedikit pun", () => {
     assert.equal(ann.interpretation, "pengguna memilih paragraf pertama");
     assert.equal(ann.contextUnchanged, true);
     assert.equal(core.version, versionBefore);
-    assert.equal(strip(ContextSnapshot.serialize(core.snapshot())), before);
+    assert.equal(ContextSnapshot.serialize(core.snapshot()), before);
 });
 
 // ---- 30. konteks memberi NOL otoritas ----------------------------------------------------
 
 test("observasi tidak pernah menyertakan otoritas actuation", () => {
-    const { core } = harness();
+    const { core } = makeHarness();
     const projection = createCognitionProjection(core);
 
     for (const obj of [core, projection]) {
@@ -101,7 +88,7 @@ test("observasi tidak pernah menyertakan otoritas actuation", () => {
 // ---- 31. minimisasi konten ------------------------------------------------------------------
 
 test("snapshot penuh bebas konten berat: metadata saja", () => {
-    const { core, adapter } = harness();
+    const { core, adapter } = makeHarness();
     adapter.activateWindow({ windowId: "w1", appId: "a1", documentId: "d1" });
     adapter.selectText({
         selectionId: "s1",
@@ -127,33 +114,10 @@ test("snapshot penuh bebas konten berat: metadata saja", () => {
     assert.deepEqual(Object.keys(clip.attributes).sort(), ["contentType", "length"]);
 });
 
-// ---- 32. tanpa tangkapan layar kontinu ---------------------------------------------------------
-
-test("tidak ada perilaku screenshot kontinu di adapter mana pun", () => {
-    const fakeSrc = fs.readFileSync(
-        path.join(__dirname, "..", "..", "src", "desktop", "adapters", "FakeDesktopAdapter.js"),
-        "utf8"
-    );
-    assert.ok(!fakeSrc.includes("setInterval"), "fake adapter tidak boleh polling");
-
-    const winSrc = fs.readFileSync(
-        path.join(__dirname, "..", "..", "src", "desktop", "adapters", "WindowsActiveWindowAdapter.js"),
-        "utf8"
-    );
-    assert.ok(!/screenshot|captureScreen|bitblt/i.test(winSrc));
-    assert.ok(!/"continuous_capture"/.test(fakeSrc));
-
-    // Visual context selalu menuntut langkah capture eksplisit.
-    const { core, adapter } = harness();
-    adapter.showVisualReference({ imageId: "img-1", sourceRef: "a.png" });
-    const vis = core.getActiveVisualContext();
-    assert.equal(vis.attributes.captureRequired, true);
-});
-
 // ---- 33. referensi visual tanpa byte ----------------------------------------------------------
 
 test("VisualContext valid meski byte gambar tidak pernah ada", () => {
-    const { core, adapter } = harness();
+    const { core, adapter } = makeHarness();
     adapter.showVisualReference({
         imageId: "img-ref-only",
         source: "active_window",
@@ -183,14 +147,13 @@ test("substrate mandiri: tidak ada require ke Console/server/app di src/desktop"
         const requires = [...src.matchAll(/require\(["']([^"']+)["']\)/g)].map((m) => m[1]);
         for (const req of requires) {
             const okPath = req.startsWith("node:") ||
-                req.startsWith("./") || req.startsWith("../") ||
-                req === "node:child_process";
+                req.startsWith("./") || req.startsWith("../");
             assert.ok(okPath, `${file} me-require dependensi luar: ${req}`);
         }
     }
 
     // Dan lifecycle lengkap berjalan tanpa server/console sama sekali.
-    const { core, adapter } = harness();
+    const { core, adapter } = makeHarness();
     adapter.changeWorkspace({ workspaceId: "ws", label: "mandiri" });
     assert.equal(core.getCurrentWorkspace()?.label, "mandiri");
 });
