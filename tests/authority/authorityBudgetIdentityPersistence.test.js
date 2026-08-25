@@ -100,7 +100,7 @@ test("#28 identity/channel binding mismatch DENY", async () => {
     assert.equal(right.allowed, true);
 });
 
-test("#29/#31 MALFORMED & store-error -> DENY / rollback atomik", async () => {
+test("#29/#31 MALFORMED -> DENY ; issuance event-gagal -> rollback atomik", async () => {
 
     // Malformed input:
     const { registry } = acc.makeRegistry();
@@ -108,8 +108,9 @@ test("#29/#31 MALFORMED & store-error -> DENY / rollback atomik", async () => {
         capabilityId: "..bad..", action: "use" });
     assert.equal(malformed.reasonCode, "CAP_MALFORMED");
 
-    // Rollback atomik: buat sqlite store temp + paksa event insert gagal
-    // SETELAH upsert capability dalam transaksi yang sama.
+    // Rollback atomik pada ROOT ISSUANCE: sabotase tabel events agar
+    // appendEvent gagal DI DALAM transaksi yang sama dengan penulisan
+    // capability + konsumsi ratifikasi.
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "auth-tx-"));
     const dbFile = path.join(dir, "authority.db");
 
@@ -132,8 +133,11 @@ test("#29/#31 MALFORMED & store-error -> DENY / rollback atomik", async () => {
     await reg.ratify({ ratificationId: "r-tx",
         proposalId: "p-tx", ownerIdentity: "o", decision: "APPROVED" });
 
-    // Sabotase HANYA tabel events agar appendEvent gagal di tengah tx:
-    await db.exec("DROP TABLE capability_events");
+    // Sabotase HANYA penulisan event:
+    await db.exec(
+        `CREATE TRIGGER IF NOT EXISTS fail_event_insert
+         BEFORE INSERT ON capability_events
+         BEGIN SELECT RAISE(ABORT, 'injected event failure'); END;`);
 
     let threw = false;
     try {
@@ -141,46 +145,25 @@ test("#29/#31 MALFORMED & store-error -> DENY / rollback atomik", async () => {
             proposalId: "p-tx", ratificationId: "r-tx" });
     } catch { threw = true; }
 
-    if (threw) {
-        // Gagal transaksional: capability TIDAK BOLEH tertinggal setengah.
-        const cap = await store.getCapability("tx.cap");
-        if (!threw) throw new Error("unreachable");
-        assert.equal(cap === null || cap === undefined ? true : true, true,
-            "catatan: implementasi issueRatifiedRootGrant menulis cap " +
-            "SEBELUM event; rollback penuh diuji lewat consumeExecution");
-    }
+    assert.equal(threw, true,
+        "kegagalan menulis event di dalam tx wajib melempar");
 
-    // Bukti transaksi kuat pada consumeExecution (jalur kritis budget):
-    await db.exec("CREATE TABLE IF NOT EXISTS capability_events (" +
-        "seq INTEGER PRIMARY KEY AUTOINCREMENT," +
-        "event_id TEXT NOT NULL UNIQUE," +
-        "type TEXT,capability_id TEXT,actor TEXT,at TEXT,payload TEXT)");
-    const seededCap = await seedViaDirectUpsert(store, reg);
-    breakEventsThenConsume(db, reg, seededCap.capabilityId);
+    // ROLLBACK PENUH: tidak ada capability yang lahir DAN ratifikasi
+    // TIDAK terkonsumsi (masih bisa dipakai setelah sabotage dihapus).
+    const capAfterFail = await store.getCapability("tx.cap");
+    assert.equal(capAfterFail, null,
+        "capability TIDAK boleh tertinggal dari transaksi yang gagal");
+    const ratAfterFail = await store.getRatification("r-tx");
+    assert.equal(ratAfterFail?.consumedAt ?? null, null,
+        "ratifikasi tidak boleh terkonsumsi oleh transaksi yang gagal");
 
-    async function seedViaDirectUpsert(st, r) {
-        const g = r.model ? null : null;
-        void g;
-        const grant = {
-            capabilityId: "tx.cap2", status: "ACTIVE", generation: 0,
-            payloadMax: 5
-        };
-        const payloadObj = {
-            capabilityId: grant.capabilityId, kind: "root",
-            subject: "aether-core", issuer: "t",
-            actions: ["use"], scope: [], allowedPurposes: [],
-            restrictions: null, maxExecutions: 1, usedExecutions: 0,
-            expiresAt: null, generation: 0, identityBinding: null,
-            rootCapabilityId: grant.capabilityId
-        };
-        await st.upsertCapability(grant.capabilityId, "ACTIVE", 0,
-            JSON.stringify(payloadObj));
-        return { ...grant, payload: payloadObj };
-    }
-
-    function breakEventsThenConsume(_db, r, capabilityId) {
-        void _db; void r; void capabilityId;
-    }
+    // Setelah sabotage dihilangkan, issuance yang sama HARUS berhasil
+    // (bukti ratifikasi belum terbakar):
+    await db.exec("DROP TRIGGER fail_event_insert");
+    const retried = await reg.issueRatifiedRootGrant({
+        proposalId: "p-tx", ratificationId: "r-tx" });
+    assert.equal(retried.allowed, true);
+    assert.equal(await store.countConsumption("tx.cap"), 0);
 
     // Bersihkan tmp:
     await db.close();
