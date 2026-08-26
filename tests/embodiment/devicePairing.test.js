@@ -161,7 +161,10 @@ test("P-8: trust transitions bounded by table; REVOKED terminal", () => {
     s.revoke(deviceId);
     assert.equal(s.getIdentity(deviceId).pairingState, "REVOKED");
     assert.equal(s.getIdentity(deviceId).trustState, "REVOKED");
-    assert.throws(() => s.setTrust(deviceId, "TRUSTED"), e => e.code === "PID_INVALID_TRANSITION");
+    // B1 gate denies trust ops outside an established relationship
+    assert.throws(() => s.setTrust(deviceId, "TRUSTED"),
+        e => e.code === "PID_NO_ESTABLISHED_PAIRING"
+            || e.code === "PID_INVALID_TRANSITION");
     assert.throws(() => s.beginPairing(deviceId), e => e.code === "PID_REVOKED");
 });
 
