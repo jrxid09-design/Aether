@@ -113,6 +113,14 @@ generasi + expiry. Penyelesaian butuh token asli: plain object → `FORGED_TOKEN
 token lintas generasi → `STALE_GENERATION`; kedaluwarsa → `EXPIRED_TOKEN` (tidak
 bisa hidup ulang); double-completion idempoten (`OK_ALREADY_COMPLETED`).
 
+**Kapasitas & retensi:** admission dihitung dari jumlah aktivitas HIDUP, bukan
+ukuran map. Rekaman terminal (completed/expired/interrupted) hanya dipertahankan
+sebagai tombstone berbatas (`maxActivityTombstones`); yang tertua dieviksi
+deterministik (urutan insert). Double-completion idempoten berlaku untuk rekaman
+yang masih dalam jendela; rekaman yang sudah tereviksi → `REJECTED_UNKNOWN_ACTIVITY`
+(bukan pemalsuan, bukan resurrect). Penggunaan berulang normal tidak pernah
+mermanen menghabiskan kuota.
+
 **Precedence presentasi** (hanya untuk state tampilan, BUKAN prioritas eksekusi):
 
 ```
@@ -216,14 +224,22 @@ ditolak `REJECTED_UNREGISTERED_PRODUCER`.
 
 ## 14. Barge-In & Recovery (P9, P16)
 
-- **Barge-in:** `recommendInterruption(token)` hanya mengekspos rekomendasi
-  inersia (`INTERRUPTION_RECOMMENDED` ke observer + diagnostik). Presence tidak
-  pernah menghentikan TTS/aktivitas apa pun.
+- **Barge-in:** `recommendInterruption(token)` menegakkan identitas token yang
+  sama ketatnya dengan `endActivity()` — record ada, `record.token === token`,
+  generasi aktif; lookalike/copy → `FORGED_TOKEN`; token genuin terminal →
+  penolakan deterministik (`REJECTED_TERMINAL_ACTIVITY` / `_EXPIRED_TOKEN` /
+  `_INTERRUPTED_TOKEN`). Hanya mengekspos rekomendasi inersia
+  (`INTERRUPTION_RECOMMENDED`) ke observer. Presence tidak pernah menghentikan
+  TTS/aktivitas apa pun.
 - **Recovery:** `requestRecovery / completeRecovery / degradeRecovery /
-  failRecovery` memetakan fakta Recovery Capsule ke state. RECOVERY_COMPLETED
-  membersihkan alasan degradasi (klaim "pulih" harus jujur direpresentasikan);
-  RECOVERY_DEGRADED menjamin minimal satu alasan eksplisit. Presence tidak pernah
-  memulihkan state sendiri.
+  failRecovery` memetakan fakta Recovery Capsule ke state. Validasi produsen,
+  edge, dan sebab dilakukan SELURUHNYA sebelum mutasi apa pun: panggilan yang
+  ditolak (termasuk produsen palsu) meninggalkan alasan degradasi dan state
+  byte-per-byte utuh. RECOVERY_COMPLETED membersihkan alasan degradasi sebagai
+  bagian dari commit; RECOVERY_DEGRADED menjamin minimal satu alasan eksplisit.
+  Presence tidak pernah memulihkan state sendiri. Sama untuk
+  `setResourcePressure`: level hanya di-commit bila representasi degraded-nya
+  juga berhasil.
 
 ## 15. Storm Result (P33)
 

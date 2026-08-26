@@ -209,8 +209,9 @@ describe("presence barge-in foundation — inersia (P9)", () => {
         const done = rt.beginActivity("THINKING").token;
         rt.endActivity(done);
         const before = JSON.stringify(rt.getPresenceStatus());
-        const noop = rt.recommendInterruption(done);
-        assert.equal(noop.code, "OK_NOOP");
+        const terminal = rt.recommendInterruption(done);
+        assert.equal(terminal.ok, false);
+        assert.equal(terminal.code, "REJECTED_TERMINAL_ACTIVITY");
         assert.equal(JSON.stringify(rt.getPresenceStatus()), before);
     });
 });

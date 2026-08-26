@@ -17,8 +17,8 @@ describe("presence config — batas terpusat (P27)", () => {
 
     it("kunci wajib lengkap: activities, ownerWaits, degradedReasons, history, diagnostics, subscribers, TTL", () => {
         for (const key of [
-            "maxActivities", "maxOwnerWaits", "maxDegradedReasons", "maxHistory",
-            "maxDiagnostics", "maxSubscribers", "activityTtlMs", "ownerWaitTtlMs"
+            "maxActivities", "maxActivityTombstones", "maxOwnerWaits", "maxDegradedReasons",
+            "maxHistory", "maxDiagnostics", "maxSubscribers", "activityTtlMs", "ownerWaitTtlMs"
         ]) {
             assert.ok(key in DEFAULT_PRESENCE_CONFIG, `kunci ${key} harus ada`);
         }
