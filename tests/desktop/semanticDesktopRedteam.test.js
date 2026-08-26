@@ -939,3 +939,198 @@ test("B11: polling metadata Windows mematuhi interval minimum & single-flight", 
     // Kontrak perilaku (dibuktikan penuh di tes B10):
     assert.equal(typeof adapter.inFlight, "boolean");
 });
+
+// =====================================================================
+// REPAIR ROUND 2 — SNAPSHOT TRIM ORDER + BOUNDED scopedWinners
+// =====================================================================
+
+test("R2-1: snapshot melebihi batas terpangkas melalui riwayat (trim sukses)", () => {
+    const clock = () => 1000;
+    const core = new DesktopContextCore({ clock, maxSnapshotBytes: 4096, maxHistory: 30 });
+    core.registerAdapter({
+        adapterId: "fake-desktop", trusted: true, capabilities: ["workspace_context"]
+    });
+
+    // observationId panjang → entri transisi besar; entitas tetap kecil
+    // (12 entitas ≈ 3KB < 4096) sehingga trimming riwayat pasti cukup.
+    for (let i = 0; i < 12; i++) {
+        const r = core.ingest(rawObservation({
+            type: DESKTOP_EVENT.WORKSPACE_CHANGED,
+            observationId: `obs-${String(i).padStart(3, "0")}-${"x".repeat(400)}`,
+            timestamp: 1000 + i,
+            subject: `ws-${i}`,
+            entities: [E(`ws-${i}`, ENTITY_TYPE.WORKSPACE, String(i))]
+        }));
+        assert.equal(r.accepted, true);
+    }
+
+    // Tanpa trim jelas >4096; setelah trim riwayat harus muat.
+    const snap = core.snapshot();
+    const json = ContextSnapshot.serialize(snap);
+    assert.ok(Buffer.byteLength(json, "utf8") <= 4096,
+        `snapshot ${Buffer.byteLength(json)} byte harus <= 4096`);
+    // Hasil pangkas tetap snapshot sah yang bisa dibangun ulang.
+    const rebuilt = ContextSnapshot.deserialize(json);
+    assert.equal(rebuilt.desktopContextId, snap.desktopContextId);
+});
+
+test("R2-2: batas DEFAULT — konten entitas dominan gagal SNAPSHOT_TOO_LARGE eksplisit", () => {
+    const clock = () => 1000;
+    const core = new DesktopContextCore({ clock });   // SEMUA limit default
+    core.registerAdapter({
+        adapterId: "fake-desktop", trusted: true, capabilities: ["workspace_context"]
+    });
+
+    // 60 workspace dengan atribut ~1.4KB (di bawah cap atribut 2048B):
+    // total >> 64KB default bahkan tanpa satu pun transisi yang membantu.
+    for (let i = 0; i < 60; i++) {
+        const r = core.ingest({
+            type: DESKTOP_EVENT.WORKSPACE_CHANGED,
+            observationId: `big-${String(i).padStart(3, "0")}`,
+            timestamp: 1000 + i,
+            source: { adapterId: "fake-desktop" },
+            subject: `ws-big-${i}`,
+            entities: [{
+                id: `ws-big-${i}`, type: ENTITY_TYPE.WORKSPACE, label: `ws${i}`,
+                attributes: { blob: "z".repeat(1400) }
+            }],
+            relationships: [],
+            payload: {}
+        });
+        assert.equal(r.accepted, true);
+    }
+
+    let thrown = null;
+    try {
+        core.snapshot();
+    } catch (err) {
+        thrown = err;
+    }
+
+    // Gagal deterministik dengan alasan terdokumentasi — bukan TypeError mentah.
+    assert.ok(thrown, "snapshot() wajib gagal tertutup untuk konten ini");
+    assert.equal(thrown.code, "SNAPSHOT_TOO_LARGE");
+    assert.ok(thrown instanceof Error);
+    assert.match(thrown.message, /65536/);
+});
+
+test("R2-3: badai lingkup — 600 window+document vs entityCap=30 & maxScopedWinners", () => {
+    const limits = {
+        maxLiveEntities: 20,
+        maxStaleRetained: 10,          // entityCap = 30
+        maxScopedWinners: 8,
+        maxRelationships: 40,
+        maxHistory: 20
+    };
+    const clock = () => 1000;
+    const core = new DesktopContextCore({ clock, ...limits });
+    core.registerAdapter({
+        adapterId: "fake-desktop",
+        trusted: true,
+        capabilities: ["active_window_metadata", "document_context"]
+    });
+
+    let acceptedCount = 0;
+    for (let i = 0; i < 600; i++) {
+        const r = core.ingest({
+            type: DESKTOP_EVENT.WINDOW_ACTIVATED,
+            observationId: `storm-${String(i).padStart(4, "0")}`,
+            timestamp: 1000 + i,
+            source: { adapterId: "fake-desktop" },
+            subject: `w-${i}`,
+            entities: [
+                { id: `w-${i}`, type: ENTITY_TYPE.WINDOW, label: `jendela ${i}`, confidence: 1 },
+                { id: `d-${i}`, type: ENTITY_TYPE.DOCUMENT, label: `doc ${i}`, confidence: 1 }
+            ],
+            relationships: [{ from: `d-${i}`, relation: "displayed_in", to: `w-${i}` }],
+            payload: {}
+        });
+        if (r.accepted) acceptedCount += 1;
+    }
+
+    assert.equal(acceptedCount, 600);   // tidak ada observasi ditolak
+
+    const stats = core.getStats();
+    assert.ok(stats.entities <= 30, `entities bocor: ${stats.entities}`);
+    assert.ok(stats.scopedWinners <= 8,
+        `scopedWinners bocor: ${stats.scopedWinners} > 8`);
+
+    // Relasi tidak menggantung: seluruh endpoint ada di entitas retained.
+    const view = core.getView();
+    for (const rel of view.relationships) {
+        assert.ok(view.entities.has(rel.from) && view.entities.has(rel.to),
+            `relasi menggantung: ${rel.from}->${rel.to}`);
+    }
+
+    // Pointer aktif sah dan menunjuk observasi TERBARU (lingkupnya
+    // selamat karena eviksi lingkup memilih kunci aktivasi terlama).
+    assert.equal(view.active.windowId, "w-599");
+    assert.equal(view.active.documentId, "d-599");
+    assert.equal(core.getActiveWindow()?.id, "w-599");
+    assert.equal(core.getActiveDocument()?.id, "d-599");
+
+    // Snapshot berhasil atau gagal hanya dengan alasan terdokumentasi.
+    try {
+        const snap = core.snapshot();
+        assert.ok(ContextSnapshot.serialize(snap).length > 0);
+    } catch (err) {
+        assert.equal(err.code, "SNAPSHOT_TOO_LARGE");
+    }
+});
+
+test("R2-4: konfigurasi DEFAULT — ribuan observasi berlingkup tetap berbatas", () => {
+    const clock = () => 1000;
+    const core = new DesktopContextCore({ clock });   // default semua
+    core.registerAdapter({
+        adapterId: "fake-desktop",
+        trusted: true,
+        capabilities: ["active_window_metadata", "document_context"]
+    });
+
+    for (let i = 0; i < 3000; i++) {
+        const r = core.ingest({
+            type: DESKTOP_EVENT.WINDOW_ACTIVATED,
+            observationId: `def-${String(i).padStart(5, "0")}`,
+            timestamp: 1000 + i,
+            source: { adapterId: "fake-desktop" },
+            subject: `w-${i}`,
+            entities: [
+                { id: `w-${i}`, type: ENTITY_TYPE.WINDOW, label: `jendela ${i}`, confidence: 1 },
+                { id: `d-${i}`, type: ENTITY_TYPE.DOCUMENT, label: `doc ${i}`, confidence: 1 }
+            ],
+            relationships: [{ from: `d-${i}`, relation: "displayed_in", to: `w-${i}` }],
+            payload: {}
+        });
+        assert.equal(r.accepted, true, `observasi ${i}: ${r.detail}`);
+    }
+
+    const stats = core.getStats();
+    assert.ok(stats.entities <= 600,  `entities bocor: ${stats.entities}`);
+    assert.ok(stats.scopedWinners <= 256, `scopedWinners bocor: ${stats.scopedWinners}`);
+    assert.ok(stats.dedupeIds <= 1024, `dedupeIds bocor: ${stats.dedupeIds}`);
+
+    // Adapter tanpa WINDOW_CLOSED sekalipun tidak menyebabkan pertumbuhan
+    // permanen — jalankan gelombang kedua, batas tetap.
+    for (let i = 3000; i < 4500; i++) {
+        core.ingest({
+            type: DESKTOP_EVENT.WINDOW_ACTIVATED,
+            observationId: `def-${String(i).padStart(5, "0")}`,
+            timestamp: 1000 + i,
+            source: { adapterId: "fake-desktop" },
+            subject: `w-${i}`,
+            entities: [
+                { id: `w-${i}`, type: ENTITY_TYPE.WINDOW, label: `jendela ${i}`, confidence: 1 },
+                { id: `d-${i}`, type: ENTITY_TYPE.DOCUMENT, label: `doc ${i}`, confidence: 1 }
+            ],
+            relationships: [{ from: `d-${i}`, relation: "displayed_in", to: `w-${i}` }],
+            payload: {}
+        });
+    }
+    const stats2 = core.getStats();
+    assert.ok(stats2.entities <= 600, `entities bocor gelombang 2: ${stats2.entities}`);
+    assert.ok(stats2.scopedWinners <= 256, `scopedWinners bocor gelombang 2: ${stats2.scopedWinners}`);
+
+    // Pointer aktif valid: jendela/dokumen terbaru hidup dan ditunjuk.
+    assert.equal(core.getActiveWindow()?.id, "w-4499");
+    assert.equal(core.getActiveDocument()?.id, "d-4499");
+});
