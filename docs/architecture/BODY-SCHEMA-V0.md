@@ -99,9 +99,13 @@ menolak SELURUH snapshot (tanpa karantina parsial; tubuh setengah
 dipulihkan lebih berbahaya daripada mulai dari nol). Setiap baris melewati
 validator yang sama dengan jalur ingest: `normalizeDescriptor`
 (whitelist field, enum, deviceId kanonik), normalisasi ulang klaim,
-verifikasi digest anti-tamper, validasi relasi (tipe + kedua ujung harus
-ada, termasuk relasi preferensi), validasi resolusi preferensi. Diagnostik
-lengkap ada di `error.details`.
+validasi ketat presence & health (nilai salah yang disertakan ditolak;
+fallback hanya untuk snapshot legacy yang benar-benar mengabaikan field),
+verifikasi digest deskriptor **dan digest integritas baris penuh**
+(`rowDigest` atas descriptor+meta+presence+health+capabilities+timestamps —
+deteksi korupsi SHA-256 tak berkunci, bukan autentikasi), validasi relasi
+(tipe + kedua ujung harus ada, termasuk relasi preferensi), validasi
+resolusi preferensi. Diagnostik lengkap ada di `error.details`.
 
 ### Ephemeral vs durable (B§8)
 
