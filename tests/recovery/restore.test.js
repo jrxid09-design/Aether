@@ -122,8 +122,61 @@ test("restore: rollback compensation failure is recorded as ROLLBACK_FAILED", as
     p2.__state.commitFailOn.add(1);
     const { cap, decision } = await buildWith(s);
     const rec = await executeRestore(decision, cap, s.registry);
-    assert.equal(rec.outcome, RESTORE_OUTCOMES.FAILED_COMMIT);
+    // alpha cannot compensate -> residue is live and must not look clean
+    assert.equal(rec.outcome, RESTORE_OUTCOMES.PARTIALLY_ROLLED_BACK);
+    assert.deepEqual([...rec.uncompensatedSections], ["alpha"]);
+    assert.deepEqual([...rec.committedSections], ["alpha"]);
+    assert.deepEqual([...rec.rolledBackSections], []);
     assert.ok(rec.diagnostics.some((d) => d.code === "ROLLBACK_FAILED" && d.sectionId === "alpha"));
+});
+
+test("restore: residual committed state surfaces as PARTIALLY_ROLLED_BACK, not a clean failure", async () => {
+    // a commits, b commits, c commit fails, b rollback fails -> b is live residue
+    const { s, p1, p2, p3 } = setupThreeProviders();
+    p3.__state.commitFailOn.add(1);
+    p2.__state.noRollback = true;
+    const { cap, decision } = await buildWith(s);
+    const rec = await executeRestore(decision, cap, s.registry);
+    assert.equal(rec.outcome, RESTORE_OUTCOMES.PARTIALLY_ROLLED_BACK);
+    assert.notEqual(rec.outcome, RESTORE_OUTCOMES.FAILED_COMMIT);
+    assert.deepEqual([...rec.committedSections], ["beta"], "residual live state must be explicit");
+    assert.deepEqual([...rec.uncompensatedSections], ["beta"]);
+    assert.deepEqual([...rec.rolledBackSections], ["alpha"]);
+    assert.equal(p3.__state.committed.length, 0);
+    assert.ok(rec.diagnostics.some((d) => d.code === "ROLLBACK_FAILED" && d.sectionId === "beta"));
+});
+
+test("restore: provider with NO compensation at all counts as uncompensated residue", async () => {
+    const { defineRecoveryProvider } = require("../../src/runtime/recovery/provider");
+    const s2 = makeSystem();
+    const noCompensation = Object.freeze(
+        defineRecoveryProvider({
+            id: "alpha",
+            schemaVersion: 1,
+            classification: "INTERNAL_STATE",
+            required: true,
+            capture: () => ({ n: 1 }),
+            validateSection: () => true,
+            prepareRestore: async (data) => data,
+            commitRestore: async () => {}
+        })
+    );
+    const failing = makeFakeProvider({ id: "gamma", data: { n: 3 } });
+    failing.__state.commitFailOn.add(1);
+    s2.registry.register(noCompensation);
+    s2.registry.register(failing);
+
+    const cap = await new CheckpointBuilder(s2).run({ reason: "TEST", runtimeGenerationId: s2.generationLedger.current });
+    const decision = selector.decide({
+        candidates: [cap],
+        registry: s2.registry,
+        config: s2.config,
+        requestedCapsuleId: cap.manifest.capsuleId
+    });
+    const rec = await executeRestore(decision, cap, s2.registry);
+    assert.equal(rec.outcome, RESTORE_OUTCOMES.PARTIALLY_ROLLED_BACK);
+    assert.deepEqual([...rec.uncompensatedSections], ["alpha"]);
+    assert.deepEqual([...rec.committedSections], ["alpha"]);
 });
 
 test("restore: NON_RESUMABLE sections are journaled but never enter prepare/commit", async () => {

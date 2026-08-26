@@ -179,3 +179,131 @@ test("selector: candidate list bounded by config", async () => {
     });
     assert.notEqual(d.outcome, undefined);
 });
+
+async function buildForkedCandidates() {
+    const s = makeSystem();
+    s.registry.register(makeFakeProvider({ id: "acc", data: { seq: 1 } }));
+    const build = (parentCapsuleId = null) =>
+        new CheckpointBuilder(s).run({ reason: "TEST", runtimeGenerationId: s.generationLedger.current, parentCapsuleId });
+    const root = await build();
+    const child1 = await build(root.manifest.capsuleId);
+    const child2 = await build(root.manifest.capsuleId);
+    return { s, root, child1, child2 };
+}
+
+test("selector: NEWEST_VALID refuses on LINEAGE_FORK instead of silently choosing a branch", async () => {
+    const { s, root, child1, child2 } = await buildForkedCandidates();
+    const dNewest = selector.decide({ candidates: [root, child1, child2], registry: s.registry, config: s.config, policy: "NEWEST_VALID" });
+    assert.equal(dNewest.outcome, selector.DECISION_OUTCOMES.REFUSE);
+    assert.deepEqual(dNewest.reasonCodes, ["LINEAGE_FORK"]);
+    assert.ok(dNewest.diagnostics.some((x) => x.code === "LINEAGE_FORK"));
+
+    // EXPLICIT_ONLY default must refuse too
+    const dExplicitOnly = selector.decide({ candidates: [root, child1, child2], registry: s.registry, config: s.config });
+    assert.equal(dExplicitOnly.outcome, selector.DECISION_OUTCOMES.REFUSE);
+});
+
+test("selector: explicit capsuleId through a forked lineage stays visible in reasons and diagnostics", async () => {
+    const { s, root, child1, child2 } = await buildForkedCandidates();
+    const d = selector.decide({
+        candidates: [root, child1, child2],
+        registry: s.registry,
+        config: s.config,
+        requestedCapsuleId: child1.manifest.capsuleId
+    });
+    assert.equal(d.capsuleId, child1.manifest.capsuleId);
+    assert.notEqual(d.outcome, selector.DECISION_OUTCOMES.REFUSE);
+    assert.ok(d.reasonCodes.includes("LINEAGE_FORK"), "fork must remain visible");
+    assert.ok(d.diagnostics.some((x) => x.code === "LINEAGE_FORK"));
+});
+
+function forgeCapsuleWithSameEpoch(cap, newCapsuleId) {
+    const { buildManifestMaterial } = require("../../src/runtime/recovery/manifest");
+    const wire = JSON.parse(JSON.stringify({ manifest: cap.manifest, sections: cap.sections }));
+    wire.manifest.capsuleId = newCapsuleId;
+    const material = buildManifestMaterial({
+        capsuleFormatVersion: wire.manifest.capsuleFormatVersion,
+        capsuleId: wire.manifest.capsuleId,
+        parentCapsuleId: wire.manifest.parentCapsuleId,
+        epochId: wire.manifest.epochId,
+        runtimeGenerationId: wire.manifest.runtimeGenerationId,
+        createdAtMs: wire.manifest.createdAtMs,
+        reason: wire.manifest.reason,
+        status: wire.manifest.status,
+        sections: wire.manifest.sections
+    });
+    material.manifestDigest = shaHex(material);
+    return { manifest: material, sections: wire.sections };
+}
+
+test("selector: NEWEST_VALID refuses on LINEAGE_CONFLICTING_EPOCH instead of silently choosing", async () => {
+    const { s: s2 } = await buildForkedCandidates();
+    const capA = await new CheckpointBuilder(s2).run({ reason: "TEST", runtimeGenerationId: s2.generationLedger.current });
+    const capB = await new CheckpointBuilder(s2).run({ reason: "TEST", runtimeGenerationId: s2.generationLedger.current });
+    const twin = forgeCapsuleWithSameEpoch(capB, "rc-" + "c".repeat(32));
+    twin.manifest.epochId = capA.manifest.epochId;
+    // recompute digest over the mutated manifest
+    const { buildManifestMaterial } = require("../../src/runtime/recovery/manifest");
+    const m2 = buildManifestMaterial({
+        capsuleFormatVersion: twin.manifest.capsuleFormatVersion,
+        capsuleId: twin.manifest.capsuleId,
+        parentCapsuleId: twin.manifest.parentCapsuleId,
+        epochId: twin.manifest.epochId,
+        runtimeGenerationId: twin.manifest.runtimeGenerationId,
+        createdAtMs: twin.manifest.createdAtMs,
+        reason: twin.manifest.reason,
+        status: twin.manifest.status,
+        sections: twin.manifest.sections
+    });
+    m2.manifestDigest = shaHex(m2);
+    twin.manifest = m2;
+
+    const d = selector.decide({
+        candidates: [capA, twin],
+        registry: s2.registry,
+        config: s2.config,
+        policy: "NEWEST_VALID"
+    });
+    assert.equal(d.outcome, selector.DECISION_OUTCOMES.REFUSE);
+    assert.deepEqual(d.reasonCodes, ["LINEAGE_CONFLICTING_EPOCH"]);
+    assert.ok(d.diagnostics.some((x) => x.code === "LINEAGE_CONFLICTING_EPOCH"));
+});
+
+test("selector: explicit capsuleId under conflicting epoch keeps ambiguity visible", async () => {
+    const { s } = await buildForkedCandidates();
+    const capA = await new CheckpointBuilder(s).run({ reason: "TEST", runtimeGenerationId: s.generationLedger.current });
+    const later = await new CheckpointBuilder(s).run({ reason: "TEST", runtimeGenerationId: s.generationLedger.current });
+    const forged = forgeCapsuleWithSameEpoch(later, "rc-" + "d".repeat(32));
+    forged.manifest.epochId = capA.manifest.epochId;
+    const { buildManifestMaterial } = require("../../src/runtime/recovery/manifest");
+    const m2 = buildManifestMaterial({
+        capsuleFormatVersion: forged.manifest.capsuleFormatVersion,
+        capsuleId: forged.manifest.capsuleId,
+        parentCapsuleId: forged.manifest.parentCapsuleId,
+        epochId: forged.manifest.epochId,
+        runtimeGenerationId: forged.manifest.runtimeGenerationId,
+        createdAtMs: forged.manifest.createdAtMs,
+        reason: forged.manifest.reason,
+        status: forged.manifest.status,
+        sections: forged.manifest.sections
+    });
+    m2.manifestDigest = shaHex(m2);
+    forged.manifest = m2;
+
+    const d = selector.decide({
+        candidates: [capA, forged],
+        registry: s.registry,
+        config: s.config,
+        requestedCapsuleId: forged.manifest.capsuleId
+    });
+    assert.equal(d.capsuleId, forged.manifest.capsuleId);
+    assert.notEqual(d.outcome, selector.DECISION_OUTCOMES.REFUSE);
+    assert.ok(d.reasonCodes.includes("LINEAGE_CONFLICTING_EPOCH"), "conflicting epoch must remain visible");
+    assert.ok(d.diagnostics.some((x) => x.code === "LINEAGE_CONFLICTING_EPOCH"));
+});
+
+function shaHex(value) {
+    return require("../../src/runtime/recovery/digest").sha256Hex(
+        require("../../src/runtime/recovery/canonicalJson").canonicalBytes(value)
+    );
+}

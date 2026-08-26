@@ -150,6 +150,14 @@ explicit `requestedCapsuleId`, the selector refuses with `SELECTION_AMBIGUOUS`
 unless the caller passes the explicit `NEWEST_VALID` policy. Decisions name the
 exact capsule and epoch chosen.
 
+**Lineage ambiguity refuses implicit selection.** If the candidate set contains
+a `LINEAGE_FORK` or a `LINEAGE_CONFLICTING_EPOCH`, `NEWEST_VALID` (and
+EXPLICIT_ONLY) refuse — an ambiguous branch is never chosen implicitly. When
+the caller supplies an explicit `requestedCapsuleId`, that exact capsule may be
+selected, and the ambiguity stays visible: the lineage codes appear in
+`reasonCodes` and `LINEAGE_FORK` / `LINEAGE_CONFLICTING_EPOCH` remain in
+`diagnostics`. A lineage cycle always refuses.
+
 Missing REQUIRED section or unsupported version ⇒ `REFUSE`
 (`MISSING_REQUIRED_SECTION` / `UNSUPPORTED_VERSION`). Missing OPTIONAL section
 ⇒ `DEGRADED_RESTORE` listing exactly which sections degraded. EPHEMERAL-class
@@ -162,8 +170,16 @@ Two-phase, mechanically proven by fake-provider call recording:
 1. **PREPARE** every restorable section in canonical section order. Any
    failure ⇒ abort all prepared handles, zero commits have happened.
 2. **COMMIT** in the same order. Failure at provider N ⇒ reverse-order rollback
-   of N−1..0 via compensating `rollbackRestore`/`abortRestore`;
-   compensation failures are recorded (`ROLLBACK_FAILED`).
+   of N−1..0 via compensating `rollbackRestore`/`abortRestore`.
+
+If compensation is NOT fully successful — a rollback throws or a provider
+defines no compensation at all — the result is **not** reported as a clean
+failed rollback. The terminal outcome is `PARTIALLY_ROLLED_BACK`, with:
+
+- `uncompensatedSections`: providers whose committed state could not be undone
+- `committedSections`: the residual LIVE committed state (identical set)
+- `rolledBackSections`: providers successfully compensated
+- `ROLLBACK_FAILED` diagnostics naming each failure
 
 Net effect of any failed restore is zero partial live state.
 
@@ -198,9 +214,19 @@ content.
 
 Central frozen `RecoveryConfig`: max capsule/section bytes, max sections,
 max candidate capsules, max diagnostics, max lineage depth, max provider
-count, max metadata string lengths. Oversized hostile input is rejected before
+count, max checkpoint reason length. Oversized hostile input is rejected before
 large allocations where feasible (size checked immediately after canonicalizing
 each section).
+
+`maxCapsuleBytes` is enforced on BOTH paths over the exact canonical durable
+material (manifest including its digest + every section payload):
+
+- during checkpoint build, before atomic commit; and
+- inside `validateCapsule` for any untrusted/restored candidate.
+
+Violation yields `CAPSULE_TOO_LARGE` (never used for unrelated overflow; excess
+candidate counts get their own `CANDIDATE_COUNT_OVERFLOW`). V0 has no metadata
+surface, so no metadata bounds are advertised or configurable.
 
 ## 16. Observation != recovery truth (R25)
 
