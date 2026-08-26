@@ -13,6 +13,7 @@ const BOUNDS = {
     maxMetadataBytes: 2048,
     maxMetadataStringLength: 512,
     maxMetadataDepth: 6,
+    maxMetadataNodes: 4096,
     maxMetadataKeysPerLevel: 64,
     maxMetadataArrayItems: 32,
     maxEvidenceRefs: 16,
@@ -98,7 +99,7 @@ test("prototype pollution keys rejected fail-closed", () => {
         metadata: JSON.parse('{"__proto__": {"isAdmin": true}, "ok": 1}')
     });
     assert.equal(result.ok, false);
-    assert.equal(result.error.code, "E_REDACTION_FAILED");
+    assert.equal(result.error.code, "E_INVALID_EVENT");
     assert.equal(({}).isAdmin, undefined, "global prototype must be untouched");
     assert.equal(ledger.size(), 0);
 });

@@ -75,8 +75,11 @@ test("HOSTILE: invalid timestamps fail closed", () => {
         const result = ledger.appendSafe({ eventType: "e", source: "s", timestampMs: bad });
         assert.equal(result.ok, false, `should reject timestamp: ${String(bad)}`);
     }
-    // Direct throw-path assertions:
-    for (const bad of [NaN, -1, 1.5, "123"]) {
+    // Direct throw-path assertions (NaN is caught at the snapshot
+    // boundary as non-finite; other shapes by the timestamp coercer):
+    assert.throws(() => ledger.append({ eventType: "e", source: "s", timestampMs: NaN }),
+        /timestampMs invalid|non-finite number/);
+    for (const bad of [-1, 1.5, "123"]) {
         assert.throws(() => ledger.append({ eventType: "e", source: "s", timestampMs: bad }),
             /timestampMs invalid/);
     }
@@ -129,10 +132,10 @@ test("HOSTILE: function/callback payloads cannot enter the ledger", () => {
         eventType: () => {}, source: "s"
     });
     assert.equal(r2.ok, false);
-    // As evidence ref field
+    // As evidence ref field (function value rejected at snapshot boundary)
     assert.throws(() =>
         ledger.append({ eventType: "e", source: "s", evidenceRefs: [{ kind: "digest", id: { toString: () => "x" } }] }),
-        /id malformed|must be an object/);
+        /id malformed|must be an object|unsupported value type|non-plain object/);
     // Nothing stored can execute:
     for (const record of ledger.exportWindow({ limit: 10 })) {
         JSON.parse(JSON.stringify(record)); // serializable == no functions survive

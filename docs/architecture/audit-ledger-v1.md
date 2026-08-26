@@ -158,5 +158,33 @@ whitelisted against forbidden verbs.
 
 `tests/auditLedger/`: ids, event model, append/ordering/immutability,
 corrections, redaction, bounded queries, integrity/tamper-detection,
-failure isolation + persistence port, hostile-input suite, ≥10k-op storm with
-handle-leak checks, structural isolation.
+failure isolation + persistence port, hostile-input suite, B1 snapshot
+regressions, B2 traversal-budget regressions, B3 sequence-atomicity
+regressions, ≥10k-op storm (×2, incl. getter/Proxy/DAG/durable/duplicate
+attack mixes) with handle-leak checks, structural isolation.
+
+## Repair hardening (V1r)
+
+- **B1 — snapshot-once:** the entire append input is converted into
+  plain inert data ONCE (`snapshot.js`) before any semantic validation;
+  all validation and storage read only that snapshot. Accessor
+  properties are rejected WITHOUT invocation (descriptor inspection),
+  so caller code never runs during validation or queries.
+- **B2 — global traversal budget:** one `maxMetadataNodes` budget
+  (default 4096) threads through snapshot AND sanitization; shared-
+  reference DAG amplification fails deterministically with
+  `E_BOUNDS_EXCEEDED` instead of exhausting CPU/memory.
+- **B3 — sequence atomicity:** `sequenceCounter` advances only in the
+  final commit phase after normalization, canonical serialization,
+  digest generation, and the durable precondition succeed; rejected
+  appends never burn sequence numbers. Canonicalization failures are
+  surfaced as typed `E_INVALID_EVENT` LedgerErrors.
+
+## Backlog (explicitly deferred — do not treat as V1 scope)
+
+- sink that persists then throws (post-commit failure reporting)
+- `fromSequence`/`toSequence`/window-only options for `verifyIntegrity`
+- operation-field secret redaction tightening
+- production SQLite durable adapter
+- auditTrail.js producer bridge
+- canonical serializer consolidation across lanes

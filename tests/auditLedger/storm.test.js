@@ -3,7 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { createAuditLedger } = require("../../src/runtime/auditLedger");
+const { createAuditLedger, AuditPersistencePort } = require("../../src/runtime/auditLedger");
 
 /**
  * STORM — >=10,000 deterministic mixed append/query operations.
@@ -152,6 +152,178 @@ test("storm: 12,000 mixed operations stay bounded, ordered, and leak-free", () =
             const grew = (after[resource] || 0) - (before[resource] || 0);
             if (resource === "AsyncResource" || resource === "TestContext") continue; // test harness noise
             assert.ok(grew <= 0, `resource ${resource} leaked (${before[resource] || 0} -> ${after[resource] || 0})`);
+        }
+    }
+});
+
+/* ====================================================================
+ * REPAIR STORM — B1/B2/B3 categories under sustained pressure.
+ * ==================================================================== */
+
+class FlakySink extends AuditPersistencePort {
+    constructor() { super("flaky-repair-storm-sink"); this.calls = 0; }
+    append(record) {
+        this.calls += 1;
+        if (this.calls % 2 === 0) throw new Error("transient io failure");
+        return true;
+    }
+}
+
+function branchingDag(depth, branch) {
+    let node = { leaf: "x" };
+    for (let level = 0; level < depth; level++) {
+        const parent = {};
+        for (let k = 0; k < branch; k++) parent[`k${k}`] = node;
+        node = parent;
+    }
+    return node;
+}
+
+test("repair storm: 12,000 mixed ops with getter/Proxy/DAG/durable/dup attacks", () => {
+    let t = 0;
+    const sink = new FlakySink();
+    const bounds = { ...BOUNDS };
+    const ledger = createAuditLedger({ clock: () => ++t, sink, bounds });
+
+    const before = activeResourceCounts();
+    const dag = branchingDag(5, 64);
+
+    function makeGetterEvent(i) {
+        const actor = { kind: "agent", id: "stable" };
+        let reads = 0;
+        Object.defineProperty(actor, "id", {
+            enumerable: true,
+            get() { reads += 1; return reads === 1 ? "stable" : "x".repeat(5000); }
+        });
+        return { eventType: "probe.getter", source: "attack", actor };
+    }
+
+    function makeProxyEvent() {
+        const honest = { kind: "device", id: "dev-1" };
+        let subjectReads = 0;
+        return new Proxy(
+            { eventType: "probe.proxy.storm", source: "attack", subject: honest },
+            {
+                get(target, key, receiver) {
+                    if (key === "subject") {
+                        subjectReads += 1;
+                        return subjectReads === 1 ? honest : { kind: "user", id: "y".repeat(400) };
+                    }
+                    return Reflect.get(target, key, receiver);
+                }
+            }
+        );
+    }
+
+    const pinnedId = "ae-" + "c".repeat(32);
+    let accepted = 0;
+    let rejected = 0;
+    let lastSeq = 0;
+
+    for (let i = 0; i < 12_000; i++) {
+        const mode = i % 6;
+        let outcome;
+
+        switch (mode) {
+            case 0: { // legitimate append
+                const event = ledger.appendSafe({
+                    eventType: `legit.op${i % 5}`, source: `svc.${i % 4}`,
+                    actor: { kind: i % 2 ? "agent" : "device", id: `a-${i % 89}` },
+                    correlation: { sessionId: `ses_${i % 40}` },
+                    generation: `rtg-${String(i % 3).repeat(32)}`,
+                    metadata: { i, tag: `op-${i % 11}` }
+                });
+                outcome = event.ok ? event.event : null;
+                break;
+            }
+            case 1: // getter attack
+                outcome = null;
+                assert.equal(ledger.appendSafe(makeGetterEvent(i)).ok, false);
+                break;
+            case 2: // Proxy double-return attack
+                outcome = ledger.appendSafe(makeProxyEvent()).event || null;
+                break;
+            case 3: { // shared-reference amplification / canonicalization failure
+                const r = ledger.appendSafe({
+                    eventType: "attack.dag", source: "attack",
+                    metadata: i % 2 ? dag : { fn: () => {}, b: BigInt(i) }
+                });
+                if (r.ok) outcome = r.event;
+                break;
+            }
+            case 4: { // duplicate ID + durable flakiness
+                if (i % 12 === 4) {
+                    const r = ledger.appendSafe(
+                        { eventType: "dup", source: "s", eventId: i % 24 === 4 ? pinnedId : undefined,
+                          metadata: { i } },
+                        { durable: i % 2 === 0 });
+                    if (r.ok) outcome = r.event;
+                }
+                else {
+                    const r = ledger.appendSafe({ eventType: `durable.op`, source: "s", metadata: { i } },
+                        { durable: true });
+                    if (r.ok) outcome = r.event;
+                }
+                break;
+            }
+            default: { // queries + retention pressure + integrity checks
+                const q = [
+                    () => ledger.list({}, { limit: 100 }),
+                    () => ledger.list({ types: ["legit.op0"] }, { limit: 50, order: "desc" }),
+                    () => ledger.list({ correlation: { sessionId: `ses_${i % 40}` } }),
+                    () => ledger.getByEventId(pinnedId),
+                    () => ledger.verifyIntegrity(),
+                    () => ledger.exportWindow()
+                ][i % 6];
+                q();
+                outcome = undefined;
+            }
+        }
+
+        if (outcome === null) rejected++;
+        else if (outcome !== undefined) {
+            accepted++;
+            assert.ok(outcome.sequence > lastSeq, "sequence strictly monotonic");
+            lastSeq = outcome.sequence;
+        }
+    }
+
+    // ---- zero sequence gaps from rejected operations -----------------
+    const stats = ledger.stats();
+    assert.equal(stats.logicalSequence, stats.acceptedCount,
+        "sequence must advance exactly once per committed event");
+
+    // ---- bounded memory / retention pressure --------------------------
+    assert.ok(ledger.size() <= BOUNDS.maxInMemoryEvents);
+
+    // ---- no accessor/function retained anywhere in the window --------
+    const window = ledger.exportWindow({ limit: BOUNDS.maxQueryLimit });
+    const stack = [...window];
+    while (stack.length) {
+        const node = stack.pop();
+        if (node === null || typeof node !== "object") continue;
+        for (const value of Object.values(node)) {
+            assert.notEqual(typeof value, "function", "no callable retained");
+            if (value && typeof value === "object") stack.push(value);
+        }
+    }
+
+    // ---- integrity not poisoned ---------------------------------------
+    assert.equal(ledger.verifyIntegrity({ limit: BOUNDS.maxQueryLimit }).ok, true);
+
+    // ---- no Authority mutation / execution surface (structural keys) --
+    for (const key of Object.keys(ledger)) {
+        assert.doesNotMatch(key, /^(grant|revoke|delegate|ratify|authoriz|execute|restore|replay|actuate)/);
+    }
+
+    // ---- no timer/handle leak -----------------------------------------
+    const after = activeResourceCounts();
+    if (before && after) {
+        const resources = new Set([...Object.keys(before), ...Object.keys(after)]);
+        for (const resource of resources) {
+            if (resource === "AsyncResource" || resource === "TestContext") continue;
+            assert.ok((after[resource] || 0) - (before[resource] || 0) <= 0,
+                `resource ${resource} leaked`);
         }
     }
 });
