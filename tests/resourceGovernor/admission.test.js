@@ -134,6 +134,60 @@ test("admission: observer failure => UNKNOWN diagnostics, heavy defers, light ad
     assert.ok(st0.diagnostics.length >= 1);
 });
 
+test("admission: demand-based heaviness — CRITICAL + VOICE with huge memory hint is NOT admitted", () => {
+    const gov = makeGovernor({
+        config: BASE_CONFIG,
+        observer: new FakeObserver({ eventLoopLagMs: 2000 })
+    });
+    const d = gov.admit(createWorkloadId("voice-huge-mem"),
+        demand({ workloadClass: "VOICE", memoryBytesHint: 1e9 }));
+    assert.notEqual(d.outcome, OUT.ADMIT);
+});
+
+test("admission: demand-based heaviness — CRITICAL + TOOL with max cpuWeight is NOT admitted", () => {
+    const gov = makeGovernor({
+        config: { ...BASE_CONFIG, heavyDemand: { cpuWeight: 80 } },
+        observer: new FakeObserver({ eventLoopLagMs: 2000 })
+    });
+    const d = gov.admit(createWorkloadId("tool-max-cpu"),
+        demand({ workloadClass: "TOOL", cpuWeight: 100 }));
+    assert.notEqual(d.outcome, OUT.ADMIT);
+});
+
+test("admission: demand-based heaviness — CRITICAL + INTERACTIVE with huge duration is NOT admitted", () => {
+    const gov = makeGovernor({
+        config: { ...BASE_CONFIG, heavyDemand: { durationMs: 600000 } },
+        observer: new FakeObserver({ eventLoopLagMs: 2000 })
+    });
+    const d = gov.admit(createWorkloadId("inter-marathon"),
+        demand({ workloadClass: "INTERACTIVE", expectedDurationMs: 3600000 }));
+    assert.notEqual(d.outcome, OUT.ADMIT);
+});
+
+test("admission: light VOICE keeps low-latency semantics under CRITICAL", () => {
+    const gov = makeGovernor({
+        config: BASE_CONFIG,
+        observer: new FakeObserver({ eventLoopLagMs: 2000 })
+    });
+    const d = gov.admit(createWorkloadId("voice-light"),
+        demand({ workloadClass: "VOICE", cpuWeight: 5, memoryBytesHint: 1e6 }));
+    assert.equal(d.outcome, OUT.ADMIT);
+});
+
+test("admission: demand-based heaviness applies to host hard-floor gate too", () => {
+    const gov = makeGovernor({
+        config: { ...BASE_CONFIG, memoryThresholds: { hostHardFloorBytes: 1e9 }, maxQueue: 4 },
+        observer: new FakeObserver({ totalMemBytes: 16e9, freeMemBytes: 0.5e9 })
+    });
+    const lightTool = gov.admit(createWorkloadId("floor-light-tool"),
+        demand({ workloadClass: "TOOL", memoryBytesHint: 1e6 }));
+    assert.notEqual(lightTool.outcome, OUT.REJECT_RESOURCE_LIMIT);
+    const fatTool = gov.admit(createWorkloadId("floor-fat-tool"),
+        demand({ workloadClass: "TOOL", memoryBytesHint: 900e6 }));
+    assert.equal(fatTool.outcome, OUT.REJECT_RESOURCE_LIMIT);
+    assert.equal(fatTool.reason, REASONS.MEMORY_HARD_CEILING);
+});
+
 test("admission: queue overflow produces explicit QUEUE_FULL rejection", () => {
     const gov = makeGovernor({
         config: { ...BASE_CONFIG, maxQueue: 2 },

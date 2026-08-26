@@ -14,12 +14,15 @@ function manualClock(startMs = 1_000_000) {
 
 class FakeObserver {
     constructor({ totalMemBytes = 16e9, freeMemBytes = 8e9, heapUsedBytes = 1e9,
-        heapLimitBytes = 4e9, rssBytes = 2e9, eventLoopLagMs = 5 } = {}) {
+        heapLimitBytes = 4e9, rssBytes = 2e9, externalBytes = 5e7,
+        arrayBuffersBytes = 2e7, eventLoopLagMs = 5 } = {}) {
         this.totalMemBytes = totalMemBytes;
         this.freeMemBytes = freeMemBytes;
         this.heapUsedBytes = heapUsedBytes;
         this.heapLimitBytes = heapLimitBytes;
         this.rssBytes = rssBytes;
+        this.externalBytes = externalBytes;
+        this.arrayBuffersBytes = arrayBuffersBytes;
         this.eventLoopLagMs = eventLoopLagMs;
         this.observeCalls = 0;
     }
@@ -33,6 +36,8 @@ class FakeObserver {
             rssBytes: this.rssBytes,
             heapUsedBytes: this.heapUsedBytes,
             heapLimitBytes: this.heapLimitBytes,
+            externalBytes: this.externalBytes,
+            arrayBuffersBytes: this.arrayBuffersBytes,
             eventLoopLagMs: this.eventLoopLagMs
         };
     }

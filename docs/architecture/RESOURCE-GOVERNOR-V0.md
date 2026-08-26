@@ -83,9 +83,53 @@ Observation failure yields pressure band `UNKNOWN` + diagnostic — never
 
 ### Pressure bands (closed)
 `NORMAL, ELEVATED, HIGH, CRITICAL, UNKNOWN` — derived ONLY from numeric
-thresholds in validated config (worst-of: host available-memory ratio,
-process heap-used ratio, event-loop lag). Free-form judgment is impossible
-by construction.
+thresholds in validated config. Free-form judgment is impossible by
+construction.
+
+Exact pressure formula (all ratios clamped to [0,1]; missing or malformed
+readings drop their contribution; no contributions at all => `UNKNOWN`):
+
+```
+hostBand      = band(1 - freeMemBytes/totalMemBytes,   memoryThresholds.hostUsedMemoryRatio)
+v8Band        = band(heapUsedBytes / heapLimitBytes,   memoryThresholds.processHeapUsedRatio)
+                // heapLimitBytes = v8.getHeapStatistics().heap_size_limit (NOT heapTotal)
+footprintBand = band(rssBytes / totalMemBytes,         memoryThresholds.processHeapUsedRatio)
+nativeBand    = band((externalBytes + arrayBuffersBytes) / heapLimitBytes,
+                       memoryThresholds.processHeapUsedRatio)
+lagBand       = band(eventLoopLagMs, config.eventLoopLagMs)
+hardFloorHit  = freeMemBytes <= memoryThresholds.hostHardFloorBytes  => forces CRITICAL
+band          = worstOf(hostBand, v8Band, footprintBand, nativeBand, lagBand)
+```
+
+RSS and native (external/arrayBuffer) memory contribute to the worst band,
+so an externally-buffer-heavy runtime is detectable even when the V8 heap
+looks small; a healthy Node process stays comfortably NORMAL under these
+defaults.
+
+### Demand-based heaviness
+
+A workload is HEAVY if ANY of the following holds (validated central config
+`heavyDemand.{memoryBytes,cpuWeight,durationMs}`):
+
+- its WorkloadClass is inherently heavy
+  (`AGENT, RE_ANALYSIS, BACKGROUND, MAINTENANCE, TEST, UNKNOWN`), OR
+- `memoryBytesHint >= heavyDemand.memoryBytes`, OR
+- `cpuWeight >= heavyDemand.cpuWeight`, OR
+- `expectedDurationMs >= heavyDemand.durationMs`.
+
+All heavy-specific rules (CRITICAL gate, host hard-floor gate, HIGH/lag
+deferral) use this demand-aware predicate — a VOICE/INTERACTIVE/TOOL
+workload with huge declared demand cannot bypass CRITICAL gating, while
+genuinely light VOICE keeps documented low-latency semantics.
+
+### Prototype-safe group semantics
+
+Validated `groupLimits` is built on a **null-prototype object** and group
+membership uses own-property checks (`Object.prototype.hasOwnProperty.call`)
+at every trust boundary. Inherited names (`constructor`, `toString`,
+`valueOf`, `hasOwnProperty`, ...) can never act as groups; explicitly
+configuring such a name fails closed (`INVALID_RESOURCE_GOVERNOR_CONFIG`);
+group counters are stored in `Map`s and can never exceed configured limits.
 
 ### AdmissionDecision (closed)
 Outcome: `ADMIT | QUEUE | DEFER | REJECT_RESOURCE_LIMIT`.

@@ -72,7 +72,7 @@ test("structural guard: zero actuation — no process kill, no child_process, no
 });
 
 test("structural guard: every source file imports only node built-ins and sibling modules", () => {
-    const allowedBuiltins = new Set(["node:os", "node:perf_hooks"]);
+    const allowedBuiltins = new Set(["node:os", "node:perf_hooks", "node:v8"]);
     for (const { file, code } of readAll()) {
         const requires = [...code.matchAll(/require\(\s*["'`]([^"'`]+)["'`]\s*\)/g)].map(m => m[1]);
         for (const req of requires) {

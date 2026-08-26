@@ -49,8 +49,34 @@ test("workload id: toString round-trips through workloadIdToString", () => {
 });
 
 test("workload id: workloadIdToString rejects forged plain objects", () => {
-    assert.throws(() => workloadIdToString({ kind: "WorkloadId", value: "voice-session-1" }), /canonical/);
-    assert.throws(() => workloadIdToString({ kind: "WorkloadId", value: "Has Space" }), /canonical/);
+    assert.throws(() => workloadIdToString({ kind: "WorkloadId", value: "voice-session-1" }), /INVALID_WORKLOAD_ID/);
+    assert.throws(() => workloadIdToString({ kind: "WorkloadId", value: "Has Space" }), /INVALID_WORKLOAD_ID/);
+});
+
+test("workload id: branded forged objects fail length bounds at trust boundary", () => {
+    const genuine = createWorkloadId("trust-boundary");
+    const brand = Object.getOwnPropertySymbols(genuine)[0];
+    const forge = (value) => Object.freeze({
+        [brand]: true, kind: "WorkloadId", value,
+        toString() { return value; }, equals() { return true; }
+    });
+    assert.throws(() => workloadIdToString(forge("x")), /length|grammar/);
+    assert.throws(() => workloadIdToString(forge("ab")), /length/);
+    assert.throws(() => workloadIdToString(forge("a".repeat(65))), /length/);
+    assert.throws(() => workloadIdToString(forge("UPPER-CASE")), /grammar/);
+    assert.equal(workloadIdToString(forge("still-valid-id")), "still-valid-id",
+        "well-formed branded value remains usable");
+});
+
+test("workload id: canonicalizeWorkloadId and workloadIdToString enforce identical bounds", () => {
+    const genuine = createWorkloadId("mirror-check");
+    const brand = Object.getOwnPropertySymbols(genuine)[0];
+    for (const bad of ["x", "a".repeat(65), "", "Bad Name"]) {
+        assert.throws(() => canonicalizeWorkloadId(bad), Error);
+        assert.throws(() => workloadIdToString(Object.freeze({
+            [brand]: true, kind: "WorkloadId", value: bad
+        })), Error);
+    }
 });
 
 test("workload id: generated ids are valid and length-bounded", () => {
