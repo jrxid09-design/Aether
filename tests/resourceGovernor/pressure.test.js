@@ -11,10 +11,10 @@ function cfg() {
 function snap(over = {}) {
     return {
         observerHealthy: true,
-        totalMemBytes: 1000,
-        freeMemBytes: 500,
-        heapUsedBytes: 1,
-        heapLimitBytes: 4,
+        totalMemBytes: 2e9,
+        freeMemBytes: 1e9,
+        heapUsedBytes: 0.25e9,
+        heapLimitBytes: 4e9,
         eventLoopLagMs: 5,
         ...over
     };
@@ -27,18 +27,18 @@ test("pressure: all signals normal => NORMAL", () => {
 
 test("pressure: host used-memory ratio drives band (worst-of wins)", () => {
     const c = cfg();
-    assert.equal(computePressureBand({ snapshot: snap({ freeMemBytes: 350 }), config: c }).band, "ELEVATED");
-    assert.equal(computePressureBand({ snapshot: snap({ freeMemBytes: 200 }), config: c }).band, "HIGH");
-    assert.equal(computePressureBand({ snapshot: snap({ freeMemBytes: 80 }), config: c }).band, "CRITICAL");
+    assert.equal(computePressureBand({ snapshot: snap({ freeMemBytes: 0.7e9 }), config: c }).band, "ELEVATED");
+    assert.equal(computePressureBand({ snapshot: snap({ freeMemBytes: 0.4e9 }), config: c }).band, "HIGH");
+    assert.equal(computePressureBand({ snapshot: snap({ freeMemBytes: 0.16e9 }), config: c }).band, "CRITICAL");
 });
 
 test("pressure: process heap ratio contributes independently of host", () => {
-    const r = computePressureBand({ snapshot: snap({ heapUsedBytes: 3.4, heapLimitBytes: 4 }), config: cfg() });
+    const r = computePressureBand({ snapshot: snap({ heapUsedBytes: 3.4e9, heapLimitBytes: 4e9 }), config: cfg() });
     assert.equal(r.band, "HIGH");
 });
 
 test("pressure: event-loop lag alone can reach CRITICAL even with perfect RAM", () => {
-    const r = computePressureBand({ snapshot: snap({ eventLoopLagMs: 900, totalMemBytes: 1e9, freeMemBytes: 9e8 }), config: cfg() });
+    const r = computePressureBand({ snapshot: snap({ eventLoopLagMs: 900, freeMemBytes: 1.9e9 }), config: cfg() });
     assert.equal(r.band, "CRITICAL");
     assert.equal(r.contributions.lagBand, "CRITICAL");
 });
@@ -132,4 +132,49 @@ test("pressure: malformed numeric readings fail toward UNKNOWN, not NORMAL", () 
         config: cfg()
     });
     assert.equal(r.band, "UNKNOWN");
+});
+
+test("hard floor: default config resolves and stores exactly 256 MiB", () => {
+    const c = cfg();
+    assert.equal(c.memoryThresholds.hostHardFloorBytes, 256 * 1024 * 1024);
+});
+
+test("hard floor: default floor triggers CRITICAL even when ratio bands stay low", () => {
+    const c = governorFactory.config.validateResourceGovernorConfig({
+        memoryThresholds: {
+            hostUsedMemoryRatio: { elevated: 0.99, high: 0.995, critical: 0.999 }
+        }
+    });
+    const r = computePressureBand({
+        snapshot: psnap({
+            totalMemBytes: 16 * 1024 ** 3,
+            freeMemBytes: 128 * 1024 * 1024
+        }),
+        config: c
+    });
+    assert.equal(r.contributions.hostBand, "ELEVATED", "ratio band alone stays below CRITICAL");
+    assert.equal(r.contributions.hardFloorHit, true);
+    assert.equal(r.band, "CRITICAL");
+});
+
+test("hard floor: free memory above the default floor does not trigger it by itself", () => {
+    const r = computePressureBand({
+        snapshot: psnap({
+            totalMemBytes: 16 * 1024 ** 3,
+            freeMemBytes: 1024 * 1024 * 1024
+        }),
+        config: cfg()
+    });
+    assert.equal(r.contributions.hardFloorHit, false);
+    assert.notEqual(r.band, "UNKNOWN");
+});
+
+test("hard floor: explicit custom floor is validated, stored, and honoured", () => {
+    const c = governorFactory.config.validateResourceGovernorConfig({
+        memoryThresholds: { hostHardFloorBytes: 2 * 1024 ** 3 }
+    });
+    assert.equal(c.memoryThresholds.hostHardFloorBytes, 2 * 1024 ** 3);
+    const hit = computePressureBand({ snapshot: psnap({ freeMemBytes: 1.5 * 1024 ** 3 }), config: c });
+    assert.equal(hit.contributions.hardFloorHit, true);
+    assert.equal(hit.band, "CRITICAL");
 });

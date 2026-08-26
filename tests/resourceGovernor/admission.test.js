@@ -188,6 +188,98 @@ test("admission: demand-based heaviness applies to host hard-floor gate too", ()
     assert.equal(fatTool.reason, REASONS.MEMORY_HARD_CEILING);
 });
 
+test("admission: default hard floor — heavy VOICE/INTERACTIVE/TOOL rejected at 128 MiB free with DEFAULT config", () => {
+    for (const cls of ["VOICE", "INTERACTIVE", "TOOL"]) {
+        const gov = makeGovernor({
+            config: {},
+            observer: new FakeObserver({
+                totalMemBytes: 16 * 1024 ** 3,
+                freeMemBytes: 128 * 1024 * 1024
+            })
+        });
+        assert.equal(gov.config.memoryThresholds.hostHardFloorBytes, 256 * 1024 * 1024,
+            `${cls}: resolved default floor must be stored on the config`);
+        const d = gov.admit(createWorkloadId(`floor-${cls.toLowerCase()}`),
+            demand({ workloadClass: cls, memoryBytesHint: 1e9 }));
+        assert.equal(d.outcome, OUT.REJECT_RESOURCE_LIMIT, `${cls} heavy must hit hard ceiling`);
+        assert.equal(d.reason, REASONS.MEMORY_HARD_CEILING);
+    }
+});
+
+test("admission: free memory above default floor does not reject heavy by the floor alone", () => {
+    const gov = makeGovernor({
+        config: { maxQueue: 8 },
+        observer: new FakeObserver({
+            totalMemBytes: 16 * 1024 ** 3,
+            freeMemBytes: 1024 * 1024 ** 2
+        })
+    });
+    const d = gov.admit(createWorkloadId("floor-not-hit"),
+        demand({ workloadClass: "TOOL", memoryBytesHint: 900e6 }));
+    assert.notEqual(d.reason, REASONS.MEMORY_HARD_CEILING);
+});
+
+test("admission: UNKNOWN band from malformed metrics fails closed for heavy work", () => {
+    class GarbledObserver {
+        observe() {
+            return {
+                totalMemBytes: NaN, freeMemBytes: NaN,
+                rssBytes: NaN, heapUsedBytes: NaN, heapLimitBytes: NaN,
+                externalBytes: NaN, arrayBuffersBytes: NaN,
+                eventLoopLagMs: NaN
+            };
+        }
+    }
+    const gov = makeGovernor({ config: BASE_CONFIG, observer: new GarbledObserver() });
+    assert.equal(gov.getResourceStatus().pressureBand, "UNKNOWN");
+    assert.equal(gov.getResourceStatus().observerHealthy, true);
+
+    const heavyVoice = gov.admit(createWorkloadId("unknown-heavy-voice"),
+        demand({ workloadClass: "VOICE", memoryBytesHint: 1e9 }));
+    assert.equal(heavyVoice.outcome, OUT.DEFER);
+    assert.equal(heavyVoice.reason, REASONS.DEFERRED_OBSERVER_UNAVAILABLE);
+
+    const lightTool = gov.admit(createWorkloadId("unknown-light-tool"),
+        demand({ workloadClass: "TOOL", cpuWeight: 1 }));
+    assert.equal(lightTool.outcome, OUT.ADMIT);
+});
+
+test("admission: string-typed metrics yield UNKNOWN and defer maximally-heavy demand", () => {
+    class StringyObserver {
+        observe() {
+            return {
+                totalMemBytes: "17179869184",
+                freeMemBytes: "8589934592",
+                rssBytes: "2147483648",
+                heapUsedBytes: "1073741824",
+                heapLimitBytes: "4294967296",
+                externalBytes: "50000000",
+                arrayBuffersBytes: "20000000",
+                eventLoopLagMs: "5"
+            };
+        }
+    }
+    const gov = makeGovernor({ config: BASE_CONFIG, observer: new StringyObserver() });
+    assert.equal(gov.getResourceStatus().pressureBand, "UNKNOWN");
+    const d = gov.admit(createWorkloadId("stringy-heavy-tool"),
+        demand({ workloadClass: "TOOL", cpuWeight: 100 }));
+    assert.equal(d.outcome, OUT.DEFER);
+    assert.equal(d.reason, REASONS.DEFERRED_OBSERVER_UNAVAILABLE);
+});
+
+test("admission: missing process-memory metrics make band UNKNOWN; heavy is deferred", () => {
+    class PartialObserver {
+        observe() {
+            return { eventLoopLagMs: NaN };
+        }
+    }
+    const gov = makeGovernor({ config: BASE_CONFIG, observer: new PartialObserver() });
+    assert.equal(gov.getResourceStatus().pressureBand, "UNKNOWN");
+    const d = gov.admit(createWorkloadId("partial-heavy-agent"), demand());
+    assert.equal(d.outcome, OUT.DEFER);
+    assert.equal(d.reason, REASONS.DEFERRED_OBSERVER_UNAVAILABLE);
+});
+
 test("admission: queue overflow produces explicit QUEUE_FULL rejection", () => {
     const gov = makeGovernor({
         config: { ...BASE_CONFIG, maxQueue: 2 },
