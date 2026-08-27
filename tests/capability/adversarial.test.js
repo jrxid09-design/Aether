@@ -201,18 +201,16 @@ test("adversarial: kind/provenance correspondence is enforced", () => {
         (e) => e.reasonCode === "KIND_PROVENANCE_MISMATCH");
 });
 
-test("adversarial: authority-shaped identity tokens reject at any depth", () => {
-    const { createCapabilityRegistrarFactory, establishIdentity } = require("../../src/capability/registry/registry");
-    const { registry } = makeRegistry();
-    const factory = createCapabilityRegistrarFactory(registry);
-    // authority-shaped registrarId in an established identity is rejected at mint time
-    assert.throws(() => factory.createExtensionRegistrar(establishIdentity("extension", "authority")),
+test("adversarial: authority-shaped registrar ids reject at mint time", () => {
+    const { createCapabilityRuntime } = require("../../src/capability/registry");
+    // authority-shaped registrarId in the composition spec is rejected at mint time
+    assert.throws(() => createCapabilityRuntime({ registrars: { extension: "authority" } }),
         (e) => e.reasonCode === "FORBIDDEN_PROVENANCE");
-    assert.throws(() => factory.createProviderRegistrar(establishIdentity("provider", "root")),
+    assert.throws(() => createCapabilityRuntime({ registrars: { provider: "root" } }),
         (e) => e.reasonCode === "FORBIDDEN_PROVENANCE");
-    assert.throws(() => factory.createDeviceRegistrar(establishIdentity("device", "owner")),
+    assert.throws(() => createCapabilityRuntime({ registrars: { device: "owner" } }),
         (e) => e.reasonCode === "FORBIDDEN_PROVENANCE");
-    assert.throws(() => factory.createProviderRegistrar(establishIdentity("provider", "admin")),
+    assert.throws(() => createCapabilityRuntime({ registrars: { provider: "admin" } }),
         (e) => e.reasonCode === "FORBIDDEN_PROVENANCE");
 });
 

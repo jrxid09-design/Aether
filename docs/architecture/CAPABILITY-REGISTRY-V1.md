@@ -119,39 +119,37 @@ Unknown kinds fail closed. No speculative dozens.
 ## Provenance (registrar minting trust model)
 
 Provenance identity is **never caller-asserted**. It originates from a
-**registrar** minted through a runtime-owned composition boundary that holds a
-private, unforgeable capability token. There is **no public registrar mint
-surface** on `CapabilityRegistry`.
+**registrar** minted inside a trusted bootstrap closure. There is **no public
+registrar mint surface** on `CapabilityRegistry`, and no mint/identity
+primitive (`MINT_TOKEN`, `establishIdentity`,
+`createCapabilityRegistrarFactory`) is exportable from any module.
 
 ```
-Runtime composition root
+Trusted runtime bootstrap
         ↓
-createCapabilityRegistrarFactory(registry)   // internal, NOT on public index
+createCapabilityRuntime({ registrars: { core, extension, device, provider } })
+        ↓  (mint capability held only in module closure — never exported)
+CapabilityRegistry + bound least-privilege registrars, constructed TOGETHER
         ↓
-factory.establishIdentity(domain, id)        // unforgeable identity capability
-        ↓
-factory.createCoreRegistrar(runtimeIdentity) / create{Extension,Device,Provider}Registrar(establishedIdentity)
-        ↓
-registrar (frozen, immutable provenance)
-        ↓
-registrar.register(serialized)               // untrusted boundary
+registrar.register(serializedString)         // untrusted boundary (string-only)
 registrar.registerCanonical(obj)             // trusted internal boundary
 ```
 
-Trust derives from **possession of an unforgeable capability**, not from
-strings:
+Trust derives from **possession of a module-closure, unforgeable capability**
+(`MINT_TOKEN`, compared by identity), not from strings. Arbitrary code cannot
+forge the token by constructing an object, guessing a string, importing an
+exported symbol, or cloning a context, because the token and the mint function
+are never placed on any `module.exports`.
 
-- `MINT_TOKEN` (a module-closure `Symbol`) gates registrar minting; it is
-  compared by identity and is **never exported**.
-- `identityTokens` (a module-closure `WeakSet`) holds genuine
-  established-identity capabilities; `create*Registrar` accepts only tokens
-  that were actually established (WeakSet membership), so a caller-constructed
-  object, a cloned object, a guessed string, or `Symbol("same-name")` all fail.
-
-The factory and identity-establishment live in `./registry` and are **not**
-re-exported from the public `index.js`. A consumer that is handed a registrar
-may use only that registrar's bound provenance; it cannot mint another
-registrar or change domains.
+**HONEST BOUNDARY (CommonJS):** Aether currently has **no JS module-isolation /
+loader-allowlisting** for extension/provider/device code. Module-path privacy
+is therefore NOT treated as a security boundary. The mint capability exists only
+inside the trusted bootstrap module closure and is handed out only as
+least-privilege registrars. The eventual enforcement is module-loader
+allowlisting / process isolation so untrusted code cannot `require` the
+bootstrap path. A structural guard test (`hardening.test.js`) asserts that no
+registry module exports a mint/identity primitive, and the prior direct-require
+bypass repro is covered as a regression test.
 
 Closed registrar domains:
 
@@ -307,7 +305,7 @@ objects, and cycles are rejected.
 ## Hostile-input boundary (two-boundary design)
 
 ```
-UNTRUSTED SERIALIZED BOUNDARY  (registrar.register: JSON string / bounded bytes)
+UNTRUSTED SERIALIZED BOUNDARY  (registrar.register: JSON STRING only)
         ↓
 bounded decode + canonicalization
         ↓
@@ -316,15 +314,17 @@ TRUSTED INERT PLAIN RECORD
 CapabilityRegistry
 ```
 
-The untrusted/public boundary accepts **bounded serialized JSON / bytes only**.
-Arbitrary JavaScript objects are rejected with a typed `OBJECT_INPUT_NOT_ALLOWED`
-because a Proxy can execute `ownKeys`/`getOwnPropertyDescriptor` traps during any
-traversal. Object-based admission (`registerCanonical`) is the trusted/internal
-path for already-canonical runtime data and is never exposed as the hostile-input
-boundary. No functions, callables, accessors, symbols, promises, class instances,
-mutable foreign references, live clocks, live options, or retained Proxies enter
-canonical state. Array/container length bounds are enforced before any
-attacker-supplied-length copy.
+The untrusted/public boundary accepts a **bounded serialized JSON string only**.
+Every non-string (object, function, symbol, array, typed array, Proxy, Buffer) is
+rejected with a typed `OBJECT_INPUT_NOT_ALLOWED` via a primitive `typeof` check
+that performs **no reflective inspection** (no `instanceof`, no property access),
+so a Proxy cannot execute `getPrototypeOf`/`get`/`ownKeys`/`getOwnPropertyDescriptor`
+traps during rejection. Object-based admission (`registerCanonical`) is the
+trusted/internal path for already-canonical runtime data and is never exposed as
+the hostile-input boundary. No functions, callables, accessors, symbols,
+promises, class instances, mutable foreign references, live clocks, live
+options, or retained Proxies enter canonical state. Array length is bounded
+BEFORE any attacker-supplied-length allocation/copy.
 
 ## Bounds
 
@@ -339,6 +339,7 @@ attacker-supplied-length copy.
 | metadata depth              | 8       |
 | metadata global node budget | 512 (shared across the whole walk) |
 | metadata key / string       | 128 / 256 |
+| global array length         | 4096 (checked before allocation/copy) |
 | registry size               | 1024    |
 | graph edges / nodes / traversal | 8192 / 8192 / 65536 |
 
@@ -371,16 +372,20 @@ operations** across core/extension/device/provider domains, mixing
 register/duplicate/remove/lookup/list/traversal/availability (with incarnation
 + generation)/stale-observation/stale-incarnation (ABA)/cycle/oversized/
 getter/accessor/Proxy/DAG/unknown-field/forged-provenance/authority-metadata/
-unauthorized-registrar-mint/forged-core-admission/forged-domain-admission.
+unauthorized-registrar-mint/forged-core-admission/forged-domain-admission/
+direct-internal-mint-bypass.
 It tracks and requires-zero: `authorityMutations`, `governorMutations`,
 `executions`, `actuations`, `staleIncarnationAccepted`,
 `conflictingEqualGenerationAccepted`, `forgedProvenanceAccepted`,
 `authorityMetadataAccepted`, `canonicalStateEscape`, `partialMutation`,
 `indexDivergence`, `untypedRegistryErrors`, `openHandles`,
 `unauthorizedRegistrarMint`, `forgedCoreAdmission`, `forgedDomainAdmission`,
-`privilegedCanonicalAdmission`. Registry size and graph traversal remain
-bounded. Run twice with the same seed → identical digest (incarnationId, being
-CSPRNG, is excluded from the determinism digest).
+`privilegedCanonicalAdmission`, `directInternalMintBypass`,
+`hostileBoundaryCodeExecution`, `invalidClockValuePersisted`,
+`equalGenerationFalseConflict`, `oversizedArrayAllocationAttempt`. Registry
+size and graph traversal remain bounded. Run twice with the same seed →
+identical digest (incarnationId, being CSPRNG, is excluded from the
+determinism digest).
 
 ## Known nonblocking observations
 

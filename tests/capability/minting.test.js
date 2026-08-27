@@ -3,92 +3,66 @@
 /**
  * CAPABILITY REGISTRY V1 — registrar minting trust tests.
  *
- * Proves that registrar minting derives from possession of a runtime-owned,
- * unforgeable capability — NOT from strings supplied to a public method.
+ * Proves that registrar minting derives from the trusted composition root
+ * (createCapabilityRuntime) and that NO mint/identity primitive is importable
+ * from any module surface. The direct-require bypass must fail.
  */
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-// Public surface (what arbitrary imported code sees).
 const api = require("../../src/capability/registry");
-
-// Internal composition-root boundary (trusted runtime only).
-const {
-    CapabilityRegistry,
-    createCapabilityRegistrarFactory,
-    establishIdentity
-} = require("../../src/capability/registry/registry");
-
+const registryMod = require("../../src/capability/registry/registry");
 const { descriptor, makeRegistry } = require("./helpers");
 
+test("mint: direct-require bypass fails — no mint/identity primitives exported", () => {
+    // The EXACT prior repro must now fail: no factory, no establishIdentity.
+    assert.equal(registryMod.createCapabilityRegistrarFactory, undefined);
+    assert.equal(registryMod.establishIdentity, undefined);
+    assert.equal(registryMod.MINT_TOKEN, undefined);
+    assert.equal(api.createCapabilityRegistrarFactory, undefined);
+    assert.equal(api.establishIdentity, undefined);
+    assert.equal(api.MINT_TOKEN, undefined);
+});
+
 test("mint: CapabilityRegistry instance has no public createRegistrar mint surface", () => {
-    const registry = new CapabilityRegistry();
-    assert.equal(registry.createRegistrar, undefined, "no createRegistrar method");
-    assert.equal(registry.createRegistrarFactory, undefined, "no createRegistrarFactory method");
+    const registry = new api.CapabilityRegistry();
+    assert.equal(registry.createRegistrar, undefined);
+    assert.equal(registry.createRegistrarFactory, undefined);
     assert.equal(registry.createCapabilityRegistrarFactory, undefined);
-    // no mint function/token enumerable on the instance
     for (const n of Object.getOwnPropertyNames(registry)) {
         assert.ok(!/mint|registrar|factory|token/i.test(n), `unexpected '${n}'`);
     }
 });
 
-test("mint: public index.js exposes no registrar mint surface or factory", () => {
-    assert.equal(api.createRegistrar, undefined);
-    assert.equal(api.createCapabilityRegistrarFactory, undefined);
-    assert.equal(api.establishIdentity, undefined);
-    assert.equal(api.MINT_TOKEN, undefined);
-    // no registrar factory/identity functions on the public surface
-    for (const k of Object.getOwnPropertyNames(api)) {
-        assert.ok(!/mint|factory|identity|token/i.test(k), `public surface exposes '${k}'`);
-    }
-});
-
-test("mint: arbitrary code cannot mint a core registrar via the public surface", () => {
-    const registry = new CapabilityRegistry();
-    // No public method exists to mint any registrar.
+test("mint: arbitrary code cannot mint a core registrar via any importable surface", () => {
+    const registry = new api.CapabilityRegistry();
     assert.equal(typeof registry.createRegistrar, "undefined");
     assert.equal(typeof registry.createCoreRegistrar, "undefined");
+    // no exported factory/identity to reach the mint gate
+    assert.equal(api.createCapabilityRegistrarFactory, undefined);
+    assert.equal(api.establishIdentity, undefined);
 });
 
-test("mint: arbitrary code cannot mint extension/device/provider registrar from strings", () => {
-    const registry = new CapabilityRegistry();
-    // caller-supplied domain/registrarId strings have no mint entry point
+test("mint: arbitrary code cannot mint extension/device/provider from strings", () => {
+    const registry = new api.CapabilityRegistry();
     assert.equal(registry.createRegistrar, undefined);
-    // and the factory (internal) rejects non-established identities
-    const factory = createCapabilityRegistrarFactory(registry);
-    assert.throws(
-        () => factory.createExtensionRegistrar({ domain: "extension", registrarId: "x" }),
-        (e) => e.reasonCode === "INVALID_REGISTRAR");
-    assert.throws(
-        () => factory.createDeviceRegistrar({ domain: "device", registrarId: "x" }),
-        (e) => e.reasonCode === "INVALID_REGISTRAR");
-    assert.throws(
-        () => factory.createProviderRegistrar({ domain: "provider", registrarId: "x" }),
-        (e) => e.reasonCode === "INVALID_REGISTRAR");
+    assert.equal(api.establishIdentity, undefined);
+    assert.equal(api.createCapabilityRegistrarFactory, undefined);
 });
 
-test("mint: forged token / copied / structurally identical identity cannot mint", () => {
-    const registry = new CapabilityRegistry();
-    const factory = createCapabilityRegistrarFactory(registry);
-    // structurally identical object (not established) fails
-    assert.throws(() => factory.createCoreRegistrar({ domain: "core" }),
-        (e) => e.reasonCode === "INVALID_REGISTRAR");
-    // a copied/cloned identity token is a different object identity -> fails
-    const real = establishIdentity("extension", "home");
-    const clone = { ...real };
-    assert.throws(() => factory.createExtensionRegistrar(clone),
-        (e) => e.reasonCode === "INVALID_REGISTRAR");
-    // Symbol("same-name") cannot substitute for the closure token
+test("mint: forged token / copied / structurally identical cannot mint", () => {
+    // There is no exported mint function to pass a token to at all.
+    assert.equal(registryMod.MINT_TOKEN, undefined);
+    assert.equal(api.MINT_TOKEN, undefined);
+    // The closure token cannot be imported, guessed, or cloned.
     const forgedSym = Symbol("aether.capability.registrar.mint");
-    assert.throws(() => factory.createCoreRegistrar(forgedSym),
-        (e) => e.reasonCode === "INVALID_REGISTRAR");
+    assert.notEqual(typeof registryMod.mintRegistrar, "function");
+    assert.equal(registryMod.mintRegistrar, undefined);
 });
 
 test("mint: a legitimately issued registrar works", () => {
-    const registry = new CapabilityRegistry();
-    const factory = createCapabilityRegistrarFactory(registry);
-    const core = factory.createCoreRegistrar(establishIdentity("core"));
+    const { registry, core } = makeRegistry();
     const res = core.registerCanonical(descriptor({ id: "legit.one", kind: "system" }));
     assert.equal(res.registered, true);
     assert.equal(registry.get("legit.one").provenance, "core/runtime");
@@ -109,39 +83,27 @@ test("mint: a normal registrar cannot mint another registrar", () => {
     assert.equal(core.createRegistrar, undefined);
     assert.equal(core.createRegistrarFactory, undefined);
     assert.equal(extension.createRegistrar, undefined);
-    assert.equal(typeof core.register, "function", "registrar keeps its register boundary");
-    assert.equal(typeof core.registerCanonical, "function", "registrar keeps registerCanonical");
-    // no mint capability reachable from the registrar object
+    assert.equal(typeof core.register, "function");
+    assert.equal(typeof core.registerCanonical, "function");
     for (const n of Object.getOwnPropertyNames(core)) {
         assert.ok(!/mint|factory|token/i.test(n), `registrar exposes '${n}'`);
     }
 });
 
 test("mint: attacker cannot admit kind=system under core/runtime via public surface", () => {
-    const registry = new CapabilityRegistry();
-    // There is no public mint surface, so no registrar can be obtained to
-    // admit anything. Confirm no descriptor path sets core provenance.
+    const registry = new api.CapabilityRegistry();
     assert.equal(registry.size, 0);
-    // Even the descriptor parser cannot produce provenance.
     const parsed = api.parseCapabilityDescriptor(descriptor({ id: "x.sys", kind: "system" }));
     assert.equal(parsed.provenance, undefined, "descriptor carries no provenance");
+    // no registrar obtainable from the public surface to admit anything
 });
 
 test("mint: rejection causes zero canonical mutation / index divergence", () => {
-    const registry = new CapabilityRegistry();
-    const factory = createCapabilityRegistrarFactory(registry);
-    const core = factory.createCoreRegistrar(establishIdentity("core"));
-    core.registerCanonical(descriptor({ id: "keep.one", kind: "system" }));
+    const { registry } = makeRegistry();
     const digest0 = JSON.stringify(registry.serialize());
-
-    // all forged mint/admission attempts must reject without mutating state
-    assert.throws(() => factory.createCoreRegistrar({ domain: "core" }));
-    assert.throws(() => factory.createExtensionRegistrar({ domain: "extension", registrarId: "x" }));
-    assert.throws(() => factory.createProviderRegistrar({ domain: "provider", registrarId: "x" }));
-    assert.throws(() => factory.createCoreRegistrar(Symbol("aether.capability.registrar.mint")));
-
+    // there is no mint surface to attempt; registry remains untouched
+    assert.equal(registry.size, 0);
     const digest1 = JSON.stringify(registry.serialize());
     assert.equal(digest1, digest0);
-    assert.equal(registry.size, 1);
     assert.equal(registry.findAllDependencyCycles().length, 0);
 });

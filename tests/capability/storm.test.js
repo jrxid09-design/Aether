@@ -24,9 +24,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 
-const { CapabilityRegistry } = require("../../src/capability/registry");
+const { CapabilityRegistry, createCapabilityRuntime } = require("../../src/capability/registry");
 const { CapabilityRegistryError } = require("../../src/capability/registry");
-const { createCapabilityRegistrarFactory, establishIdentity } = require("../../src/capability/registry/registry");
 
 const OP_TARGET = 12000;
 const POOL_SIZE = 60;
@@ -65,14 +64,17 @@ function descriptorFor(i, domain, overrides = {}) {
 
 function runStorm(seed) {
     const rng = mulberry32(seed);
-    const registry = new CapabilityRegistry({ clock: { nowMs: () => 7 } });
 
-    const factory = createCapabilityRegistrarFactory(registry);
+    const runtime = createCapabilityRuntime({
+        clock: { nowMs: () => 7 },
+        registrars: { core: true, extension: "unit0", device: "unit1", provider: "unit2" }
+    });
+    const registry = runtime.registry;
     const registrars = {
-        core: factory.createCoreRegistrar(establishIdentity("core")),
-        extension: factory.createExtensionRegistrar(establishIdentity("extension", "unit0")),
-        device: factory.createDeviceRegistrar(establishIdentity("device", "unit1")),
-        provider: factory.createProviderRegistrar(establishIdentity("provider", "unit2"))
+        core: runtime.registrars.core,
+        extension: runtime.registrars.extension,
+        device: runtime.registrars.device,
+        provider: runtime.registrars.provider
     };
 
     const C = {
@@ -92,7 +94,12 @@ function runStorm(seed) {
         unauthorizedRegistrarMint: 0,
         forgedCoreAdmission: 0,
         forgedDomainAdmission: 0,
-        privilegedCanonicalAdmission: 0
+        privilegedCanonicalAdmission: 0,
+        directInternalMintBypass: 0,
+        hostileBoundaryCodeExecution: 0,
+        invalidClockValuePersisted: 0,
+        equalGenerationFalseConflict: 0,
+        oversizedArrayAllocationAttempt: 0
     };
 
     let authorityBefore, governorBefore;
@@ -118,7 +125,7 @@ function runStorm(seed) {
     }
 
     while (ops < OP_TARGET) {
-        const roll = Math.floor(rng() * 18);
+        const roll = Math.floor(rng() * 19);
         const i = Math.floor(rng() * POOL_SIZE);
         const id = `pool.cap.${i}`;
         const domain = DOMAINS[Math.floor(rng() * DOMAINS.length)];
@@ -257,37 +264,65 @@ function runStorm(seed) {
                     } catch (e) { record("auth-meta", false, e.reasonCode); }
                     break;
                 }
-                case 16: { // unauthorized registrar mint attempt
-                    // arbitrary code tries to mint via the public instance surface
-                    // (no createRegistrar) or via a forged identity token.
+                case 16: { // unauthorized registrar mint attempt (direct internal import)
+                    // arbitrary code tries to mint via the internal module surface
                     let accepted = false;
-                    if (typeof registry.createRegistrar === "function") {
-                        registry.createRegistrar({ domain: "core" });
+                    const internal = require("../../src/capability/registry/registry");
+                    if (typeof internal.createCapabilityRegistrarFactory === "function") {
+                        internal.createCapabilityRegistrarFactory(registry);
                         accepted = true;
                     }
-                    if (!accepted) {
-                        try {
-                            factory.createCoreRegistrar({ domain: "core", registrarId: undefined });
-                            accepted = true;
-                        } catch (e) { /* expected reject */ }
+                    if (typeof internal.establishIdentity === "function") {
+                        // establishing an identity alone is a mint primitive leak
+                        internal.establishIdentity("core");
+                        accepted = true;
                     }
-                    if (accepted) C.unauthorizedRegistrarMint++;
+                    if (accepted) C.directInternalMintBypass++;
+                    if (typeof registry.createRegistrar === "function") {
+                        registry.createRegistrar({ domain: "core" });
+                        C.unauthorizedRegistrarMint++;
+                    }
                     record("mint", !accepted, accepted ? "ACCEPTED" : "rejected");
                     break;
                 }
-                case 17: { // forged core/domain admission via forged identity
+                case 17: { // forged core/domain admission via internal surface
+                    const internal = require("../../src/capability/registry/registry");
                     let accepted = false;
-                    try {
-                        factory.createCoreRegistrar({ domain: "core" });
-                        accepted = true;
-                        C.forgedCoreAdmission++;
-                    } catch (e) { /* expected */ }
-                    try {
-                        factory.createProviderRegistrar({ domain: "provider", registrarId: "x" });
-                        accepted = true;
-                        C.forgedDomainAdmission++;
-                    } catch (e) { /* expected */ }
+                    if (typeof internal.createCapabilityRegistrarFactory === "function") {
+                        try {
+                            const f = internal.createCapabilityRegistrarFactory(registry);
+                            f.createCoreRegistrar({ domain: "core" });
+                            accepted = true;
+                            C.forgedCoreAdmission++;
+                        } catch (e) { /* expected */ }
+                    }
                     record("forged-core", !accepted, accepted ? "ACCEPTED" : "rejected");
+                    break;
+                }
+                case 18: { // hostile boundary + clock + oversized array probes
+                    // (a) hostile Proxy must not execute code at the boundary
+                    let trapExecutions = 0;
+                    const proxy = new Proxy({}, {
+                        getPrototypeOf() { trapExecutions++; return Object.prototype; },
+                        get() { trapExecutions++; return undefined; },
+                        ownKeys() { trapExecutions++; return []; },
+                        getOwnPropertyDescriptor() { trapExecutions++; return undefined; }
+                    });
+                    try { registrar.register(proxy); } catch (e) { /* expected */ }
+                    if (trapExecutions > 0) C.hostileBoundaryCodeExecution++;
+
+                    // (b) invalid clock value must not persist
+                    const badClock = { nowMs: () => NaN };
+                    const badRuntime = require("../../src/capability/registry").createCapabilityRuntime({ clock: badClock, registrars: { core: true } });
+                    try { badRuntime.registrars.core.registerCanonical(descriptorFor(i, "core")); C.invalidClockValuePersisted++; }
+                    catch (e) { /* expected reject */ }
+
+                    // (c) oversized sparse array must reject before allocation
+                    const huge = new Array(100_000_000);
+                    try { registrar.registerCanonical(descriptorFor(i, domain, { operations: huge })); C.oversizedArrayAllocationAttempt++; }
+                    catch (e) { /* expected */ }
+
+                    record("probe", true, "ok");
                     break;
                 }
             }
@@ -331,7 +366,7 @@ function runStorm(seed) {
 function opName(roll) {
     return ["register", "register", "dup-conflict", "remove", "lookup", "list",
         "traverse", "avail", "stale", "stale-inc", "cycle", "oversized", "getter",
-        "dag", "unknown", "forged", "mint", "forged-core"][roll];
+        "dag", "unknown", "forged", "mint", "forged-core", "probe"][roll];
 }
 
 function countAsyncResources() {
