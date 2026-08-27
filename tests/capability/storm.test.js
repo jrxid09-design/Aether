@@ -26,6 +26,7 @@ const crypto = require("node:crypto");
 
 const { CapabilityRegistry } = require("../../src/capability/registry");
 const { CapabilityRegistryError } = require("../../src/capability/registry");
+const { createCapabilityRegistrarFactory, establishIdentity } = require("../../src/capability/registry/registry");
 
 const OP_TARGET = 12000;
 const POOL_SIZE = 60;
@@ -66,11 +67,12 @@ function runStorm(seed) {
     const rng = mulberry32(seed);
     const registry = new CapabilityRegistry({ clock: { nowMs: () => 7 } });
 
+    const factory = createCapabilityRegistrarFactory(registry);
     const registrars = {
-        core: registry.createRegistrar({ domain: "core" }),
-        extension: registry.createRegistrar({ domain: "extension", registrarId: "unit0" }),
-        device: registry.createRegistrar({ domain: "device", registrarId: "unit1" }),
-        provider: registry.createRegistrar({ domain: "provider", registrarId: "unit2" })
+        core: factory.createCoreRegistrar(establishIdentity("core")),
+        extension: factory.createExtensionRegistrar(establishIdentity("extension", "unit0")),
+        device: factory.createDeviceRegistrar(establishIdentity("device", "unit1")),
+        provider: factory.createProviderRegistrar(establishIdentity("provider", "unit2"))
     };
 
     const C = {
@@ -86,7 +88,11 @@ function runStorm(seed) {
         partialMutation: 0,
         indexDivergence: 0,
         untypedRegistryErrors: 0,
-        openHandles: 0
+        openHandles: 0,
+        unauthorizedRegistrarMint: 0,
+        forgedCoreAdmission: 0,
+        forgedDomainAdmission: 0,
+        privilegedCanonicalAdmission: 0
     };
 
     let authorityBefore, governorBefore;
@@ -112,7 +118,7 @@ function runStorm(seed) {
     }
 
     while (ops < OP_TARGET) {
-        const roll = Math.floor(rng() * 16);
+        const roll = Math.floor(rng() * 18);
         const i = Math.floor(rng() * POOL_SIZE);
         const id = `pool.cap.${i}`;
         const domain = DOMAINS[Math.floor(rng() * DOMAINS.length)];
@@ -251,6 +257,39 @@ function runStorm(seed) {
                     } catch (e) { record("auth-meta", false, e.reasonCode); }
                     break;
                 }
+                case 16: { // unauthorized registrar mint attempt
+                    // arbitrary code tries to mint via the public instance surface
+                    // (no createRegistrar) or via a forged identity token.
+                    let accepted = false;
+                    if (typeof registry.createRegistrar === "function") {
+                        registry.createRegistrar({ domain: "core" });
+                        accepted = true;
+                    }
+                    if (!accepted) {
+                        try {
+                            factory.createCoreRegistrar({ domain: "core", registrarId: undefined });
+                            accepted = true;
+                        } catch (e) { /* expected reject */ }
+                    }
+                    if (accepted) C.unauthorizedRegistrarMint++;
+                    record("mint", !accepted, accepted ? "ACCEPTED" : "rejected");
+                    break;
+                }
+                case 17: { // forged core/domain admission via forged identity
+                    let accepted = false;
+                    try {
+                        factory.createCoreRegistrar({ domain: "core" });
+                        accepted = true;
+                        C.forgedCoreAdmission++;
+                    } catch (e) { /* expected */ }
+                    try {
+                        factory.createProviderRegistrar({ domain: "provider", registrarId: "x" });
+                        accepted = true;
+                        C.forgedDomainAdmission++;
+                    } catch (e) { /* expected */ }
+                    record("forged-core", !accepted, accepted ? "ACCEPTED" : "rejected");
+                    break;
+                }
             }
         } catch (err) {
             if (!(err instanceof CapabilityRegistryError)) {
@@ -292,7 +331,7 @@ function runStorm(seed) {
 function opName(roll) {
     return ["register", "register", "dup-conflict", "remove", "lookup", "list",
         "traverse", "avail", "stale", "stale-inc", "cycle", "oversized", "getter",
-        "dag", "unknown", "forged"][roll];
+        "dag", "unknown", "forged", "mint", "forged-core"][roll];
 }
 
 function countAsyncResources() {

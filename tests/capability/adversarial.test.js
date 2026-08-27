@@ -189,8 +189,7 @@ test("adversarial: device registrar cannot claim extension/core provenance", () 
 });
 
 test("adversarial: kind/provenance correspondence is enforced", () => {
-    const { registry } = makeRegistry();
-    const core = registry.createRegistrar({ domain: "core" });
+    const { core } = makeRegistry();
     assert.throws(
         () => core.registerCanonical(descriptor({ id: "k.ext", kind: "extension" })),
         (e) => e.reasonCode === "KIND_PROVENANCE_MISMATCH");
@@ -202,27 +201,28 @@ test("adversarial: kind/provenance correspondence is enforced", () => {
         (e) => e.reasonCode === "KIND_PROVENANCE_MISMATCH");
 });
 
-test("adversarial: authority-shaped provenance segments reject at any depth", () => {
+test("adversarial: authority-shaped identity tokens reject at any depth", () => {
+    const { createCapabilityRegistrarFactory, establishIdentity } = require("../../src/capability/registry/registry");
     const { registry } = makeRegistry();
-    assert.throws(() => registry.createRegistrar({ domain: "extension", registrarId: "authority" }),
+    const factory = createCapabilityRegistrarFactory(registry);
+    // authority-shaped registrarId in an established identity is rejected at mint time
+    assert.throws(() => factory.createExtensionRegistrar(establishIdentity("extension", "authority")),
         (e) => e.reasonCode === "FORBIDDEN_PROVENANCE");
-    assert.throws(() => registry.createRegistrar({ domain: "provider", registrarId: "root" }),
+    assert.throws(() => factory.createProviderRegistrar(establishIdentity("provider", "root")),
         (e) => e.reasonCode === "FORBIDDEN_PROVENANCE");
-    assert.throws(() => registry.createRegistrar({ domain: "device", registrarId: "owner" }),
+    assert.throws(() => factory.createDeviceRegistrar(establishIdentity("device", "owner")),
         (e) => e.reasonCode === "FORBIDDEN_PROVENANCE");
-    assert.throws(() => registry.createRegistrar({ domain: "provider", registrarId: "admin" }),
+    assert.throws(() => factory.createProviderRegistrar(establishIdentity("provider", "admin")),
         (e) => e.reasonCode === "FORBIDDEN_PROVENANCE");
-    assert.throws(() => registry.createRegistrar({ domain: "authority" }),
-        (e) => e.reasonCode === "INVALID_REGISTRAR");
 });
 
 test("adversarial: provenance identity is immutable on the registrar", () => {
-    const { registry } = makeRegistry();
-    const r = registry.createRegistrar({ domain: "extension", registrarId: "home" });
-    assert.equal(r.provenance, "extension:home");
+    const { extension } = makeRegistry();
+    const r = extension;
+    assert.equal(r.provenance, "extension:testext");
     assert.ok(Object.isFrozen(r));
     assert.throws(() => { r.provenance = "core/runtime"; });
-    assert.equal(r.provenance, "extension:home");
+    assert.equal(r.provenance, "extension:testext");
 });
 
 test("adversarial: cannot reserve a legitimate capability under forged provenance", () => {
@@ -235,8 +235,7 @@ test("adversarial: cannot reserve a legitimate capability under forged provenanc
 });
 
 test("adversarial: untrusted registrar boundary rejects plain objects", () => {
-    const { registry } = makeRegistry();
-    const core = registry.createRegistrar({ domain: "core" });
+    const { core, registry } = makeRegistry();
     assert.throws(
         () => core.register(descriptor()),
         (e) => e.reasonCode === "OBJECT_INPUT_NOT_ALLOWED");

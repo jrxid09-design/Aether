@@ -116,21 +116,42 @@ depending on it, and imports no Authority/Governor/tool/process code.
 `tool`, `extension`, `device`, `runtime`, `provider`, `system`.
 Unknown kinds fail closed. No speculative dozens.
 
-## Provenance (registrar trust model)
+## Provenance (registrar minting trust model)
 
 Provenance identity is **never caller-asserted**. It originates from a
-**registrar** — a runtime-created object that owns an immutable provenance
-identity — and is the only channel for canonical admission.
+**registrar** minted through a runtime-owned composition boundary that holds a
+private, unforgeable capability token. There is **no public registrar mint
+surface** on `CapabilityRegistry`.
 
 ```
-Runtime creates registrar
+Runtime composition root
         ↓
-registrar owns immutable provenance identity (domain + registrar id)
+createCapabilityRegistrarFactory(registry)   // internal, NOT on public index
         ↓
-registrar.register(descriptor)
+factory.establishIdentity(domain, id)        // unforgeable identity capability
         ↓
-private CapabilityRegistry admission
+factory.createCoreRegistrar(runtimeIdentity) / create{Extension,Device,Provider}Registrar(establishedIdentity)
+        ↓
+registrar (frozen, immutable provenance)
+        ↓
+registrar.register(serialized)               // untrusted boundary
+registrar.registerCanonical(obj)             // trusted internal boundary
 ```
+
+Trust derives from **possession of an unforgeable capability**, not from
+strings:
+
+- `MINT_TOKEN` (a module-closure `Symbol`) gates registrar minting; it is
+  compared by identity and is **never exported**.
+- `identityTokens` (a module-closure `WeakSet`) holds genuine
+  established-identity capabilities; `create*Registrar` accepts only tokens
+  that were actually established (WeakSet membership), so a caller-constructed
+  object, a cloned object, a guessed string, or `Symbol("same-name")` all fail.
+
+The factory and identity-establishment live in `./registry` and are **not**
+re-exported from the public `index.js`. A consumer that is handed a registrar
+may use only that registrar's bound provenance; it cannot mint another
+registrar or change domains.
 
 Closed registrar domains:
 
@@ -141,18 +162,9 @@ device     → provenance "device:<id>"
 provider   → provenance "provider:<id>"
 ```
 
-A registrar's provenance identity cannot be modified or selected by the
-descriptor being registered, and cannot be self-selected by an arbitrary
-caller passing strings. Descriptors are descriptive-only: a descriptor that
-supplies a `provenance` field is **rejected** (never silently ignored or
-overridden). Kind/provenance correspondence is validated (e.g. an extension
-registrar cannot admit `system`/`runtime` kinds; a device registrar cannot
-admit `extension` kinds).
-
-Authority/policy-shaped tokens (`authority`, `owner`, `root`, `admin`,
-`trusted`, `grant`, `permission`, etc.) are rejected **case-insensitively at
-any depth/segment** of a scoped provenance. This is identity hygiene, not
-authorization.
+Descriptors are descriptive-only: a descriptor that supplies a `provenance`
+field is **rejected**. Kind/provenance correspondence is validated. Authority/
+policy-shaped tokens are rejected case-insensitively at any segment.
 
 ## Availability model (separate from authorization)
 
@@ -358,14 +370,17 @@ a future store. Serialization contains zero executable behavior.
 operations** across core/extension/device/provider domains, mixing
 register/duplicate/remove/lookup/list/traversal/availability (with incarnation
 + generation)/stale-observation/stale-incarnation (ABA)/cycle/oversized/
-getter/accessor/Proxy/DAG/unknown-field/forged-provenance/authority-metadata.
+getter/accessor/Proxy/DAG/unknown-field/forged-provenance/authority-metadata/
+unauthorized-registrar-mint/forged-core-admission/forged-domain-admission.
 It tracks and requires-zero: `authorityMutations`, `governorMutations`,
 `executions`, `actuations`, `staleIncarnationAccepted`,
 `conflictingEqualGenerationAccepted`, `forgedProvenanceAccepted`,
 `authorityMetadataAccepted`, `canonicalStateEscape`, `partialMutation`,
-`indexDivergence`, `untypedRegistryErrors`, `openHandles`. Registry size and
-graph traversal remain bounded. Run twice with the same seed → identical
-digest (incarnationId, being CSPRNG, is excluded from the determinism digest).
+`indexDivergence`, `untypedRegistryErrors`, `openHandles`,
+`unauthorizedRegistrarMint`, `forgedCoreAdmission`, `forgedDomainAdmission`,
+`privilegedCanonicalAdmission`. Registry size and graph traversal remain
+bounded. Run twice with the same seed → identical digest (incarnationId, being
+CSPRNG, is excluded from the determinism digest).
 
 ## Known nonblocking observations
 

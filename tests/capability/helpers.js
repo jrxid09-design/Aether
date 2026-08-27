@@ -3,13 +3,17 @@
 /**
  * Shared helpers for capability registry tests.
  *
- * Descriptors are now descriptive-only: they carry NO `provenance` field.
- * Provenance identity originates from a registrar (runtime-created). The
- * `descriptor()` helper produces a provenance-free descriptor body; tests
- * register it through a registrar via `register()`.
+ * Descriptors are descriptive-only (no `provenance` field). Provenance identity
+ * originates from a registrar minted through the runtime-owned composition
+ * boundary (createCapabilityRegistrarFactory + establishIdentity), which lives
+ * in `./registry` and is NOT part of the public `index.js` surface.
  */
 
 const { CapabilityRegistry } = require("../../src/capability/registry");
+const {
+    createCapabilityRegistrarFactory,
+    establishIdentity
+} = require("../../src/capability/registry/registry");
 
 function descriptor(overrides = {}) {
     return {
@@ -24,22 +28,26 @@ function descriptor(overrides = {}) {
 }
 
 /**
- * Build a registry plus a set of registrars keyed by domain. Returns:
- *   { registry, registrar, core, extension, device, provider,
- *     register(d) — register via the default (core) registrar }
+ * Build a registry plus a set of registrars keyed by domain, minted through the
+ * trusted composition root. Returns:
+ *   { registry, registrar (core), core, extension, device, provider,
+ *     register(d) — register via the core registrar }
  */
 function makeRegistry({ clock, ...rest } = {}) {
     const c = clock ?? { nowMs: () => 42 };
     const registry = new CapabilityRegistry({ clock: c, ...rest });
 
-    const core = registry.createRegistrar({ domain: "core" });
-    const extension = registry.createRegistrar({ domain: "extension", registrarId: "testext" });
-    const device = registry.createRegistrar({ domain: "device", registrarId: "testdevice" });
-    const provider = registry.createRegistrar({ domain: "provider", registrarId: "testprovider" });
+    const factory = createCapabilityRegistrarFactory(registry);
+
+    const core = factory.createCoreRegistrar(establishIdentity("core"));
+    const extension = factory.createExtensionRegistrar(establishIdentity("extension", "testext"));
+    const device = factory.createDeviceRegistrar(establishIdentity("device", "testdevice"));
+    const provider = factory.createProviderRegistrar(establishIdentity("provider", "testprovider"));
 
     return {
         c,
         registry,
+        factory,
         registrar: core,
         core,
         extension,

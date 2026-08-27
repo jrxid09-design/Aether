@@ -44,8 +44,7 @@ test("hostile: accessor-bearing observation metadata rejected", () => {
 });
 
 test("hostile: hostile Proxy at the untrusted boundary is rejected", () => {
-    const { registry } = makeRegistry();
-    const core = registry.createRegistrar({ domain: "core" });
+    const { core } = makeRegistry();
     let trapRuns = 0;
     const proxy = new Proxy(descriptor(), {
         get() { trapRuns++; throw new Error("get trap"); },
