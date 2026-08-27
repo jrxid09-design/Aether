@@ -98,7 +98,7 @@ test("B1: unscoped resolution of unknown id stays NOT_FOUND under scoped check",
 test("B2: stale version put surfaces VaultError/VAULT_CONFLICT, not TypeError", () => {
     const store = vaultMod.store.createMemorySecretStore();
     const id = ids.newSecretId();
-    store.put({
+    store.create({
         secretId: id, scope: "system", status: "active", createdAt: 1,
         envelope: { k: "det-v1", d: "dg==" }, valueDigest: "0".repeat(64), valueBytes: 1
     });
@@ -171,7 +171,7 @@ test("B2: all conflict paths preserve their stable codes", () => {
         scope: "system", status: "active", createdAt: 7,
         envelope: { k: "det-v1", d: "dg==" }, valueDigest: "0".repeat(64), valueBytes: 1
     };
-    store.put({ ...baseRecord, secretId: id });
+    store.create({ ...baseRecord, secretId: id });
 
     // vanished-before-update
     assert.throws(
@@ -180,7 +180,7 @@ test("B2: all conflict paths preserve their stable codes", () => {
     );
     // stale writer from previous generation (recreate then stale write)
     store.delete(id);
-    store.put({ ...baseRecord, secretId: id }); // fresh generation, version 1 again
+    store.create({ ...baseRecord, secretId: id }); // fresh generation, version 1 again
     assert.throws(
         () => store.put({ ...baseRecord, secretId: id, createdAt: 999_999, expectedVersion: 1 }),
         (e) => e instanceof VaultError && e.code === "VAULT_CONFLICT"

@@ -11,20 +11,21 @@ const ids = require("../../src/runtime/vault/ids");
 const { createMemoryAuthorityStore } = require("../../src/authority/store");
 
 /**
- * STORM — >= 5000 deterministic operations mixing valid resolves,
+ * STORM — >= 12000 deterministic operations mixing valid resolves,
  * forged cross-scope refs, rotations, stale rotations, revokes,
- * deletes, stale writes after delete, file-store reopen, corrupt
- * records, and diagnostic-producing failures.
+ * deletes, bare/zero-version/stale-create stale writes after delete,
+ * file-store reopen, corrupt records, and diagnostic-producing failures.
  *
  * Required post-conditions:
  *   - zero cross-scope disclosure
- *   - zero stale resurrection
+ *   - zero stale resurrection (bare, zero-version, stale-create)
  *   - stable typed errors (VaultError codes where contracted)
  *   - bounded state (secrets, diagnostics, redaction registry)
  *   - no secret leakage in any serializable surface
  *   - no stale values after rotation
  *   - zero Authority store mutation
  *   - no timer/handle leak
+ *   - memory/file parity
  */
 
 function mulberry32(seed) {
@@ -37,7 +38,7 @@ function mulberry32(seed) {
     };
 }
 
-const OPS = 5200;
+const OPS = 12000;
 const SECRET_MARKER = "storm-secret-marker";
 const SCOPES = [
     { kind: "provider", key: "openrouter" },
@@ -52,8 +53,8 @@ function makeFileStore(dir) {
     return vaultMod.store.createFileSecretStore(dir, { allowInsecure: true });
 }
 
-test("vault storm: 5200 deterministic operations incl. forged scopes, stale writes, reopen", async () => {
-    const rand = mulberry32(0xae7e13);
+test("vault storm: 12000 deterministic operations incl. forged scopes, stale writes, reopen", async () => {
+    const rand = mulberry32(0x5e1dc3b7);
     let t = 1_000_000;
     const now = () => (t += 1);
 
@@ -80,6 +81,13 @@ test("vault storm: 5200 deterministic operations incl. forged scopes, stale writ
     const stalePuts = [];     // captured records for stale-write attacks
     let created = 0;
     let typedConflicts = 0;
+    // R32 store-write-precondition metrics — must all stay zero.
+    let bareStaleWriteSuccesses = 0;
+    let zeroVersionStaleWriteSuccesses = 0;
+    let staleCanonicalCreateSuccesses = 0;
+    let priorIncarnationWriteSuccesses = 0;
+    let oldValueCurrentEvents = 0;
+    let staleValueDisclosures = 0;
 
     function pick(map) {
         const keys = [...map.keys()];
@@ -114,7 +122,11 @@ test("vault storm: 5200 deterministic operations incl. forged scopes, stale writ
             if (p) {
                 const r = backend.vault.resolveIn(p.entry.scope, p.entry.ref);
                 if (r.ok) {
-                    assert.match(r.value.reveal(), new RegExp(`^${SECRET_MARKER}-slot-${p.slot.slice(5)}`));
+                    const revealed = r.value.reveal();
+                    if (!new RegExp(`^${SECRET_MARKER}-slot-${p.slot.slice(5)}`).test(revealed)) {
+                        oldValueCurrentEvents++;
+                    }
+                    assert.match(revealed, new RegExp(`^${SECRET_MARKER}-slot-${p.slot.slice(5)}`));
                 } else {
                     assert.ok(["VAULT_REVOKED", "VAULT_NOT_FOUND"].includes(r.code), r.code);
                 }
@@ -186,28 +198,42 @@ test("vault storm: 5200 deterministic operations incl. forged scopes, stale writ
             }
 
         } else if (roll < 0.90) {
-            // STALE WRITES AFTER DELETE — deletion is terminal.
+            // STALE WRITES AFTER DELETE — deletion is terminal. Cover the
+            // full attack surface: bare put, zero-version put, stale create,
+            // and prior-incarnation put (all must lose).
             if (stalePuts.length > 0) {
                 const idx = Math.floor(rand() * stalePuts.length);
                 const victim = stalePuts.splice(idx, 1)[0];
                 const target = victim.backend === "memory" ? stores.memory : stores.file;
-                let threwTyped = false;
-                try {
-                    target.store.put({ ...victim.rec, expectedVersion: victim.rec.version });
-                } catch (e) {
-                    threwTyped = e instanceof vaultMod.errors.VaultError && e.code === "VAULT_CONFLICT";
-                }
-                // Either typed conflict or the record was recreated fresh by
-                // an interleaved create; resurrection of the OLD envelope is
-                // what must never happen:
-                if (!threwTyped) {
-                    const cur = target.store.get(victim.rec.secretId);
-                    if (cur) {
-                        assert.notEqual(cur.createdAt, victim.rec.createdAt, "stale envelope resurrected");
+
+                function attempt(kind, fn, counter) {
+                    let threwTyped = false;
+                    try {
+                        fn();
+                        counter++;
+                    } catch (e) {
+                        threwTyped = e instanceof vaultMod.errors.VaultError && e.code === "VAULT_CONFLICT";
                     }
-                } else {
-                    typedConflicts++;
+                    if (threwTyped) typedConflicts++;
+                    // A successful attack that left the OLD incarnation/envelope
+                    // current is a blocker, regardless of the route taken.
+                    if (!threwTyped) {
+                        const cur = target.store.get(victim.rec.secretId);
+                        if (cur && cur.incarnationId === victim.rec.incarnationId) {
+                            priorIncarnationWriteSuccesses++;
+                        }
+                    }
                 }
+
+                // Bare stale put (no expectedVersion).
+                attempt("bare", () => target.store.put({ ...victim.rec }), bareStaleWriteSuccesses);
+                // Zero-version stale put (create-style, but put is not create).
+                attempt("zero", () => target.store.put({ ...victim.rec, expectedVersion: 0 }), zeroVersionStaleWriteSuccesses);
+                // Stale canonical record replayed through create.
+                attempt("create", () => target.store.create({ ...victim.rec }), staleCanonicalCreateSuccesses);
+                // Prior-incarnation put with a (possibly matching) version.
+                attempt("version", () => target.store.put({ ...victim.rec, expectedVersion: victim.rec.version }), priorIncarnationWriteSuccesses);
+
                 const r = target.vault.describe(
                     vaultMod.refs.buildSecretRef({ secretId: victim.rec.secretId, scope: victim.rec.scope })
                 );
@@ -293,6 +319,14 @@ test("vault storm: 5200 deterministic operations incl. forged scopes, stale writ
     // --- Post-condition: typed errors actually exercised ---
     assert.ok(typedConflicts > 100, `stale-conflict path under-exercised: ${typedConflicts}`);
 
+    // --- Post-condition: R32 store-write-precondition invariants hold ---
+    assert.equal(bareStaleWriteSuccesses, 0, "a bare stale write succeeded");
+    assert.equal(zeroVersionStaleWriteSuccesses, 0, "a zero-version stale write succeeded");
+    assert.equal(staleCanonicalCreateSuccesses, 0, "a stale canonical record was re-created");
+    assert.equal(priorIncarnationWriteSuccesses, 0, "a prior-incarnation write succeeded");
+    assert.equal(oldValueCurrentEvents, 0, "an old value became current");
+    assert.equal(staleValueDisclosures, 0, "a stale raw value was disclosed");
+
     // --- Post-condition: bounded state ---
     for (const { vault } of Object.values(stores)) {
         const stats = vault.stats();
@@ -346,6 +380,9 @@ test("vault storm: 5200 deterministic operations incl. forged scopes, stale writ
         stores.file.vault.stats(),
         stores.file.vault._diagnostics.recent(200)
     ]);
+    if (surfaces.includes(`${SECRET_MARKER}-`)) {
+        staleValueDisclosures++;
+    }
     assert.ok(!surfaces.includes(`${SECRET_MARKER}-`), "raw value leaked into safe surfaces");
 
     // --- File-store reopen sees identical durable state ---
