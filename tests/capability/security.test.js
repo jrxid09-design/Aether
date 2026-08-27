@@ -95,19 +95,34 @@ test("surface: no authority verbs in public API", () => {
 
 test("surface: descriptors cannot express authority decision fields", () => {
     const api = require("../../src/capability/registry");
-    // The descriptor schema is closed; authority-shaped fields are unknown.
+    // The descriptor schema is closed; authority-shaped fields are unknown,
+    // and `provenance` is NOT a descriptor field (it originates from the
+    // registrar). A descriptor literally named shell.execute is inert.
     const descriptor = api.parseCapabilityDescriptor({
         schemaVersion: 1,
         id: "shell.execute",
         kind: "tool",
         provider: "core",
         source: "core/runtime",
-        operations: ["execute"],
-        provenance: "core/runtime"
+        operations: ["execute"]
     });
-    // even a capability literally named shell.execute is inert descriptive data
     assert.equal(descriptor.id, "shell.execute");
     assert.equal(typeof descriptor.authorized, "undefined");
     assert.equal(typeof descriptor.owner, "undefined");
     assert.equal(typeof descriptor.approved, "undefined");
+    assert.equal(typeof descriptor.provenance, "undefined");
+});
+
+test("surface: descriptor must not define authoritative provenance", () => {
+    const api = require("../../src/capability/registry");
+    assert.throws(
+        () => api.parseCapabilityDescriptor({
+            schemaVersion: 1,
+            id: "shell.execute",
+            kind: "tool",
+            provider: "core",
+            operations: ["execute"],
+            provenance: "core/runtime"
+        }),
+        (e) => e.reasonCode === "FORBIDDEN_PROVENANCE");
 });

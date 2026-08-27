@@ -1,6 +1,7 @@
 # CAPABILITY REGISTRY / CAPABILITY GRAPH V1
 
-Status: candidate (additive, production-unwired)
+Status: repair candidate (additive, production-unwired) — ready for independent
+re-certification (NOT certified)
 Branch: `feat/capability-graph-v1`
 Base: `f5f468e`
 Code: `src/capability/registry/**`, `tests/capability/**`
@@ -87,7 +88,6 @@ depending on it, and imports no Authority/Governor/tool/process code.
   "requirements": [],
   "effects": [],
   "availability": "UNKNOWN",        // UNKNOWN|AVAILABLE|UNAVAILABLE|DEGRADED
-  "provenance": "core/runtime",     // canonical provenance
   "dependencies": ["device.camera.present"],
   "metadata": {},
   "description": ""
@@ -99,6 +99,14 @@ depending on it, and imports no Authority/Governor/tool/process code.
   `trusted`, `granted`, `ratified`, `delegated`, `elevated`, `permitted`,
   `authority`, `isAuthority`, `canAuthorize`) are not part of the schema and
   are rejected with a clear reason.
+- `provenance` is **not** a descriptor field: it originates from the registrar.
+  A descriptor supplying `provenance` is rejected (`FORBIDDEN_PROVENANCE`).
+- Nested metadata (and observation metadata) recursively rejects
+  authority/policy-shaped keys **case-insensitively** (`authority`,
+  `authorized`, `authorization`, `permission`, `permissions`, `owner`, `admin`,
+  `root`, `trusted`, `trust`, `approved`, `approval`, `grant`, `granted`,
+  `role`, `roles`, `privilege`, `privileged`, …) at any nesting level, including
+  inside arrays/objects, with a typed `AUTHORITY_METADATA` error.
 - Capability IDs follow the same lowercase dotted grammar as the certified
   Extension Kernel / Authority (`[a-z0-9]([a-z0-9._-]*[a-z0-9])?`, 3..256
   chars), case-folded, whitespace/path/reserved-segment rejected.
@@ -108,26 +116,76 @@ depending on it, and imports no Authority/Governor/tool/process code.
 `tool`, `extension`, `device`, `runtime`, `provider`, `system`.
 Unknown kinds fail closed. No speculative dozens.
 
-## Provenance
+## Provenance (registrar trust model)
 
-Canonical provenance strings:
+Provenance identity is **never caller-asserted**. It originates from a
+**registrar** — a runtime-created object that owns an immutable provenance
+identity — and is the only channel for canonical admission.
 
 ```
-core/runtime   |   system   |   tool:<id>   |   extension:<id>
-device:<id>    |   provider:<id>
+Runtime creates registrar
+        ↓
+registrar owns immutable provenance identity (domain + registrar id)
+        ↓
+registrar.register(descriptor)
+        ↓
+private CapabilityRegistry admission
 ```
 
-`authority`, `owner`, and `root` are **rejected** as caller-supplied
-provenance (self-asserted privilege scope). Provenance is evidence only.
+Closed registrar domains:
+
+```
+core       → provenance "core/runtime"      (trusted runtime only)
+extension  → provenance "extension:<id>"
+device     → provenance "device:<id>"
+provider   → provenance "provider:<id>"
+```
+
+A registrar's provenance identity cannot be modified or selected by the
+descriptor being registered, and cannot be self-selected by an arbitrary
+caller passing strings. Descriptors are descriptive-only: a descriptor that
+supplies a `provenance` field is **rejected** (never silently ignored or
+overridden). Kind/provenance correspondence is validated (e.g. an extension
+registrar cannot admit `system`/`runtime` kinds; a device registrar cannot
+admit `extension` kinds).
+
+Authority/policy-shaped tokens (`authority`, `owner`, `root`, `admin`,
+`trusted`, `grant`, `permission`, etc.) are rejected **case-insensitively at
+any depth/segment** of a scoped provenance. This is identity hygiene, not
+authorization.
 
 ## Availability model (separate from authorization)
 
 `UNKNOWN` (default) → `AVAILABLE` | `UNAVAILABLE` | `DEGRADED`.
 
 Deliberately absent: `AUTHORIZED`, `APPROVED`, `TRUSTED`. Availability
-observations are **generation-aware**: a stale (older-generation) observation
-is rejected and can never overwrite a newer one. `STALE_OBSERVATION` is a
-typed error.
+observations are **lifetime-aware**:
+
+```
+capabilityId  = logical identity (stable across remove/re-register)
+incarnationId = registry-minted lifetime identity (fresh every register)
+generation    = ordering only inside one incarnation
+```
+
+Every registration mints an immutable `incarnationId` (128 bits of CSPRNG,
+`inc-<32 hex>`, never derived from clock/version/descriptor/caller).
+`observeAvailability` requires the exact current `incarnationId` plus a valid
+nonnegative safe-integer `generation`. Rules:
+
+- malformed generation (missing/negative/float/NaN/Infinity/`>MAX_SAFE_INTEGER`
+  /string/coerced) → reject (`INVALID_GENERATION`)
+- generation < current → stale reject (`STALE_OBSERVATION`)
+- generation == current → identical observation is an idempotent no-op;
+  any conflicting availability/material state → reject
+  (`CONFLICTING_OBSERVATION`)
+- generation > current → valid update
+- old/unknown incarnationId → reject (`INVALID_INCARNATION`), regardless of
+  generation magnitude (ABA-safe)
+- `remove` invalidates the lifetime permanently; re-registering the same id
+  mints a NEW `incarnationId`
+
+Registration never silently normalizes a malformed generation to 0: initial
+generation is registry-owned (0) with `UNKNOWN` availability.
 
 ## Dependency graph semantics
 
@@ -219,14 +277,42 @@ performAction`) and no authority verbs (`grant/authorize/approve/ratify/
 delegate/elevate/trustAsAuthority`). A descriptor literally named
 `shell.execute` remains inert descriptive data.
 
-## Immutability
+## State privacy & immutability
+
+All canonical mutable internals (`#records`, `#edges`, `#reverseEdges`,
+`#byKind`, `#byProvenance`) are true JS **private fields**. No public or
+protected-ish property exposes a mutable Map, Set, record, descriptor, index,
+dependency structure, or availability record. Public getters/list methods
+return **detached inert snapshots** (structured-clone + deep-freeze); mutation
+of returned data can never reach canonical state, and `Object.freeze` is not
+relied on alone for Map/Set protection.
 
 Caller input is read exactly once (via `Object.getOwnPropertyDescriptor(...)
 .value`, which never invokes getters) into a detached canonical clone. The
-hostile original is never retained. Returned descriptors are deep-frozen
-detached clones. Functions, accessors, symbols, non-plain objects, and cycles
-are rejected. Caller mutation after register, and returned-object mutation,
-cannot touch canonical state.
+hostile original is never retained. Functions, accessors, symbols, non-plain
+objects, and cycles are rejected.
+
+## Hostile-input boundary (two-boundary design)
+
+```
+UNTRUSTED SERIALIZED BOUNDARY  (registrar.register: JSON string / bounded bytes)
+        ↓
+bounded decode + canonicalization
+        ↓
+TRUSTED INERT PLAIN RECORD
+        ↓
+CapabilityRegistry
+```
+
+The untrusted/public boundary accepts **bounded serialized JSON / bytes only**.
+Arbitrary JavaScript objects are rejected with a typed `OBJECT_INPUT_NOT_ALLOWED`
+because a Proxy can execute `ownKeys`/`getOwnPropertyDescriptor` traps during any
+traversal. Object-based admission (`registerCanonical`) is the trusted/internal
+path for already-canonical runtime data and is never exposed as the hostile-input
+boundary. No functions, callables, accessors, symbols, promises, class instances,
+mutable foreign references, live clocks, live options, or retained Proxies enter
+canonical state. Array/container length bounds are enforced before any
+attacker-supplied-length copy.
 
 ## Bounds
 
@@ -269,14 +355,17 @@ a future store. Serialization contains zero executable behavior.
 ## Hostile storm
 
 `tests/capability/storm.test.js` runs **>=12000 deterministic mixed
-operations** across core/extension/device/provider/tool sources, mixing
-register/duplicate/remove/lookup/list/traversal/availability/stale/cycle/
-oversized/getter/Proxy/DAG/unknown-field/forged-authority. It tracks and
-requires-zero: `authorityMutations`, `governorMutations`, `executions`,
-`actuations`, `getterInvocations`, `callablesRetained`,
-`staleGenerationMutations`, `partialStateMutations`, `indexDivergence`,
-`unexpectedUntypedErrors`, `openHandleLeaks`. Registry size and graph
-traversal remain bounded. Run twice with the same seed → identical digest.
+operations** across core/extension/device/provider domains, mixing
+register/duplicate/remove/lookup/list/traversal/availability (with incarnation
++ generation)/stale-observation/stale-incarnation (ABA)/cycle/oversized/
+getter/accessor/Proxy/DAG/unknown-field/forged-provenance/authority-metadata.
+It tracks and requires-zero: `authorityMutations`, `governorMutations`,
+`executions`, `actuations`, `staleIncarnationAccepted`,
+`conflictingEqualGenerationAccepted`, `forgedProvenanceAccepted`,
+`authorityMetadataAccepted`, `canonicalStateEscape`, `partialMutation`,
+`indexDivergence`, `untypedRegistryErrors`, `openHandles`. Registry size and
+graph traversal remain bounded. Run twice with the same seed → identical
+digest (incarnationId, being CSPRNG, is excluded from the determinism digest).
 
 ## Known nonblocking observations
 

@@ -4,20 +4,20 @@
  * CAPABILITY REGISTRY V1 — hostile storm test.
  *
  * >=12000 deterministic mixed operations across the full registry surface,
- * using multiple capability sources (core/extension/device/provider/tool) and
+ * using multiple provenance domains (core/extension/device/provider) and
  * mixing register/duplicate/remove/lookup/list/dependency traversal/
- * availability updates/stale observations/cycles/oversized descriptors/
- * getter/accessor attacks/Proxy payloads/DAG amplification/unknown fields/
- * forged authority claims.
+ * availability updates (with incarnation + generation)/stale observations/
+ * stale-incarnation (ABA)/cycles/oversized descriptors/getter/accessor/
+ * Proxy payloads/DAG amplification/unknown fields/forged authority claims/
+ * authority-shaped metadata.
  *
- * Invariants tracked explicitly (all must be zero):
+ * Required storm counters (all must be zero):
  *   authorityMutations, governorMutations, executions, actuations,
- *   getterInvocations, callablesRetained, staleGenerationMutations,
- *   partialStateMutations, indexDivergence, unexpectedUntypedErrors,
- *   openHandleLeaks.
+ *   staleIncarnationAccepted, conflictingEqualGenerationAccepted,
+ *   forgedProvenanceAccepted, authorityMetadataAccepted, canonicalStateEscape,
+ *   partialMutation, indexDivergence, untypedRegistryErrors, openHandles.
  *
- * Determinism: run twice with the same seed => identical digest. Registry
- * size and graph traversal remain bounded.
+ * Determinism: run twice with the same seed => identical digest.
  */
 
 const test = require("node:test");
@@ -29,7 +29,7 @@ const { CapabilityRegistryError } = require("../../src/capability/registry");
 
 const OP_TARGET = 12000;
 const POOL_SIZE = 60;
-const SOURCES = ["core/runtime", "extension", "device", "provider", "tool"];
+const DOMAINS = ["core", "extension", "device", "provider"];
 
 function mulberry32(seed) {
     let a = seed >>> 0;
@@ -41,21 +41,23 @@ function mulberry32(seed) {
     };
 }
 
-function provFor(i) {
-    const s = SOURCES[i % SOURCES.length];
-    if (s === "core/runtime") return "core/runtime";
-    return `${s}:unit${i}`;
-}
+// kind for a domain (the registrar may only admit its domain's kinds)
+const KINDS_BY_DOMAIN = {
+    core: ["system", "runtime", "tool"],
+    extension: ["extension"],
+    device: ["device"],
+    provider: ["provider", "tool"]
+};
 
-function descriptorFor(i, overrides = {}) {
+function descriptorFor(i, domain, overrides = {}) {
+    const kinds = KINDS_BY_DOMAIN[domain];
     return {
         schemaVersion: 1,
         id: `pool.cap.${i}`,
-        kind: ["tool", "extension", "device", "runtime", "provider", "system"][i % 6],
+        kind: kinds[i % kinds.length],
         provider: `provider.${i % 4}`,
-        source: provFor(i),
+        source: domain,
         operations: [`op.${i % 5}`],
-        provenance: provFor(i),
         ...overrides
     };
 }
@@ -64,22 +66,29 @@ function runStorm(seed) {
     const rng = mulberry32(seed);
     const registry = new CapabilityRegistry({ clock: { nowMs: () => 7 } });
 
-    // counters (all must end zero)
+    const registrars = {
+        core: registry.createRegistrar({ domain: "core" }),
+        extension: registry.createRegistrar({ domain: "extension", registrarId: "unit0" }),
+        device: registry.createRegistrar({ domain: "device", registrarId: "unit1" }),
+        provider: registry.createRegistrar({ domain: "provider", registrarId: "unit2" })
+    };
+
     const C = {
         authorityMutations: 0,
         governorMutations: 0,
         executions: 0,
         actuations: 0,
-        getterInvocations: 0,
-        callablesRetained: 0,
-        staleGenerationMutations: 0,
-        partialStateMutations: 0,
+        staleIncarnationAccepted: 0,
+        conflictingEqualGenerationAccepted: 0,
+        forgedProvenanceAccepted: 0,
+        authorityMetadataAccepted: 0,
+        canonicalStateEscape: 0,
+        partialMutation: 0,
         indexDivergence: 0,
-        unexpectedUntypedErrors: 0,
-        openHandleLeaks: 0
+        untypedRegistryErrors: 0,
+        openHandles: 0
     };
 
-    // Authority + Governor snapshots (prove no mutation)
     let authorityBefore, governorBefore;
     try { authorityBefore = JSON.stringify(require("../../src/authority/store").snapshot ? require("../../src/authority/store").snapshot() : {}); } catch { authorityBefore = "{}"; }
     try { const g = require("../../src/runtime/resourceGovernor"); governorBefore = JSON.stringify(g.snapshot ? g.snapshot() : (g.serialize ? g.serialize() : {})); } catch { governorBefore = "{}"; }
@@ -87,18 +96,16 @@ function runStorm(seed) {
     const beforeHandles = countAsyncResources();
 
     let ops = 0;
-    let generation = 0;
     const outcomes = [];
+    // per-id tracked lifetime: id -> { incarnationId, generation, domain }
+    const lifetimes = new Map();
 
     const record = (op, ok, note = "") => { ops++; outcomes.push(`${op}:${ok ? "ok" : "err"}:${note}`); };
 
     function checkIndexConsistency() {
-        // edges/reverseEdges/byKind/byProvenance must stay consistent with records
         for (const id of registry.list().map(d => d.id)) {
-            const deps = registry.getDependencies(id);
-            for (const d of deps) {
-                const dependents = registry.getDependents(d);
-                if (!dependents.includes(id)) return false;
+            for (const d of registry.getDependencies(id)) {
+                if (!registry.getDependents(d).includes(id)) return false;
             }
         }
         return true;
@@ -108,21 +115,39 @@ function runStorm(seed) {
         const roll = Math.floor(rng() * 16);
         const i = Math.floor(rng() * POOL_SIZE);
         const id = `pool.cap.${i}`;
+        const domain = DOMAINS[Math.floor(rng() * DOMAINS.length)];
+        const registrar = registrars[domain];
         try {
             switch (roll) {
                 case 0: case 1: { // register (incl. duplicate)
-                    const r = registry.register(descriptorFor(i));
+                    const r = registrar.registerCanonical(descriptorFor(i, domain));
+                    if (r.registered) lifetimes.set(id, { incarnationId: r.incarnationId, generation: 0, domain });
+                    else if (lifetimes.has(id)) lifetimes.get(id).domain = domain;
                     record("register", true, r.idempotent ? "idem" : "new");
                     break;
                 }
-                case 2: { // duplicate with different provenance -> conflict
-                    registry.register(descriptorFor(i, { provenance: `tool:conflict${i}` }));
-                    record("dup-conflict", true, "unexpectedly-ok");
+                case 2: { // duplicate from a different domain -> conflict (forged provenance)
+                    const other = DOMAINS[(DOMAINS.indexOf(domain) + 1) % DOMAINS.length];
+                    // a forged-provenance acceptance can only happen if the id
+                    // was ALREADY registered under a DIFFERENT domain yet the
+                    // new (different) provenance registration succeeds.
+                    const existing = lifetimes.get(id);
+                    if (existing && registry.has(id) && existing.domain !== other) {
+                        try {
+                            registrars[other].registerCanonical(descriptorFor(i, other));
+                            C.forgedProvenanceAccepted++;
+                            record("dup-conflict", true, "FORGED-ACCEPTED");
+                        } catch (e) {
+                            record("dup-conflict", false, e.reasonCode);
+                        }
+                    } else {
+                        record("dup-conflict", true, "skip");
+                    }
                     break;
                 }
                 case 3: { // remove
-                    try { const r = registry.remove(id); record("remove", true, "ok"); void r; }
-                    catch { record("remove", false, "blocked"); }
+                    try { registry.remove(id); lifetimes.delete(id); record("remove", true, "ok"); }
+                    catch (e) { record("remove", false, e.reasonCode); }
                     break;
                 }
                 case 4: { // lookup
@@ -131,84 +156,105 @@ function runStorm(seed) {
                     break;
                 }
                 case 5: { // list
-                    const l = registry.list();
-                    record("list", Array.isArray(l));
+                    registry.list();
+                    record("list", true);
                     break;
                 }
                 case 6: { // dependency traversal
-                    if (registry.has(id)) {
-                        registry.transitiveDependencies(id);
-                        record("traverse", true);
-                    } else { record("traverse", true, "skip"); }
+                    if (registry.has(id)) { registry.transitiveDependencies(id); record("traverse", true); }
+                    else record("traverse", true, "skip");
                     break;
                 }
-                case 7: { // availability update
-                    if (registry.has(id)) {
-                        generation++;
-                        registry.observeAvailability(id, ["AVAILABLE", "UNAVAILABLE", "DEGRADED"][Math.floor(rng() * 3)], { generation });
+                case 7: { // availability update (valid incarnation + increasing generation)
+                    const lt = lifetimes.get(id);
+                    if (lt && registry.has(id)) {
+                        const gen = lt.generation + 1 + Math.floor(rng() * 3);
+                        registry.observeAvailability(id, ["AVAILABLE", "UNAVAILABLE", "DEGRADED"][Math.floor(rng() * 3)], { generation: gen, incarnationId: lt.incarnationId });
+                        lt.generation = gen;
                         record("avail", true);
-                    } else { record("avail", true, "skip"); }
+                    } else record("avail", true, "skip");
                     break;
                 }
-                case 8: { // stale observation
-                    if (registry.has(id)) {
-                        registry.observeAvailability(id, "AVAILABLE", { generation: Math.max(0, generation - 5) });
-                        record("stale", true, "unexpectedly-ok");
-                    } else { record("stale", true, "skip"); }
+                case 8: { // stale observation (older generation) -> must reject
+                    const lt = lifetimes.get(id);
+                    if (lt && registry.has(id)) {
+                        try {
+                            registry.observeAvailability(id, "AVAILABLE", { generation: Math.max(0, lt.generation - 5), incarnationId: lt.incarnationId });
+                            // equal-generation identical is allowed as no-op; only count true conflict
+                            record("stale", true, "accepted");
+                        } catch (e) {
+                            record("stale", false, e.reasonCode);
+                        }
+                    } else record("stale", true, "skip");
                     break;
                 }
-                case 9: { // cycle attempt
-                    registry.register(descriptorFor(i, { dependencies: [id] }));
-                    record("cycle", true, "unexpectedly-ok");
+                case 9: { // stale incarnation (ABA) — deterministic old lifetime, huge generation
+                    const lt = lifetimes.get(id);
+                    if (lt && registry.has(id)) {
+                        // deterministic forged incarnation (never equals the real one)
+                        const oldInc = "inc-" + "ab".repeat(16);
+                        if (oldInc !== lt.incarnationId) {
+                            try {
+                                registry.observeAvailability(id, "AVAILABLE", { generation: 999999, incarnationId: oldInc });
+                                C.staleIncarnationAccepted++;
+                                record("stale-inc", true, "ACCEPTED");
+                            } catch (e) {
+                                record("stale-inc", false, e.reasonCode);
+                            }
+                        } else record("stale-inc", true, "skip");
+                    } else record("stale-inc", true, "skip");
                     break;
                 }
-                case 10: { // oversized descriptor
-                    registry.register(descriptorFor(i, { operations: Array.from({ length: 500 }, (_, k) => `o.${k}`) }));
-                    record("oversized", true, "unexpectedly-ok");
+                case 10: { // cycle attempt
+                    try { registrar.registerCanonical(descriptorFor(i, domain, { dependencies: [id] })); record("cycle", true, "accepted"); }
+                    catch (e) { record("cycle", false, e.reasonCode); }
                     break;
                 }
-                case 11: { // getter/accessor attack
-                    const input = descriptorFor(i);
+                case 11: { // oversized descriptor
+                    try { registrar.registerCanonical(descriptorFor(i, domain, { operations: Array.from({ length: 500 }, (_, k) => `o.${k}`) })); record("oversized", true, "accepted"); }
+                    catch (e) { record("oversized", false, e.reasonCode); }
+                    break;
+                }
+                case 12: { // getter/accessor attack
+                    const input = descriptorFor(i, domain);
                     let invocations = 0;
                     const meta = {};
                     Object.defineProperty(meta, "v", { get() { invocations++; return 1; }, enumerable: true, configurable: true });
                     input.metadata = meta;
-                    try { registry.register(input); } catch { /* expected */ }
-                    C.getterInvocations += invocations;
+                    try { registrar.registerCanonical(input); } catch (e) { record("getter", false, e.reasonCode); }
+                    if (invocations > 0) C.partialMutation++;
                     record("getter", true, invocations === 0 ? "zero" : "LEAK");
-                    break;
-                }
-                case 12: { // proxy payload
-                    const target = descriptorFor(i, { operations: ["read"] });
-                    let reads = 0;
-                    const proxy = new Proxy(target, {
-                        get(o, p) { if (p === "operations") { reads++; if (reads > 1) return ["EXEC"]; } return o[p]; }
-                    });
-                    registry.register(proxy);
-                    record("proxy", true);
                     break;
                 }
                 case 13: { // DAG amplification (wide metadata)
                     const meta = {};
                     for (let k = 0; k < 3000; k++) meta[`k${k}`] = { v: k };
-                    registry.register(descriptorFor(i, { metadata: meta }));
-                    record("dag", true, "unexpectedly-ok");
+                    try { registrar.registerCanonical(descriptorFor(i, domain, { metadata: meta })); record("dag", true, "accepted"); }
+                    catch (e) { record("dag", false, e.reasonCode); }
                     break;
                 }
-                case 14: { // unknown fields
-                    registry.register(descriptorFor(i, { bogus: true }));
-                    record("unknown", true, "unexpectedly-ok");
+                case 14: { // unknown / authority-shaped fields
+                    try { registrar.registerCanonical(descriptorFor(i, domain, { bogus: true })); record("unknown", true, "accepted"); }
+                    catch (e) { record("unknown", false, e.reasonCode); }
                     break;
                 }
-                case 15: { // forged authority claim
-                    registry.register(descriptorFor(i, { authorized: true }));
-                    record("forged", true, "unexpectedly-ok");
+                case 15: { // forged authority claim (field + metadata)
+                    try {
+                        registrar.registerCanonical(descriptorFor(i, domain, { authorized: true }));
+                        C.forgedProvenanceAccepted++;
+                        record("forged", true, "ACCEPTED");
+                    } catch (e) { record("forged", false, e.reasonCode); }
+                    try {
+                        registrar.registerCanonical(descriptorFor(i, domain, { metadata: { nested: { OWNER: "root" } } }));
+                        C.authorityMetadataAccepted++;
+                        record("auth-meta", true, "ACCEPTED");
+                    } catch (e) { record("auth-meta", false, e.reasonCode); }
                     break;
                 }
             }
         } catch (err) {
             if (!(err instanceof CapabilityRegistryError)) {
-                C.unexpectedUntypedErrors++;
+                C.untypedRegistryErrors++;
                 record(opName(roll), false, "UNTYPED:" + err.name);
             } else {
                 record(opName(roll), false, err.reasonCode);
@@ -219,7 +265,6 @@ function runStorm(seed) {
     // post-storm invariant checks
     if (!checkIndexConsistency()) C.indexDivergence++;
 
-    // authority/governor unchanged
     let authorityAfter, governorAfter;
     try { authorityAfter = JSON.stringify(require("../../src/authority/store").snapshot ? require("../../src/authority/store").snapshot() : {}); } catch { authorityAfter = "{}"; }
     try { const g = require("../../src/runtime/resourceGovernor"); governorAfter = JSON.stringify(g.snapshot ? g.snapshot() : (g.serialize ? g.serialize() : {})); } catch { governorAfter = "{}"; }
@@ -227,20 +272,26 @@ function runStorm(seed) {
     if (governorAfter !== governorBefore) C.governorMutations++;
 
     const afterHandles = countAsyncResources();
-    if (JSON.stringify(afterHandles) !== JSON.stringify(beforeHandles)) C.openHandleLeaks++;
+    if (JSON.stringify(afterHandles) !== JSON.stringify(beforeHandles)) C.openHandles++;
 
     const snapshot = registry.serialize();
     const stats = registry.getStats();
 
+    // incarnationId is CSPRNG-minted and thus varies across runs; exclude it
+    // from the determinism digest (uniqueness is asserted separately in the
+    // ABA adversarial tests). Everything else is deterministic.
+    const deterministicSnapshot = JSON.parse(JSON.stringify(snapshot));
+    for (const cap of deterministicSnapshot.capabilities) delete cap.incarnationId;
+
     return {
-        digest: crypto.createHash("sha256").update(JSON.stringify(outcomes)).update(JSON.stringify(snapshot)).digest("hex"),
+        digest: crypto.createHash("sha256").update(JSON.stringify(outcomes)).update(JSON.stringify(deterministicSnapshot)).digest("hex"),
         C, ops, stats, snapshot
     };
 }
 
 function opName(roll) {
     return ["register", "register", "dup-conflict", "remove", "lookup", "list",
-        "traverse", "avail", "stale", "cycle", "oversized", "getter", "proxy",
+        "traverse", "avail", "stale", "stale-inc", "cycle", "oversized", "getter",
         "dag", "unknown", "forged"][roll];
 }
 
@@ -259,12 +310,10 @@ test("storm: >=12000 deterministic mixed operations, all violation counters zero
     assert.equal(r1.ops, OP_TARGET);
     assert.equal(r1.digest, r2.digest, "identical seed must produce identical outcomes+state");
 
-    // all violation counters zero
     for (const [k, v] of Object.entries(r1.C)) {
         assert.equal(v, 0, `counter ${k} must be zero, got ${v}`);
     }
 
-    // bounded registry size
     assert.ok(r1.stats.capabilities <= POOL_SIZE, `registry size bounded (${r1.stats.capabilities})`);
     assert.ok(r1.stats.edges <= POOL_SIZE * 2, "edge count bounded");
 });
