@@ -1,10 +1,10 @@
 "use strict";
 
-/** Shared helpers for action intent + authority gate tests (post trust-origin repair). */
+/** Shared helpers for action intent + authority gate tests (sealed runtime). */
 
 const { createCapabilityRuntime } = require("../../src/capability/registry");
 const { createMemoryAuthorityStore } = require("../../src/authority/store");
-const { createActionAuthorityRuntime } = require("../../src/action");
+const { createActionAuthorityRuntime, createAuthSessionIssuer } = require("../../src/action");
 
 const CLOCK_START = 1_000_000;
 
@@ -18,7 +18,6 @@ function manualClock(startMs = CLOCK_START) {
     };
 }
 
-/** Default deterministic scope resolver: scope token derived from arguments.target. */
 function defaultScopeResolver(args) {
     const target = args && typeof args.target === "string" ? args.target.trim().toLowerCase() : "";
     return target ? [target] : [];
@@ -26,9 +25,10 @@ function defaultScopeResolver(args) {
 
 /**
  * Build a full trusted harness:
- *   { registry, registrars, store, clock, rt, registerCapability, grantAuthority }
+ *   { registry, registrars, store, clock, rt, session, registerCapability, grantAuthority }
  *
- * `rt` is the trusted runtime surface: { admit, issueIdentity, gate }.
+ * `rt` is the trusted runtime surface: { admit, evaluate }.
+ * `session(principal, extra)` mints a branded AuthSessionCapability.
  */
 async function makeHarness({ clock, scopeBindings } = {}) {
     const c = clock ?? manualClock();
@@ -37,6 +37,7 @@ async function makeHarness({ clock, scopeBindings } = {}) {
         clock: { nowMs: () => c.nowMs() }
     });
     const store = createMemoryAuthorityStore();
+    const authSessionIssuer = createAuthSessionIssuer();
 
     const bindings = scopeBindings ?? {
         "filesystem.read": { read: defaultScopeResolver, write: defaultScopeResolver },
@@ -78,16 +79,19 @@ async function makeHarness({ clock, scopeBindings } = {}) {
         await store.upsertCapability(capabilityId, "ACTIVE", generation, JSON.stringify(grant));
     }
 
+    function session(principal = "alice", extra = {}) {
+        return authSessionIssuer.mintSession({ principal, ...extra });
+    }
+
     return {
         registry: capabilityRuntime.registry,
         registrars: capabilityRuntime.registrars,
         store, clock: c, rt,
+        authSessionIssuer,
+        session,
         admit: rt.admit,
-        issueIdentity: rt.issueIdentity,
-        gate: rt.gate,
-        // aliases for compatibility with existing tests
-        admission: { admit: rt.admit },
-        identity: (principal, extra = {}) => rt.issueIdentity({ principal, ...extra }),
+        evaluate: rt.evaluate,
+        gate: rt,
         registerCapability, grantAuthority
     };
 }

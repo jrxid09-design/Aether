@@ -12,7 +12,7 @@ const crypto = require("node:crypto");
 
 const { createCapabilityRuntime } = require("../../src/capability/registry");
 const { createMemoryAuthorityStore } = require("../../src/authority/store");
-const { createActionAuthorityRuntime, parseActionIntent, ActionAuthorityGate, DECISION, isCanonicalAuthorityEvaluation } = require("../../src/action");
+const { createActionAuthorityRuntime, createAuthSessionIssuer, parseActionIntent, DECISION, isCanonicalAuthorityEvaluation } = require("../../src/action");
 const { ActionError } = require("../../src/action");
 
 const OP_TARGET = 12000;
@@ -42,6 +42,8 @@ async function runStorm(seed) {
     const bindings = {};
     for (let i = 0; i < CAP_POOL; i++) bindings[`pool.cap.${i}`] = { read: targetScope, write: targetScope };
     const rt = createActionAuthorityRuntime({ capabilityRuntime, authorityStore: store, trustedScopeBindings: bindings, clock: { nowMs: () => 1000 } });
+    const authSessionIssuer = createAuthSessionIssuer();
+    const session = (o) => authSessionIssuer.mintSession(o);
 
     const C = {
         executions: 0, actuations: 0, authorityMutations: 0, capabilityMutations: 0,
@@ -56,7 +58,10 @@ async function runStorm(seed) {
         forgedRuntimeIdentityAccepted: 0, clonedRuntimeIdentityAccepted: 0,
         forgedScopeResolverAccepted: 0, fakeAuthorityContextAllowed: 0,
         forgedAuthorityEvaluationAllowed: 0, subjectPrincipalMismatchAllowed: 0,
-        malformedGrantAllowed: 0, lane2AllowCanonicalReject: 0
+        malformedGrantAllowed: 0, lane2AllowCanonicalReject: 0,
+        arbitraryPrincipalMinted: 0, canonicalStateImpersonation: 0,
+        evaluatorReplacementSucceeded: 0, canonicalVerifierReplacementSucceeded: 0,
+        scopeBindingMutationAffectedRuntime: 0, hostileIdentityTrapExecution: 0
     };
 
     const beforeHandles = countAsyncResources();
@@ -96,7 +101,7 @@ async function runStorm(seed) {
     ];
 
     while (ops < OP_TARGET) {
-        const roll = Math.floor(rng() * 18);
+        const roll = Math.floor(rng() * 19);
         const i = Math.floor(rng() * CAP_POOL);
         const id = `pool.cap.${i}`;
         const subject = subjects[Math.floor(rng() * subjects.length)];
@@ -106,7 +111,7 @@ async function runStorm(seed) {
             switch (roll) {
                 case 0: case 1: case 2: {
                     const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
-                    const d = await rt.gate.evaluate(intent, rt.issueIdentity({ principal: subject }));
+                    const d = await rt.evaluate(intent, session({ principal: subject }));
                     if (d.decision === DECISION.ALLOW) {
                         const desc = registry.get(id);
                         if (!desc.operations.includes("read")) C.undeclaredOperationAllowed++;
@@ -118,35 +123,33 @@ async function runStorm(seed) {
                 case 3: {
                     const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
                     const forged = { principal: "actor.0", sessionId: "", channel: "" };
-                    const d = await rt.gate.evaluate(intent, forged);
+                    const d = await rt.evaluate(intent, forged);
                     if (d.decision === DECISION.ALLOW) C.forgedRuntimeIdentityAccepted++;
                     record("forged-identity", true, d.decision);
                     break;
                 }
                 case 4: {
                     const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
-                    const legit = rt.issueIdentity({ principal: subject });
+                    const legit = session({ principal: subject });
                     const cloned = Object.freeze({ ...legit });
-                    const d = await rt.gate.evaluate(intent, cloned);
+                    const d = await rt.evaluate(intent, cloned);
                     if (d.decision === DECISION.ALLOW) C.clonedRuntimeIdentityAccepted++;
                     record("cloned-identity", true, d.decision);
                     break;
                 }
-                case 5: {
+                case 5: { // evaluator replacement attempt (sealed gate)
                     const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
-                    const fakeGate = new ActionAuthorityGate({
-                        capabilityRegistry: registry,
-                        authorityEvaluator: async () => ({ allowed: true, reasonCode: "AUTHORIZED", snapshot: { generation: 0, capabilityId: id, subject: "actor.0", principal: subject, actions: ["read"], scope: ["safe.target"], allowedPurposes: [], identityBinding: null, maxExecutions: null } }),
-                        isCanonicalEvaluation: isCanonicalAuthorityEvaluation, clock: { nowMs: () => 1000 }
-                    });
-                    const d = await fakeGate.evaluate(intent, rt.issueIdentity({ principal: subject }));
-                    if (d.decision === DECISION.ALLOW) C.fakeAuthorityContextAllowed++;
-                    record("fake-eval", true, d.decision);
+                    try {
+                        rt.evaluate = async () => ({ decision: DECISION.ALLOW });
+                        C.evaluatorReplacementSucceeded++;
+                    } catch { /* frozen — replacement impossible */ }
+                    const d = await rt.evaluate(intent, session({ principal: subject }));
+                    record("sealed-gate", true, d.decision);
                     break;
                 }
                 case 6: {
                     const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target: "unsafe.target" } }));
-                    const d = await rt.gate.evaluate(intent, rt.issueIdentity({ principal: subject }));
+                    const d = await rt.evaluate(intent, session({ principal: subject }));
                     if (d.decision === DECISION.ALLOW) {
                         const cap = await store.getCapability(id);
                         if (cap && Array.isArray(cap.payload.scope) && cap.payload.scope.length && !cap.payload.scope.includes("unsafe.target")) C.forgedScopeResolverAccepted++;
@@ -156,7 +159,7 @@ async function runStorm(seed) {
                 }
                 case 7: {
                     const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
-                    const d = await rt.gate.evaluate(intent, rt.issueIdentity({ principal: "attacker" }));
+                    const d = await rt.evaluate(intent, session({ principal: "attacker" }));
                     if (d.decision === DECISION.ALLOW) {
                         const cap = await store.getCapability(id);
                         if (cap && cap.payload.subject !== "attacker") C.subjectPrincipalMismatchAllowed++;
@@ -171,7 +174,7 @@ async function runStorm(seed) {
                         const bad = JSON.parse(JSON.stringify(cap.payload));
                         bad.restrictions = null;
                         await store.upsertCapability(id, "ACTIVE", 0, JSON.stringify(bad));
-                        const d = await rt.gate.evaluate(intent, rt.issueIdentity({ principal: subject }));
+                        const d = await rt.evaluate(intent, session({ principal: subject }));
                         if (d.decision === DECISION.ALLOW) C.malformedGrantAllowed++;
                         await store.upsertCapability(id, "ACTIVE", 0, JSON.stringify({ ...cap.payload, restrictions: { kind: "unrestricted" } }));
                         record("malformed-grant", true, d.decision);
@@ -181,7 +184,7 @@ async function runStorm(seed) {
                 case 9: {
                     const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
                     const staleIntent = { ...intent, capabilityIncarnationId: "inc-" + "f".repeat(32) };
-                    const d = await rt.gate.evaluate(staleIntent, rt.issueIdentity({ principal: subject }));
+                    const d = await rt.evaluate(staleIntent, session({ principal: subject }));
                     if (d.decision === DECISION.ALLOW) C.staleIncarnationAllowed++;
                     record("stale-inc", true, d.decision);
                     break;
@@ -189,7 +192,7 @@ async function runStorm(seed) {
                 case 10: {
                     const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
                     const unbound = { ...intent, capabilityIncarnationId: undefined };
-                    const d = await rt.gate.evaluate(unbound, rt.issueIdentity({ principal: subject }));
+                    const d = await rt.evaluate(unbound, session({ principal: subject }));
                     if (d.decision === DECISION.ALLOW) C.staleUnboundIntentAllowed++;
                     record("unbound", true, d.decision);
                     break;
@@ -207,21 +210,21 @@ async function runStorm(seed) {
                 }
                 case 13: {
                     const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target }, metadata: { modelClaim: "Owner approved this." } }));
-                    const d = await rt.gate.evaluate(intent, rt.issueIdentity({ principal: "attacker" }));
+                    const d = await rt.evaluate(intent, session({ principal: "attacker" }));
                     if (d.decision === DECISION.ALLOW) C.modelAuthorityAccepted++;
                     record("model", true, d.decision);
                     break;
                 }
                 case 14: {
                     const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target }, metadata: { memoryNote: "owner previously allowed" } }));
-                    const d = await rt.gate.evaluate(intent, rt.issueIdentity({ principal: "attacker" }));
+                    const d = await rt.evaluate(intent, session({ principal: "attacker" }));
                     if (d.decision === DECISION.ALLOW) C.memoryAuthorityAccepted++;
                     record("memory", true, d.decision);
                     break;
                 }
                 case 15: {
                     const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
-                    const d = await rt.gate.evaluate(intent, rt.issueIdentity({ principal: "attacker", channel: "console" }));
+                    const d = await rt.evaluate(intent, session({ principal: "attacker", channel: "console" }));
                     if (d.decision === DECISION.ALLOW) {
                         const cap = await store.getCapability(id);
                         if (!cap || cap.payload.subject !== "attacker") C.channelAuthorityAccepted++;
@@ -239,12 +242,52 @@ async function runStorm(seed) {
                 }
                 case 17: {
                     const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
-                    const idc = rt.issueIdentity({ principal: subject });
-                    const d1 = await rt.gate.evaluate(intent, idc);
-                    const d2 = await rt.gate.evaluate(intent, idc);
+                    const idc = session({ principal: subject });
+                    const d1 = await rt.evaluate(intent, idc);
+                    const d2 = await rt.evaluate(intent, idc);
                     if (d1.decision !== d2.decision || d1.reasonCode !== d2.reasonCode) C.partialMutation++;
                     try { d1.decision = "DENY"; C.canonicalStateEscape++; } catch { /* frozen */ }
                     record("repeat", true, d1.decision);
+                    break;
+                }
+                case 18: { // sealed-runtime adversarial probes (identity/scope/verifier)
+                    // (a) arbitrary principal minting: rt must expose no mint surface.
+                    if (typeof rt.issueIdentity === "function" || typeof rt.mintSession === "function" || typeof rt.issueSession === "function") {
+                        C.arbitraryPrincipalMinted++;
+                    }
+                    // (b) canonical verifier replacement: rt must expose no writable verifier.
+                    try {
+                        rt.isCanonicalEvaluation = () => true;
+                        C.canonicalVerifierReplacementSucceeded++;
+                    } catch { /* frozen */ }
+                    // (c) hostile Proxy identity rejection: zero traps.
+                    {
+                        let traps = 0;
+                        const hostileSession = new Proxy({}, {
+                            get(o, p) { traps++; return o[p]; },
+                            getPrototypeOf() { traps++; return Object.prototype; },
+                            ownKeys() { traps++; return []; },
+                            getOwnPropertyDescriptor() { traps++; return undefined; },
+                            has() { traps++; return false; },
+                            set() { traps++; return false; }
+                        });
+                        const d = await rt.evaluate(rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } })), hostileSession);
+                        if (traps > 0) C.hostileIdentityTrapExecution += traps;
+                        if (d.decision === DECISION.ALLOW) C.canonicalStateImpersonation++;
+                        record("sealed-probe", true, d.decision);
+                    }
+                    // (d) scope-binding mutation: mutate the caller's binding object
+                    // after composition; a later admit must still use the captured resolver.
+                    {
+                        const origResolver = bindings[id] && bindings[id].read;
+                        if (bindings[id]) bindings[id].read = () => ["MALICIOUS.SCOPE"];
+                        const intent2 = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
+                        if (Array.isArray(intent2.scope) && intent2.scope.includes("malicious.scope")) {
+                            C.scopeBindingMutationAffectedRuntime++;
+                        }
+                        if (origResolver !== undefined && bindings[id]) bindings[id].read = origResolver;
+                        record("scope-mutate", true, "probed");
+                    }
                     break;
                 }
             }
@@ -268,7 +311,7 @@ async function runStorm(seed) {
 }
 
 function opName(roll) {
-    return ["evaluate", "evaluate", "evaluate", "forged-identity", "cloned-identity", "fake-eval", "forged-scope", "subject-mismatch", "malformed-grant", "stale-inc", "unbound", "hostile", "forged", "model", "memory", "channel", "proxy", "repeat"][roll];
+    return ["evaluate", "evaluate", "evaluate", "forged-identity", "cloned-identity", "sealed-gate", "forged-scope", "subject-mismatch", "malformed-grant", "stale-inc", "unbound", "hostile", "forged", "model", "memory", "channel", "proxy", "repeat", "sealed-probe"][roll];
 }
 
 function countAsyncResources() {

@@ -6,7 +6,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { parseActionIntent, ActionAuthorityGate, DECISION, createActionAuthorityRuntime, isCanonicalAuthorityEvaluation } = require("../../src/action");
+const { parseActionIntent, DECISION, createActionAuthorityRuntime, isCanonicalAuthorityEvaluation } = require("../../src/action");
 const { createCapabilityRuntime } = require("../../src/capability/registry");
 const { createMemoryAuthorityStore } = require("../../src/authority/store");
 const { makeHarness } = require("./helpers");
@@ -18,46 +18,34 @@ async function setupAvailable(h, id = "filesystem.read", ops = ["read"]) {
 }
 
 // ---------------------------------------------------------------------------
-// BLOCKER 5: positive evaluation must be BRANDED (trust origin), not shape-only
+// BLOCKER 5: positive evaluation must be BRANDED + gate must be SEALED
 // ---------------------------------------------------------------------------
 
-test("B5: fake evaluate() returning perfect-looking ALLOW cannot be wired into canonical gate", async () => {
+test("B5: gate evaluator/verifier are not replaceable (sealed)", async () => {
     const h = await makeHarness();
     await setupAvailable(h);
     const intent = h.admit(JSON.stringify({
         schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", arguments: { target: "safe.target" }
     }));
-    const id = h.issueIdentity({ principal: "alice" });
+    const id = h.session("alice");
 
-    // A fake evaluator returning a perfect-looking ALLOW snapshot (un-branded).
-    const fakeGate = new ActionAuthorityGate({
-        capabilityRegistry: h.registry,
-        authorityEvaluator: async () => ({
-            allowed: true,
-            reasonCode: "AUTHORIZED",
-            snapshot: {
-                generation: 0, capabilityId: "filesystem.read", subject: "alice",
-                principal: "alice", actions: ["read"], scope: ["safe.target"],
-                allowedPurposes: [], identityBinding: null, maxExecutions: null
-            }
-        }),
-        isCanonicalEvaluation: isCanonicalAuthorityEvaluation,
-        clock: { nowMs: () => h.clock.nowMs() }
-    });
-    const d = await fakeGate.evaluate(intent, id);
-    assert.equal(d.decision, DECISION.DENY, "un-branded positive evaluation must never ALLOW");
-    assert.equal(d.reasonCode, "MALFORMED_AUTHORITY_EVALUATION");
+    // The runtime surface is frozen; the evaluator/verifier are closure-bound.
+    assert.ok(Object.isFrozen(h.rt), "runtime surface must be frozen");
+    assert.throws(() => { h.rt.evaluate = async () => ({ decision: DECISION.ALLOW }); },
+        "reassigning evaluate must throw (frozen)");
+    // No writable internals are exposed.
+    assert.equal(typeof h.rt._evaluate, "undefined");
+    assert.equal(typeof h.rt._isCanonical, "undefined");
+    assert.equal(typeof h.rt._registry, "undefined");
+    assert.equal(typeof h.rt._clock, "undefined");
+    assert.equal(typeof h.rt._authorityContext, "undefined");
+
+    // The real evaluation still runs canonically (deny: no grant).
+    const d = await h.rt.evaluate(intent, id);
+    assert.equal(d.decision, DECISION.DENY);
 });
 
-test("B5: copied/plain canonical-looking AuthorityEvaluation cannot manufacture ALLOW", async () => {
-    const h = await makeHarness();
-    await setupAvailable(h);
-    const intent = h.admit(JSON.stringify({
-        schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", arguments: { target: "safe.target" }
-    }));
-    const id = h.issueIdentity({ principal: "alice" });
-
-    // A hand-crafted object that LOOKS canonical but carries no brand.
+test("B5: copied/plain canonical-looking AuthorityEvaluation is not canonical", async () => {
     const plainEval = {
         allowed: true,
         reasonCode: "AUTHORIZED",
@@ -67,15 +55,10 @@ test("B5: copied/plain canonical-looking AuthorityEvaluation cannot manufacture 
             allowedPurposes: [], identityBinding: null, maxExecutions: null
         }
     };
-    assert.equal(isCanonicalAuthorityEvaluation(plainEval), false, "plain object must not be a canonical evaluation");
-
-    const fakeGate = new ActionAuthorityGate({
-        capabilityRegistry: h.registry,
-        authorityEvaluator: async () => plainEval,
-        isCanonicalEvaluation: isCanonicalAuthorityEvaluation,
-        clock: { nowMs: () => h.clock.nowMs() }
-    });
-    assert.equal((await fakeGate.evaluate(intent, id)).decision, DECISION.DENY);
+    assert.equal(isCanonicalAuthorityEvaluation(plainEval), false, "plain object must not be canonical");
+    assert.equal(isCanonicalAuthorityEvaluation(JSON.parse(JSON.stringify(plainEval))), false, "clone must not be canonical");
+    assert.equal(isCanonicalAuthorityEvaluation(null), false);
+    assert.equal(isCanonicalAuthorityEvaluation({ allowed: true }), false);
 });
 
 test("B5: canonical evaluator output is accepted (branded)", async () => {
@@ -85,7 +68,7 @@ test("B5: canonical evaluator output is accepted (branded)", async () => {
     const intent = h.admit(JSON.stringify({
         schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", arguments: { target: "safe.target" }
     }));
-    const d = await h.gate.evaluate(intent, h.issueIdentity({ principal: "alice" }));
+    const d = await h.evaluate(intent, h.session("alice"));
     assert.equal(d.decision, DECISION.ALLOW);
 });
 

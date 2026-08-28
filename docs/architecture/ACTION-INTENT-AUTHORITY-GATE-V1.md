@@ -1,8 +1,8 @@
-# ACTION INTENT + AUTHORITY GATE V1 (trust-origin repaired)
+# ACTION INTENT + AUTHORITY GATE V1 (sealed runtime composition)
 
-Status: candidate (post second repair, production-unwired)
+Status: candidate (post third repair, production-unwired)
 Branch: `feat/action-authority-v1`
-Base: `de6d63f` (Lane 2 pre-cert), on `47827c9` certified Lane 1
+Base: `547c207` (Lane 2 pre-cert), on `47827c9` certified Lane 1
 Code: `src/action/**`, `src/authority/evaluate.js`, `tests/action/**`
 
 ## Purpose
@@ -14,112 +14,87 @@ Answers exactly two questions, without executing anything:
 2. Is that proposed action authorized?    (AuthorityDecision)
 ```
 
-## Trust model (post trust-origin repair)
+## Sealed trust model
 
 ```
-UNTRUSTED serialized proposal
-        -> trusted capability resolution (registry)
-        -> trusted capability-bound scope resolver (closed mapping)
-        -> immutable ActionIntent (incarnation-bound)
-        -> BRANDED trusted RuntimeIdentityContext
-        -> canonical Authority evaluator (SHARED, full rehydration)
-        -> BRANDED immutable AuthorityEvaluation
-        -> immutable AuthorityDecision
+Trusted Aether bootstrap
+        -> canonical CapabilityRuntime
+        -> canonical AuthorityStore
+        -> authenticated Session issuer (createAuthSessionIssuer)
+        -> trusted ScopeBindings (captured ONCE, detached)
+        -> createActionAuthorityRuntime ONCE
+        -> returns least-privilege surfaces:
+             admit(serializedProposal)       (identity-free canonical intent)
+             evaluate(intent, authSession)   (AuthorityDecision)
 ```
 
 CORE LAW: `VALID SHAPE != TRUSTED ORIGIN`.
 
-## Group A — trusted composition boundary
+## Blocker resolutions
 
-`createActionAuthorityRuntime({ capabilityRuntime, authorityStore,
-trustedScopeBindings, clock })` is the SINGLE trusted composition root. It
-constructs and binds, inside a trusted closure:
+### B1 — identity issuance bound to authenticated session
+`issueIdentity({principal})` is REMOVED. Identity comes exclusively from a
+BRANDED `AuthSessionCapability` minted by trusted authentication infrastructure
+(`createAuthSessionIssuer`, held by bootstrap, never injected downstream). The
+runtime derives `RuntimeIdentity` internally from the passed session. The
+runtime exposes no identity-minting surface (`issueIdentity` / `mintSession` /
+`issueSession` are absent). An arbitrary caller cannot mint a "victim" identity
+and cannot bind a new runtime to canonical state to gain privileged issuance.
 
-- trusted RuntimeIdentity issuer (`mintRuntimeIdentity`, closure-only brand)
-- trusted capability-bound scope resolvers (closed mapping)
-- canonical Authority read-only evaluator (`loadAndEvaluateAuthority`)
-- ActionIntent admission
-- ActionAuthorityGate
+### B2 — sealed gate (no mutable internals)
+The gate is a CLOSURE-BOUND, frozen `{ evaluate }`. It closes over the canonical
+evaluator, canonical brand verifier, capability registry, and hardened clock.
+There are no `_evaluate` / `_isCanonical` / `_registry` / `_clock` /
+`_authorityContext` properties, no mutable callbacks, and no exported raw gate
+constructor. Reassignment/`defineProperty`/prototype tampering are impossible
+(frozen).
 
-It returns ONLY least-privilege surfaces. Raw trust constructors (identity
-minting, scope-resolver injection, generic authorityContext injection,
-evaluation branding) are NOT exported.
+### B3 — detached scope bindings
+At construction, resolver FUNCTION IDENTITIES are captured exactly once into an
+internal closure-owned `Map(capabilityId -> Map(operation -> fn))`. The caller's
+`trustedScopeBindings` object is never re-read. Outer/nested/delete mutation
+after composition has zero effect.
 
-### Runtime identity trust
-A RuntimeIdentityContext carries an UNFORGEABLE brand token (WeakSet in module
-closure). `isRuntimeIdentityContext` checks the brand, not shape. A plain
-object, frozen clone, structurally identical object, JSON, or Symbol("same-name")
-is rejected. Only `rt.issueIdentity(...)` (closure-bound) mints identities.
+### B4 — brand-first identity rejection
+`isAuthSession` and `isCanonicalAuthorityEvaluation` check the brand (WeakSet
+membership) BEFORE inspecting any fields. A hostile Proxy cannot execute
+get/getPrototypeOf/ownKeys/getOwnPropertyDescriptor/has/set traps during
+rejection of an unbranded value.
 
-### Scope resolver trust
-`createIntentAdmission({scopeResolver})` is REMOVED. Scope resolvers come only
-from `trustedScopeBindings` (a closed `{capabilityId: {operation: resolverFn}}`
-mapping). The caller submits only `arguments`. Missing resolver, resolver
-exception, or non-array/unbounded result => fail closed at admission.
+## Group B (preserved from prior repair)
 
-### Authority context/evaluation trust
-The gate no longer accepts `{ evaluate() }`. It binds directly to the canonical
-evaluator and to `isCanonicalAuthorityEvaluation` (brand verifier). A positive
-AuthorityEvaluation is an internally-branded immutable value; a fake/copied/
-cloned positive evaluation cannot manufacture ALLOW.
+`loadAndEvaluateAuthority(store, request, opts)` remains the SINGLE canonical
+evaluator (full grant rehydration + validation + subject/principal binding +
+branded evaluation). `AuthorityRegistry.authorize()` and the Lane 2 gate both
+delegate to it.
 
-## Group B — one canonical authority semantic path
+## Public API
 
-`loadAndEvaluateAuthority(store, request, opts)` is the SINGLE primitive that
-fully rehydrates + validates a persisted grant and evaluates a request. Both
-`AuthorityRegistry.authorize()` and the Lane 2 gate call it. No duplicated
-policy/rehydration remains.
+Exports: `createActionAuthorityRuntime` (trust issuance surface),
+`createAuthSessionIssuer` (bootstrap-only auth infra), `parseActionIntent`
+(untrusted ingress), inert constants, and read-only verifiers (`isAuthSession`,
+`isCanonicalAuthorityEvaluation`).
 
-### Subject/principal binding (canonical, explicit)
-- `identityBinding.principals` (non-empty) => `identity.principal` must be
-  present and in it (delegation).
-- no `identityBinding.principals` + non-empty `identity.principal` =>
-  `identity.principal` must equal `grant.subject` (grant holder acting directly).
-- empty principal + no principals binding => principal dimension unconstrained
-  (existing channel/session-only semantics preserved).
-
-### Complete rehydration / malformed state
-`rehydrateGrant` validates subject, capabilityId (must match store key), kind,
-actions, scope, allowedPurposes, restrictions (canonical restriction set, never
-null), maxExecutions, generation (nonnegative safe int), identityBinding
-(channels/sessionIds/principals arrays), dates (parseable), status. Any
-malformed form (null/NaN/unknown) => DENY (fail closed).
-
-## Decision model
-
-`ALLOW | DENY | OWNER_CONFIRMATION_REQUIRED`, bound to `intentId`,
-`capabilityId`, `capabilityIncarnationId`, `operation`, `principal`,
-`authorityGeneration`, `reasonCode`, `evaluatedAtMs`.
-
-## Public API (before -> after)
-
-Before: exported `createRuntimeIdentityContext`, `createIntentAdmission`,
-`createReadOnlyAuthorityContext`, `ActionAuthorityGate` (constructor with
-injectable `authorityContext`).
-
-After: exports `createActionAuthorityRuntime` (the only trust issuance surface),
-`parseActionIntent` (untrusted ingress), inert constants (`DECISION`,
-`GATE_REASONS`, `REASONS`, `ALLOW_REASON`), and read-only brand verifiers
-(`isRuntimeIdentityContext`, `isCanonicalAuthorityEvaluation`).
+NOT exported: `mintAuthSession`, `createGate`, raw identity minting, raw
+evaluator, raw brand minting, mutable resolver lookup, injectable gate internals.
 
 ## Preserved invariants
 
 STRING-only hostile boundary, zero Proxy execution, recursive authority-shaped
 rejection, intent/decision immutability, no execution, no actuation, no
 Authority/Capability mutation, no channel-specific auth, hardened clock capture,
-incarnation binding.
+incarnation binding, shared canonical evaluator, 2200-case differential.
 
 ## Tests
 
 `tests/action/`: `blockerIdentity.test.js`, `blockerEval.test.js`,
 `trustOrigin.test.js`, `adversarial.test.js`, `security.test.js`,
-`differential.test.js` (>=2000 cases incl. malformed, `lane2AllowCanonicalReject
-== 0`, `lane2AllowCanonicalDeny == 0`), `storm.test.js` (>=12000 ops, 34 counters
+`differential.test.js` (>=2000 cases), `storm.test.js` (>=12000 ops, 40 counters
 zero).
 
 ## Known nonblockers
 
 - `OWNER_CONFIRMATION_REQUIRED` semantic only (owner-auth flow later lane).
 - `sqlite3` native module absent (non-differential env failures).
-- Brand tokens are same-process closure/WeakSet boundaries (not OS isolation);
-  documented honestly in `runtime.js`.
+- Brand tokens + closure are same-process boundaries (documented honestly, not
+  OS isolation).

@@ -73,28 +73,39 @@ test("structural: gate delegates to canonical evaluator; no policy duplication",
     assert.ok(/loadAndEvaluateAuthority/.test(runtimeText), "runtime must delegate to canonical evaluator");
 });
 
-test("surface: no privileged trust constructors exported", () => {
-    const api = require("../../src/action");
-    // These raw trust constructors must NOT be exported.
-    for (const forbidden of ["mintRuntimeIdentity", "createIntentAdmission", "createReadOnlyAuthorityContext", "createRuntimeIdentityContext"]) {
-        assert.equal(typeof api[forbidden], "undefined", `must not export ${forbidden}`);
-    }
-    // The only trust issuance surface is the composition root.
-    assert.equal(typeof api.createActionAuthorityRuntime, "function");
-});
-
 test("surface: no execution verbs in public API", () => {
     const api = require("../../src/action");
     const EXEC = /execute|invoke|run\b|dispatch|actuate|spawn|shell|callTool|performAction/i;
-    for (const m of Object.getOwnPropertyNames(api.ActionAuthorityGate.prototype)) {
-        assert.ok(!EXEC.test(m), `gate must not expose execution verb: ${m}`);
+    // The runtime surface is { admit, evaluate } only.
+    const names = Object.keys(api);
+    for (const m of names) {
+        assert.ok(!EXEC.test(m), `public API must not expose execution verb: ${m}`);
+    }
+    for (const v of ["execute", "invoke", "run", "dispatch", "actuate", "spawn", "shell", "callTool", "performAction"]) {
+        assert.equal(typeof api[v], "undefined", `no '${v}' in public API`);
     }
 });
 
 test("surface: no authority-minting verbs in public API", () => {
     const api = require("../../src/action");
     const AUTH = /grant|authorize|approve|ratify|delegate|elevate|mint|issue\b|revoke/i;
-    for (const m of Object.getOwnPropertyNames(api.ActionAuthorityGate.prototype)) {
-        assert.ok(!AUTH.test(m), `gate must not expose authority-minting verb: ${m}`);
+    for (const m of Object.keys(api)) {
+        assert.ok(!AUTH.test(m), `public API must not expose authority-minting verb: ${m}`);
     }
+    for (const v of ["grant", "authorize", "approve", "ratify", "delegate", "elevate", "mint", "issue", "revoke"]) {
+        assert.equal(typeof api[v], "undefined", `no '${v}' in public API`);
+    }
+    // issueIdentity / mintRuntimeIdentity / createRuntimeIdentityContext are gone.
+    assert.equal(typeof api.issueIdentity, "undefined");
+    assert.equal(typeof api.mintRuntimeIdentity, "undefined");
+    assert.equal(typeof api.createRuntimeIdentityContext, "undefined");
+});
+
+test("surface: no privileged trust constructors exported", () => {
+    const api = require("../../src/action");
+    for (const forbidden of ["mintRuntimeIdentity", "createIntentAdmission", "createReadOnlyAuthorityContext", "createRuntimeIdentityContext", "mintAuthSession"]) {
+        assert.equal(typeof api[forbidden], "undefined", `must not export ${forbidden}`);
+    }
+    assert.equal(typeof api.createActionAuthorityRuntime, "function");
+    assert.equal(typeof api.createAuthSessionIssuer, "function");
 });

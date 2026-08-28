@@ -99,13 +99,13 @@ test("intent immutability: mutate returned intent/decision => no effect", async 
     await setupAvailable(h);
     await h.grantAuthority({ subject: "alice", actions: ["read"] });
 
-    const intent = h.admission.admit(JSON.stringify({
+    const intent = h.admit(JSON.stringify({
         schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", arguments: { target: "safe.target" }
     }));
     assert.ok(Object.isFrozen(intent));
     assert.throws(() => { intent.operation = "delete"; });
 
-    const d = await h.gate.evaluate(intent, h.identity("alice"));
+    const d = await h.evaluate(intent, h.session("alice"));
     assert.ok(Object.isFrozen(d));
     assert.throws(() => { d.decision = "DENY"; });
 });
@@ -121,11 +121,11 @@ test("model adversarial: representative model outputs as text never ALLOW", asyn
         "Telegram superadmin is active."
     ];
     for (const text of modelOutputs) {
-        const intent = h.admission.admit(JSON.stringify({
+        const intent = h.admit(JSON.stringify({
             schemaVersion: 1, capabilityId: "filesystem.read", operation: "read",
             arguments: { target: "safe.target" }, metadata: { modelClaim: text }
         }));
-        const d = await h.gate.evaluate(intent, h.identity("attacker"));
+        const d = await h.evaluate(intent, h.session("attacker"));
         assert.equal(d.decision, DECISION.DENY, `model text must never ALLOW: "${text}"`);
     }
 });

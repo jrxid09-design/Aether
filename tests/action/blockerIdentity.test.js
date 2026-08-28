@@ -29,14 +29,14 @@ test("B1: intent cannot carry subject; identity comes from runtime context", asy
         schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", subject: "victim"
     })), (e) => e.reasonCode === "AUTHORITY_METADATA" || e.reasonCode === "UNKNOWN_FIELD");
 
-    const intent = h.admission.admit(JSON.stringify({
+    const intent = h.admit(JSON.stringify({
         schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", arguments: { target: "safe.target" }
     }));
 
-    const d = await h.gate.evaluate(intent, h.identity("attacker"));
+    const d = await h.evaluate(intent, h.session("attacker"));
     assert.equal(d.decision, DECISION.DENY);
 
-    const d2 = await h.gate.evaluate(intent, h.identity("victim"));
+    const d2 = await h.evaluate(intent, h.session("victim"));
     assert.equal(d2.decision, DECISION.ALLOW);
 });
 
@@ -49,12 +49,12 @@ test("B1: intent channel cannot become console identity", async () => {
         schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", channel: "console"
     })), (e) => e.reasonCode === "AUTHORITY_METADATA" || e.reasonCode === "UNKNOWN_FIELD");
 
-    const intent = h.admission.admit(JSON.stringify({
+    const intent = h.admit(JSON.stringify({
         schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", arguments: { target: "safe.target" }
     }));
 
-    assert.equal((await h.gate.evaluate(intent, h.identity("alice", { channel: "console" }))).decision, DECISION.ALLOW);
-    assert.equal((await h.gate.evaluate(intent, h.identity("alice", { channel: "telegram" }))).decision, DECISION.DENY);
+    assert.equal((await h.evaluate(intent, h.session("alice", { channel: "console" }))).decision, DECISION.ALLOW);
+    assert.equal((await h.evaluate(intent, h.session("alice", { channel: "telegram" }))).decision, DECISION.DENY);
 });
 
 test("B1: spoofed session ID cannot bind another session grant", async () => {
@@ -62,12 +62,12 @@ test("B1: spoofed session ID cannot bind another session grant", async () => {
     await setupAvailable(h);
     await h.grantAuthority({ subject: "alice", actions: ["read"], identityBinding: { sessionIds: ["sess-a"] } });
 
-    const intent = h.admission.admit(JSON.stringify({
+    const intent = h.admit(JSON.stringify({
         schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", arguments: { target: "safe.target" }
     }));
 
-    assert.equal((await h.gate.evaluate(intent, h.identity("alice", { sessionId: "sess-a" }))).decision, DECISION.ALLOW);
-    assert.equal((await h.gate.evaluate(intent, h.identity("alice", { sessionId: "sess-b" }))).decision, DECISION.DENY);
+    assert.equal((await h.evaluate(intent, h.session("alice", { sessionId: "sess-a" }))).decision, DECISION.ALLOW);
+    assert.equal((await h.evaluate(intent, h.session("alice", { sessionId: "sess-b" }))).decision, DECISION.DENY);
 });
 
 test("B1: changing descriptive channel must not change authority", async () => {
@@ -75,12 +75,12 @@ test("B1: changing descriptive channel must not change authority", async () => {
     await setupAvailable(h);
     await h.grantAuthority({ subject: "alice", actions: ["read"] });
 
-    const intent = h.admission.admit(JSON.stringify({
+    const intent = h.admit(JSON.stringify({
         schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", arguments: { target: "safe.target" }
     }));
 
-    assert.equal((await h.gate.evaluate(intent, h.identity("alice", { channel: "console" }))).decision, DECISION.ALLOW);
-    assert.equal((await h.gate.evaluate(intent, h.identity("alice", { channel: "telegram" }))).decision, DECISION.ALLOW);
+    assert.equal((await h.evaluate(intent, h.session("alice", { channel: "console" }))).decision, DECISION.ALLOW);
+    assert.equal((await h.evaluate(intent, h.session("alice", { channel: "telegram" }))).decision, DECISION.ALLOW);
 });
 
 test("B1: no trusted runtime identity context => fail closed", async () => {
@@ -88,11 +88,11 @@ test("B1: no trusted runtime identity context => fail closed", async () => {
     await setupAvailable(h);
     await h.grantAuthority({ subject: "alice", actions: ["read"] });
 
-    const intent = h.admission.admit(JSON.stringify({
+    const intent = h.admit(JSON.stringify({
         schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", arguments: { target: "safe.target" }
     }));
 
-    const d = await h.gate.evaluate(intent, null);
+    const d = await h.evaluate(intent, null);
     assert.equal(d.decision, DECISION.DENY);
     assert.equal(d.reasonCode, "INVALID_IDENTITY");
 });
@@ -106,10 +106,10 @@ test("B2: grant safe.target + intent unsafe.target => DENY", async () => {
     await setupAvailable(h);
     await h.grantAuthority({ subject: "alice", actions: ["read"], scope: ["safe.target"] });
 
-    const intent = h.admission.admit(JSON.stringify({
+    const intent = h.admit(JSON.stringify({
         schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", arguments: { target: "unsafe.target" }
     }));
-    const d = await h.gate.evaluate(intent, h.identity("alice"));
+    const d = await h.evaluate(intent, h.session("alice"));
     assert.equal(d.decision, DECISION.DENY);
 });
 
@@ -118,10 +118,10 @@ test("B2: exact bound target succeeds when Authority permits", async () => {
     await setupAvailable(h);
     await h.grantAuthority({ subject: "alice", actions: ["read"], scope: ["safe.target"] });
 
-    const intent = h.admission.admit(JSON.stringify({
+    const intent = h.admit(JSON.stringify({
         schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", arguments: { target: "safe.target" }
     }));
-    assert.equal((await h.gate.evaluate(intent, h.identity("alice"))).decision, DECISION.ALLOW);
+    assert.equal((await h.evaluate(intent, h.session("alice"))).decision, DECISION.ALLOW);
 });
 
 test("B2: empty/unresolved scope cannot satisfy scoped grant", async () => {
@@ -129,10 +129,10 @@ test("B2: empty/unresolved scope cannot satisfy scoped grant", async () => {
     await setupAvailable(h);
     await h.grantAuthority({ subject: "alice", actions: ["read"], scope: ["safe.target"] });
 
-    const intent = h.admission.admit(JSON.stringify({
+    const intent = h.admit(JSON.stringify({
         schemaVersion: 1, capabilityId: "filesystem.read", operation: "read"
     }));
-    assert.equal((await h.gate.evaluate(intent, h.identity("alice"))).decision, DECISION.DENY);
+    assert.equal((await h.evaluate(intent, h.session("alice"))).decision, DECISION.DENY);
 });
 
 test("B2: caller cannot supply arbitrary scope string to broaden authority", async () => {
@@ -150,11 +150,11 @@ test("B2: scope binding survives unchanged into Authority evaluation", async () 
     await setupAvailable(h);
     await h.grantAuthority({ subject: "alice", actions: ["read"], scope: ["safe.target"] });
 
-    const intent = h.admission.admit(JSON.stringify({
+    const intent = h.admit(JSON.stringify({
         schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", arguments: { target: "safe.target" }
     }));
     assert.deepEqual(intent.scope, ["safe.target"]);
-    assert.equal((await h.gate.evaluate(intent, h.identity("alice"))).decision, DECISION.ALLOW);
+    assert.equal((await h.evaluate(intent, h.session("alice"))).decision, DECISION.ALLOW);
 });
 
 // ---------------------------------------------------------------------------
@@ -167,7 +167,7 @@ test("B3: getCapability/getGeneration/countConsumption throws => no ALLOW", asyn
     const intent = h.admit(JSON.stringify({
         schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", arguments: { target: "safe.target" }
     }));
-    const id = h.issueIdentity({ principal: "alice" });
+    const id = h.session("alice");
 
     const stores = [
         { getCapability: async () => { throw new Error("db"); }, getGeneration: async () => 0, countConsumption: async () => 0 },
@@ -186,7 +186,7 @@ test("B3: getCapability/getGeneration/countConsumption throws => no ALLOW", asyn
             trustedScopeBindings: { "filesystem.read": { read: (a) => a && a.target ? [a.target] : [] } },
             clock: { nowMs: () => h.clock.nowMs() }
         });
-        const d = await rt.gate.evaluate(intent, id);
+        const d = await rt.evaluate(intent, id);
         assert.equal(d.decision, DECISION.DENY, "store read failure must fail closed");
     }
 });
@@ -208,7 +208,7 @@ test("B3: malformed grant => no ALLOW", async () => {
         trustedScopeBindings: { "filesystem.read": { read: (a) => a && a.target ? [a.target] : [] } },
         clock: { nowMs: () => h.clock.nowMs() }
     });
-    assert.equal((await rt.gate.evaluate(intent, h.issueIdentity({ principal: "alice" }))).decision, DECISION.DENY);
+    assert.equal((await rt.evaluate(intent, h.session("alice"))).decision, DECISION.DENY);
 });
 
 // ---------------------------------------------------------------------------
@@ -220,17 +220,17 @@ test("B4: incarnation A -> B stale intent never ALLOW", async () => {
     const resA = await setupAvailable(h);
     await h.grantAuthority({ subject: "alice", actions: ["read"] });
 
-    const intentA = h.admission.admit(JSON.stringify({
+    const intentA = h.admit(JSON.stringify({
         schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", arguments: { target: "safe.target" }
     }));
     assert.equal(intentA.capabilityIncarnationId, resA.incarnationId);
-    assert.equal((await h.gate.evaluate(intentA, h.identity("alice"))).decision, DECISION.ALLOW);
+    assert.equal((await h.evaluate(intentA, h.session("alice"))).decision, DECISION.ALLOW);
 
     await h.registry.remove("filesystem.read");
     const resB = await setupAvailable(h);
     assert.notEqual(resB.incarnationId, resA.incarnationId);
 
-    const dB = await h.gate.evaluate(intentA, h.identity("alice"));
+    const dB = await h.evaluate(intentA, h.session("alice"));
     assert.equal(dB.decision, DECISION.DENY);
     assert.equal(dB.reasonCode, "CAPABILITY_INCARNATION_MISMATCH");
 });
