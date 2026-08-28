@@ -103,9 +103,24 @@ test("surface: no authority-minting verbs in public API", () => {
 
 test("surface: no privileged trust constructors exported", () => {
     const api = require("../../src/action");
-    for (const forbidden of ["mintRuntimeIdentity", "createIntentAdmission", "createReadOnlyAuthorityContext", "createRuntimeIdentityContext", "mintAuthSession"]) {
+    for (const forbidden of ["mintRuntimeIdentity", "createIntentAdmission", "createReadOnlyAuthorityContext", "createRuntimeIdentityContext", "mintAuthSession", "createAuthSessionIssuer", "createGate", "createSessionTrustDomain"]) {
         assert.equal(typeof api[forbidden], "undefined", `must not export ${forbidden}`);
     }
     assert.equal(typeof api.createActionAuthorityRuntime, "function");
-    assert.equal(typeof api.createAuthSessionIssuer, "function");
+    assert.equal(typeof api.createAuthSessionIssuer, "undefined",
+        "createAuthSessionIssuer must NOT be exported (Wave-4 blocker 1)");
+    assert.equal(typeof api.isAuthSession, "undefined",
+        "module-global isAuthSession must NOT be exported (runtime-local brand only)");
+});
+
+test("surface: no session/evaluation brand state reachable from any action module", () => {
+    const path = require("node:path");
+    const fs = require("node:fs");
+    const dir = path.join(__dirname, "../../src/action");
+    for (const f of fs.readdirSync(dir).filter((f) => f.endsWith(".js"))) {
+        const mod = require(path.join(dir, f));
+        for (const forbidden of ["sessionBrand", "authSessionBrands", "EVAL_BRAND", "brandGate", "mintSession", "issueIdentity", "createGate", "createAuthSessionIssuer", "injectEvaluator", "setEvaluator", "setVerifier"]) {
+            assert.equal(typeof mod[forbidden], "undefined", `${f} must not expose ${forbidden}`);
+        }
+    }
 });

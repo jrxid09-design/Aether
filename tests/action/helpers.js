@@ -1,10 +1,13 @@
 "use strict";
 
-/** Shared helpers for action intent + authority gate tests (sealed runtime). */
+/** Shared helpers for action intent + authority gate tests (runtime-local
+ *  trust domain). The session issuer is INTERNAL to each runtime: tests obtain
+ *  it only through the one-time trusted bootstrap `onReady` /
+ *  `bindAuthentication` hook during composition. */
 
 const { createCapabilityRuntime } = require("../../src/capability/registry");
 const { createMemoryAuthorityStore } = require("../../src/authority/store");
-const { createActionAuthorityRuntime, createAuthSessionIssuer } = require("../../src/action");
+const { createActionAuthorityRuntime } = require("../../src/action");
 
 const CLOCK_START = 1_000_000;
 
@@ -23,33 +26,44 @@ function defaultScopeResolver(args) {
     return target ? [target] : [];
 }
 
+/** Trusted test authentication: accepts whatever principal bootstrap asserts
+ *  (mirrors external trusted auth infra bound during bootstrap). */
+function authenticate(fields) {
+    return { principal: fields.principal };
+}
+
 /**
  * Build a full trusted harness:
  *   { registry, registrars, store, clock, rt, session, registerCapability, grantAuthority }
  *
- * `rt` is the trusted runtime surface: { admit, evaluate }.
- * `session(principal, extra)` mints a branded AuthSessionCapability.
+ * `rt` is the trusted runtime surface: exactly { admit, evaluate }.
+ * `session(principal, extra)` mints a session in THIS runtime's trust domain
+ * via the bootstrap-held issuer captured through onReady/bindAuthentication.
  */
-async function makeHarness({ clock, scopeBindings } = {}) {
+async function makeHarness({ clock, scopeBindings, authenticate: authenticateFn = authenticate } = {}) {
     const c = clock ?? manualClock();
     const capabilityRuntime = createCapabilityRuntime({
         registrars: { core: true },
         clock: { nowMs: () => c.nowMs() }
     });
     const store = createMemoryAuthorityStore();
-    const authSessionIssuer = createAuthSessionIssuer();
 
     const bindings = scopeBindings ?? {
         "filesystem.read": { read: defaultScopeResolver, write: defaultScopeResolver },
         "filesystem.write": { write: defaultScopeResolver }
     };
 
+    let issuer = null;
     const rt = createActionAuthorityRuntime({
         capabilityRuntime,
         authorityStore: store,
         trustedScopeBindings: bindings,
-        clock: { nowMs: () => c.nowMs() }
+        clock: { nowMs: () => c.nowMs() },
+        onReady: ({ bindAuthentication }) => {
+            issuer = bindAuthentication({ authenticate: authenticateFn });
+        }
     });
+    if (!issuer) throw new Error("test bootstrap must bind authentication during composition");
 
     async function registerCapability(overrides = {}) {
         const descriptor = {
@@ -80,14 +94,13 @@ async function makeHarness({ clock, scopeBindings } = {}) {
     }
 
     function session(principal = "alice", extra = {}) {
-        return authSessionIssuer.mintSession({ principal, ...extra });
+        return issuer.mintSession({ principal, ...extra });
     }
 
     return {
         registry: capabilityRuntime.registry,
         registrars: capabilityRuntime.registrars,
         store, clock: c, rt,
-        authSessionIssuer,
         session,
         admit: rt.admit,
         evaluate: rt.evaluate,
@@ -96,4 +109,4 @@ async function makeHarness({ clock, scopeBindings } = {}) {
     };
 }
 
-module.exports = { manualClock, makeHarness, defaultScopeResolver, CLOCK_START };
+module.exports = { manualClock, makeHarness, defaultScopeResolver, authenticate, CLOCK_START };

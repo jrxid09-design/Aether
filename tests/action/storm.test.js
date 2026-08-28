@@ -12,7 +12,7 @@ const crypto = require("node:crypto");
 
 const { createCapabilityRuntime } = require("../../src/capability/registry");
 const { createMemoryAuthorityStore } = require("../../src/authority/store");
-const { createActionAuthorityRuntime, createAuthSessionIssuer, parseActionIntent, DECISION, isCanonicalAuthorityEvaluation } = require("../../src/action");
+const { createActionAuthorityRuntime, parseActionIntent, DECISION, isCanonicalAuthorityEvaluation } = require("../../src/action");
 const { ActionError } = require("../../src/action");
 
 const OP_TARGET = 12000;
@@ -41,9 +41,15 @@ async function runStorm(seed) {
 
     const bindings = {};
     for (let i = 0; i < CAP_POOL; i++) bindings[`pool.cap.${i}`] = { read: targetScope, write: targetScope };
-    const rt = createActionAuthorityRuntime({ capabilityRuntime, authorityStore: store, trustedScopeBindings: bindings, clock: { nowMs: () => 1000 } });
-    const authSessionIssuer = createAuthSessionIssuer();
-    const session = (o) => authSessionIssuer.mintSession(o);
+    let issuer = null;
+    const rt = createActionAuthorityRuntime({
+        capabilityRuntime, authorityStore: store, trustedScopeBindings: bindings,
+        clock: { nowMs: () => 1000 },
+        onReady: ({ bindAuthentication }) => {
+            issuer = bindAuthentication({ authenticate: (f) => ({ principal: f.principal }) });
+        }
+    });
+    const session = (o) => issuer.mintSession(o); // bootstrap-held runtime-local issuer
 
     const C = {
         executions: 0, actuations: 0, authorityMutations: 0, capabilityMutations: 0,
@@ -61,8 +67,38 @@ async function runStorm(seed) {
         malformedGrantAllowed: 0, lane2AllowCanonicalReject: 0,
         arbitraryPrincipalMinted: 0, canonicalStateImpersonation: 0,
         evaluatorReplacementSucceeded: 0, canonicalVerifierReplacementSucceeded: 0,
-        scopeBindingMutationAffectedRuntime: 0, hostileIdentityTrapExecution: 0
+        scopeBindingMutationAffectedRuntime: 0, hostileIdentityTrapExecution: 0,
+        // Wave-4 fourth repair (runtime-local trust domain) counters
+        publicIssuerMintedVictim: 0, crossRuntimeSessionAccepted: 0,
+        directGateInjectionSucceeded: 0, forgedSessionAccepted: 0
     };
+
+    // A SECOND runtime over DIFFERENT canonical state: sessions from it must
+    // never be accepted by `rt` (runtime-local brand).
+    const foreignState = createCapabilityRuntime({ registrars: { core: true }, clock: { nowMs: () => 1000 } });
+    const foreignStore = createMemoryAuthorityStore();
+    let foreignIssuer = null;
+    const foreignRt = createActionAuthorityRuntime({
+        capabilityRuntime: foreignState,
+        authorityStore: foreignStore,
+        trustedScopeBindings: { "pool.cap.0": { read: targetScope } },
+        clock: { nowMs: () => 1000 },
+        onReady: ({ bindAuthentication }) => {
+            foreignIssuer = bindAuthentication({ authenticate: (f) => ({ principal: f.principal }) });
+        }
+    });
+    {
+        const fres = foreignState.registrars.core.register(JSON.stringify({ schemaVersion: 1, id: "pool.cap.0", kind: "system", provider: "core", operations: ["read", "write"], requirements: [], effects: [] }));
+        foreignState.registry.observeAvailability("pool.cap.0", "AVAILABLE", { generation: 1, incarnationId: fres.incarnationId });
+        await foreignStore.upsertCapability("pool.cap.0", "ACTIVE", 0, JSON.stringify({
+            capabilityId: "pool.cap.0", kind: "root", subject: "actor.0", issuer: "storm", actions: ["read"], scope: [], allowedPurposes: [],
+            restrictions: { kind: "unrestricted" }, maxExecutions: null, usedExecutions: 0,
+            issuedAt: "2025-01-01T00:00:00Z", notBefore: null, expiresAt: null,
+            status: "ACTIVE", generation: 0, delegationDepth: 0, remainingDelegationDepth: 2,
+            parentCapabilityId: null, rootCapabilityId: "pool.cap.0", ratificationId: null,
+            identityBinding: { principals: ["actor.0"] }, extra: null
+        }));
+    }
 
     const beforeHandles = countAsyncResources();
 
@@ -255,6 +291,17 @@ async function runStorm(seed) {
                     if (typeof rt.issueIdentity === "function" || typeof rt.mintSession === "function" || typeof rt.issueSession === "function") {
                         C.arbitraryPrincipalMinted++;
                     }
+                    // (a4) public issuer mint victim: there must be no public
+                    // issuer anywhere; an attempt to use createAuthSessionIssuer
+                    // from the public API must be undefined.
+                    if (typeof require("../../src/action").createAuthSessionIssuer === "function") {
+                        // Counter is active: it fires when a public issuer is
+                        // (re)introduced. Must stay zero.
+                        const fakeIssuer = require("../../src/action").createAuthSessionIssuer();
+                        const victim = fakeIssuer.mintSession({ principal: "victim" });
+                        const dv = await rt.evaluate(intent, victim);
+                        if (dv.decision === DECISION.ALLOW) C.publicIssuerMintedVictim++;
+                    }
                     // (b) canonical verifier replacement: rt must expose no writable verifier.
                     try {
                         rt.isCanonicalEvaluation = () => true;
@@ -287,6 +334,63 @@ async function runStorm(seed) {
                         }
                         if (origResolver !== undefined && bindings[id]) bindings[id].read = origResolver;
                         record("scope-mutate", true, "probed");
+                    }
+                    // (e) Wave-4 counters — all active, all must stay zero.
+                    //   crossRuntimeSessionAccepted: a session from the foreign
+                    //     runtime must NOT satisfy THIS runtime's verifier.
+                    {
+                        const foreignSession = foreignIssuer.mintSession({ principal: "actor.0" });
+                        const crossIntent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
+                        const cd = await rt.evaluate(crossIntent, foreignSession);
+                        if (cd.decision === DECISION.ALLOW) C.crossRuntimeSessionAccepted++;
+                    }
+                    //   directGateInjectionSucceeded: there must be NO
+                    //     importable createGate; attempted injection of forged
+                    //     evaluator options to createActionAuthorityRuntime
+                    //     must be IGNORED.
+                    {
+                        const gate = require("../../src/action/gate");
+                        if (typeof gate.createGate === "function") {
+                            // Counter is active: fires only if createGate is
+                            // (re)exported.
+                            try {
+                                gate.createGate({
+                                    registry,
+                                    authorityEvaluator: async () => ({ allowed: true, reasonCode: "AUTHORIZED", snapshot: { generation: 0, capabilityId: id, subject: subject, principal: subject, actions: ["read"], scope: [], allowedPurposes: [], identityBinding: null, maxExecutions: null } }),
+                                    isCanonicalEvaluation: () => true
+                                });
+                                C.directGateInjectionSucceeded++;
+                            } catch { /* even a constructor must not enable injection */ }
+                        }
+                        // Also exercise the ignore-options path directly.
+                        const injected = createActionAuthorityRuntime({
+                            capabilityRuntime: { registry, registrars },
+                            authorityStore: store,
+                            trustedScopeBindings: { [id]: { read: targetScope } },
+                            clock: { nowMs: () => 1000 },
+                            authorityEvaluator: async () => ({ allowed: true, reasonCode: "AUTHORIZED" }),
+                            isCanonicalEvaluation: () => true,
+                            verifySession: () => true
+                        });
+                        const ii = injected.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
+                        const idInjected = issuer.mintSession({ principal: subject });
+                        // The injected runtime does NOT bind authentication via
+                        // onReady, so it has NO issuer of its own: even
+                        // "verifySession:()=>true" (an injected option) must be
+                        // ignored — only runtime-local brand acceptance holds.
+                        const dd = await injected.evaluate(ii, idInjected);
+                        if (dd.decision === DECISION.ALLOW) C.directGateInjectionSucceeded++;
+                        if (dd.decision === DECISION.ALLOW) C.forgedSessionAccepted++;
+                    }
+                    //   forgedSessionAccepted: a forged/cloned/JSON session must
+                    //     never ALLOW.
+                    {
+                        const legit = issuer.mintSession({ principal: subject });
+                        for (const forged of [Object.freeze({ ...legit }), JSON.parse(JSON.stringify(legit)), { principal: subject, sessionId: "", channel: "" }]) {
+                            const fi = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
+                            const fd = await rt.evaluate(fi, forged);
+                            if (fd.decision === DECISION.ALLOW) C.forgedSessionAccepted++;
+                        }
                     }
                     break;
                 }
