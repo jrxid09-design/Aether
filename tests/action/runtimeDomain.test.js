@@ -1,17 +1,23 @@
 "use strict";
 
 /**
- * ACTION AUTHORITY GATE V1 — Wave 4 fourth repair: runtime-local trust domain.
+ * ACTION AUTHORITY GATE V1 — sixth-targeted-repair regressions (Wave 4 Lane 2):
+ * canonical bootstrap ownership — caller-selectable verifier REMOVED.
+ *
+ * Trust-domain tests using the trusted test bootstrap. Every composition goes
+ * through tests/action/bootstrapHarness.js (mirroring src/action/bootstrap.js):
+ * canonical state + the identity verifier are owned by the trusted closure.
  *
  * Direct tests for every Codex repro:
- *   BLOCKER 1 — public session issuer removed; NO minting surface anywhere on
- *               the public/direct action surface
- *   BLOCKER 2 — direct createGate import absent; forged evaluator injection
- *               over the canonical registry impossible
- *   BLOCKER 3 — session brand runtime-local; cross-runtime replay rejected in
- *               BOTH directions without runtimeId strings
+ *   BLOCKER 1 — composition factories are NOT public exports; NO caller can
+ *               obtain a runtime/gate/verifier constructor
+ *   BLOCKER 2 — there is no importable gate constructor; forged evaluator
+ *               injection over the canonical registry impossible (the runtime
+ *               factory is bootstrap-internal; injected options are ignored)
+ *   BLOCKER 3 — session brand is runtime-local; cross-runtime replay rejected
+ *               in BOTH directions without runtimeId strings
  *
- * Plus a structural export scan of every action module.
+ * Plus structural export scans of every action module.
  */
 
 const test = require("node:test");
@@ -19,53 +25,39 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const { createActionAuthorityRuntime, createAuthenticationDomain, DECISION } = require("../../src/action");
-const { createCapabilityRuntime } = require("../../src/capability/registry");
-const { createMemoryAuthorityStore } = require("../../src/authority/store");
-const { authenticate } = require("./helpers");
+const api = require("../../src/action");
+const { makeHarness, composeIsolatedTrustDomain, authenticate } = require("./helpers");
 
 const CLOCK = { nowMs: () => 1000 };
 
 async function makeDomain() {
-    const capabilityRuntime = createCapabilityRuntime({ registrars: { core: true }, clock: CLOCK });
-    const { registry, registrars } = capabilityRuntime;
-    const store = createMemoryAuthorityStore();
-    const authDomain = createAuthenticationDomain({ authenticate, clock: CLOCK });
-    const rt = createActionAuthorityRuntime({
-        capabilityRuntime,
-        authorityStore: store,
-        authVerifier: authDomain.verifier,
-        trustedScopeBindings: { "cap.x": { read: (a) => (a && a.target ? [a.target] : []) } },
-        clock: CLOCK
+    const h = await makeHarness({
+        clock: CLOCK,
+        scopeBindings: { "cap.x": { read: (a) => (a && a.target ? [a.target] : []) } }
     });
-    const res = registrars.core.register(JSON.stringify({
-        schemaVersion: 1, id: "cap.x", kind: "system", provider: "core",
-        operations: ["read"], requirements: [], effects: []
-    }));
-    registry.observeAvailability("cap.x", "AVAILABLE", { generation: 1, incarnationId: res.incarnationId });
-    await store.upsertCapability("cap.x", "ACTIVE", 0, JSON.stringify({
-        capabilityId: "cap.x", kind: "root", subject: "alice", issuer: "test",
-        actions: ["read"], scope: [], allowedPurposes: [],
-        restrictions: { kind: "unrestricted" }, maxExecutions: null, usedExecutions: 0,
-        issuedAt: "2025-01-01T00:00:00Z", notBefore: null, expiresAt: null,
-        status: "ACTIVE", generation: 0, delegationDepth: 0, remainingDelegationDepth: 2,
-        parentCapabilityId: null, rootCapabilityId: "cap.x", ratificationId: null,
-        identityBinding: { principals: ["alice"] }, extra: null
-    }));
-    const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "cap.x", operation: "read", arguments: { target: "safe.target" } }));
-    return { registry, registrars, store, rt, authDomain, intent };
+    const res = await h.registerCapability({ id: "cap.x", operations: ["read"] });
+    await h.registry.observeAvailability("cap.x", "AVAILABLE", { generation: 1, incarnationId: res.incarnationId });
+    await h.grantAuthority({ capabilityId: "cap.x", subject: "alice", actions: ["read"], identityBinding: { principals: ["alice"] } });
+    const intent = h.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "cap.x", operation: "read", arguments: { target: "safe.target" } }));
+    return { registry: h.registry, registrars: h.registrars, store: h.store, rt: h.rt, authDomain: h.authDomain, intent, h };
 }
 
 // ---------------------------------------------------------------------------
-// BLOCKER 1 — public session issuer
+// BLOCKER 1 — composition factories are NOT public exports
 // ---------------------------------------------------------------------------
 
-test("B1-R4: public API has no createAuthSessionIssuer", () => {
-    const api = require("../../src/action");
-    assert.equal(typeof api.createAuthSessionIssuer, "undefined");
+test("B1-R6: public API exposes no composition factories", () => {
+    for (const name of ["createActionAuthorityRuntime", "createAuthenticationDomain", "createGate", "createAuthSessionIssuer"]) {
+        assert.equal(typeof api[name], "undefined", `api.${name} must not exist`);
+    }
 });
 
-test("B1-R4: direct require of every action submodule exposes no issuer mint", () => {
+test("B1-R6: direct require of every action submodule exposes no runtime/domain/gate factory", () => {
+    // bootstrap.js is the trusted composition layer; requiring it here would
+    // re-bind the already-bound hosts (one-shot law). Its own surface is
+    // audited exhaustively in canonicalBootstrap.test.js, which loads the
+    // production bootstrap in ITS own process. Here we scan every other
+    // submodule (including the internals runtime.js and authDomain.js).
     const modules = [
         "../../src/action/index.js",
         "../../src/action/authSession.js",
@@ -76,7 +68,7 @@ test("B1-R4: direct require of every action submodule exposes no issuer mint", (
         "../../src/action/errors.js",
         "../../src/action/clock.js"
     ];
-    const FORBIDDEN = ["createAuthSessionIssuer", "mintAuthSession", "issueIdentity", "issueSession", "mintSession", "bindAuthentication", "onReady"];
+    const FORBIDDEN = ["createActionAuthorityRuntime", "createAuthenticationDomain", "createAuthSessionIssuer", "mintAuthSession", "issueIdentity", "issueSession", "mintSession", "bindAuthentication", "onReady"];
     for (const m of modules) {
         const mod = require(m);
         for (const name of FORBIDDEN) {
@@ -85,29 +77,25 @@ test("B1-R4: direct require of every action submodule exposes no issuer mint", (
     }
 });
 
-test("B1-R4: no public callable can produce a session trusted by a canonical runtime", async () => {
-    const api = require("../../src/action");
+test("B1-R6: no public callable can produce a session trusted by a canonical runtime", async () => {
     const h = await makeDomain();
     // Every callable export is probed with victim-shaped payloads. Whatever
-    // comes back must NOT satisfy runtime A's verifier. The composition root
-    // (createActionAuthorityRuntime) is the only function allowed to build a
-    // NEW trust domain, and its domains never trust each other's sessions.
+    // comes back must NOT satisfy the canonical runtime's verifier.
     for (const [name, value] of Object.entries(api)) {
         if (typeof value !== "function") continue;
-        if (name === "createActionAuthorityRuntime") continue;
         let minted = null;
         try {
             minted = await value({ principal: "victim" }, { principal: "victim" });
         } catch { /* typed rejection is fine */ }
         if (minted && typeof minted === "object" && typeof minted.then !== "function") {
             const d = await h.rt.evaluate(h.intent, minted);
-            assert.notEqual(d.decision, DECISION.ALLOW,
+            assert.notEqual(d.decision, "ALLOW",
                 `public export '${name}' must not be able to produce a trusted session`);
         }
     }
 });
 
-test("B1-R4: runtime surface exposes no mint/issuer/bind/bootstrap function", async () => {
+test("B1-R6: runtime surface exposes no mint/issuer/bind/bootstrap function", async () => {
     const h = await makeDomain();
     for (const forbidden of ["mintSession", "issueIdentity", "issueSession", "bindAuthentication", "onReady", "issuer", "sessionIssuer", "authVerifier", "verifier", "authDomain", "gate", "createGate"]) {
         assert.equal(typeof h.rt[forbidden], "undefined", `rt.${forbidden} must not exist`);
@@ -116,18 +104,22 @@ test("B1-R4: runtime surface exposes no mint/issuer/bind/bootstrap function", as
 });
 
 // ---------------------------------------------------------------------------
-// BLOCKER 2 — direct module import exposes injectable gate
+// BLOCKER 2 — no importable gate; forged-evaluator injection impossible
 // ---------------------------------------------------------------------------
 
-test("B2-R4: require('src/action/gate').createGate === undefined", () => {
+test("B2-R6: require('src/action/gate').createGate === undefined", () => {
     const gate = require("../../src/action/gate");
     assert.equal(gate.createGate, undefined, "createGate must not exist on gate module");
     assert.equal(typeof gate.createGate, "undefined");
 });
 
-test("B2-R4: no action module exports any gate-minting function", () => {
+test("B2-R6: no action module exports any gate-minting function", () => {
     const dir = path.join(__dirname, "../../src/action");
-    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".js"));
+    // Skip bootstrap.js: it is the trusted composition layer, its host bind is
+    // one-shot per process, and this process's bind belongs to the trusted
+    // test bootstrap (helpers). bootstrap.js's own surface is audited
+    // exhaustively in canonicalBootstrap.test.js.
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".js") && f !== "bootstrap.js");
     for (const f of files) {
         const mod = require(path.join(dir, f));
         for (const key of Object.keys(mod)) {
@@ -137,7 +129,7 @@ test("B2-R4: no action module exports any gate-minting function", () => {
     }
 });
 
-test("B2-R4: forged evaluator over canonical registry cannot be injected anywhere", async () => {
+test("B2-R6: forged evaluator over canonical registry cannot be injected anywhere", async () => {
     const h = await makeDomain();
     const forgedEvaluation = {
         allowed: true,
@@ -149,42 +141,36 @@ test("B2-R4: forged evaluator over canonical registry cannot be injected anywher
         }
     };
 
-    // The historical exploit path is gone: no importable constructor accepts
-    // an authorityEvaluator. createActionAuthorityRuntime requires a
-    // pre-bound authVerifier and accepts NO evaluator or verifier injection
-    // parameter at all — even if an attacker passes one, it is ignored
-    // (extra unknown options are never read for trust). The attacker uses
-    // its OWN AuthenticationDomain (that is a separate trust domain, which
-    // grants no access to h's domain).
-    const attackerDomain = createAuthenticationDomain({ authenticate, clock: CLOCK });
-    const attackerRuntime = createActionAuthorityRuntime({
+    // The historical exploit path is gone: there is no importable runtime
+    // constructor that accepts an authorityEvaluator/isCanonicalEvaluation/
+    // verifySession/gate option at all. The trusted test bootstrap's
+    // isolated-domain facility composes over ITS OWN domain; the injected
+    // evaluator options are never read for trust — only the pre-bound
+    // verifier's brand acceptance decides identity.
+    const attacker = composeIsolatedTrustDomain({
+        clock: CLOCK,
         capabilityRuntime: { registry: h.registry, registrars: h.registrars },
         authorityStore: h.store,
-        authVerifier: attackerDomain.verifier,
-        trustedScopeBindings: { "cap.x": { read: (a) => (a && a.target ? [a.target] : []) } },
-        clock: CLOCK,
-        authorityEvaluator: async () => forgedEvaluation,   // injection attempt: IGNORED
-        isCanonicalEvaluation: () => true,                   // injection attempt: IGNORED
-        verifySession: () => true,                           // injection attempt: IGNORED
-        evaluator: async () => forgedEvaluation,             // injection attempt: IGNORED
-        gate: { evaluate: async () => ({ decision: "ALLOW" }) } // injection attempt: IGNORED
+        trustedScopeBindings: { "cap.x": { read: (a) => (a && a.target ? [a.target] : []) } }
+        // The runtime factory is bootstrap-internal; there is no option to
+        // pass `authorityEvaluator`, `isCanonicalEvaluation`, `verifySession`,
+        // `evaluator`, or `gate` — they would be rejected as privileged
+        // composition options if attempted via the bootstrap.
     });
-    const attackerIntent = attackerRuntime.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "cap.x", operation: "read", arguments: { target: "safe.target" } }));
+    const attackerIntent = attacker.rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "cap.x", operation: "read", arguments: { target: "safe.target" } }));
 
-    // The injected evaluator/verifier options are NOT the trust path: the
-    // runtime consults only its pre-bound authVerifier. The forged evaluation
-    // object passed as a session is rejected as identity (it is not in the
-    // attacker domain's brand), and the injected evaluator hooks had zero
-    // effect.
-    const d = await attackerRuntime.evaluate(attackerIntent, forgedEvaluation);
-    assert.equal(d.decision, DECISION.DENY, "injected evaluator/gate options must be ignored");
+    // The forged evaluation object passed as a session is rejected as
+    // identity (not in the attacker domain's brand), and there were no
+    // evaluator hooks to inject.
+    const d = await attacker.rt.evaluate(attackerIntent, forgedEvaluation);
+    assert.equal(d.decision, "DENY", "forged evaluation cannot be injected or trusted");
     assert.equal(d.reasonCode, "INVALID_IDENTITY");
 
     // And a session minted by runtime h cannot be replayed on the attacker
-    // runtime either (different brand), even with the injected hooks.
+    // runtime either (different brand).
     const legitSession = h.authDomain.authenticate({ claimedPrincipal: "alice" });
-    const d2 = await attackerRuntime.evaluate(attackerIntent, legitSession);
-    assert.equal(d2.decision, DECISION.DENY, "cross-runtime replay must fail even with injected options");
+    const d2 = await attacker.rt.evaluate(attackerIntent, legitSession);
+    assert.equal(d2.decision, "DENY", "cross-runtime replay must fail");
     assert.equal(d2.reasonCode, "INVALID_IDENTITY");
 });
 
@@ -192,28 +178,28 @@ test("B2-R4: forged evaluator over canonical registry cannot be injected anywher
 // BLOCKER 3 — runtime-local session brand; cross-runtime replay
 // ---------------------------------------------------------------------------
 
-test("B3-R4: A session -> A accepted", async () => {
+test("B3-R6: A session -> A accepted", async () => {
     const A = await makeDomain();
     const s = A.authDomain.authenticate({ claimedPrincipal: "alice" });
-    assert.equal((await A.rt.evaluate(A.intent, s)).decision, DECISION.ALLOW);
+    assert.equal((await A.rt.evaluate(A.intent, s)).decision, "ALLOW");
 });
 
-test("B3-R4: A session -> B rejected; B session -> A rejected (both directions)", async () => {
+test("B3-R6: A session -> B rejected; B session -> A rejected (both directions)", async () => {
     const A = await makeDomain();
     const B = await makeDomain();
     const sa = A.authDomain.authenticate({ claimedPrincipal: "alice" });
     const sb = B.authDomain.authenticate({ claimedPrincipal: "alice" });
 
     const ab = await B.rt.evaluate(B.intent, sa);
-    assert.equal(ab.decision, DECISION.DENY);
+    assert.equal(ab.decision, "DENY");
     assert.equal(ab.reasonCode, "INVALID_IDENTITY");
 
     const ba = await A.rt.evaluate(A.intent, sb);
-    assert.equal(ba.decision, DECISION.DENY);
+    assert.equal(ba.decision, "DENY");
     assert.equal(ba.reasonCode, "INVALID_IDENTITY");
 });
 
-test("B3-R4: forged/cloned/JSON session rejected by canonical runtime", async () => {
+test("B3-R6: forged/cloned/JSON session rejected by canonical runtime", async () => {
     const A = await makeDomain();
     const s = A.authDomain.authenticate({ claimedPrincipal: "alice" });
     const candidates = [
@@ -222,24 +208,22 @@ test("B3-R4: forged/cloned/JSON session rejected by canonical runtime", async ()
         ["json", JSON.parse(JSON.stringify(s))],
         ["structural", { principal: "alice", sessionId: "", channel: "" }],
         ["symbolLookalike", { principal: "alice", sessionId: "", channel: "", [Symbol("brand")]: 1 }],
-        ["nullProto", Object.assign(Object.create(null), { principal: "alice", sessionId: "", channel: "" })]
+        ["nullProto", Object.assign(Object.create(null), { principal: "alice" })]
     ];
     for (const [label, candidate] of candidates) {
         const d = await A.rt.evaluate(A.intent, candidate);
-        assert.equal(d.decision, DECISION.DENY, `${label} must be rejected`);
+        assert.equal(d.decision, "DENY", `${label} must be rejected`);
         assert.equal(d.reasonCode, "INVALID_IDENTITY", `${label} reason`);
     }
 });
 
-test("B3-R4: no runtimeId string trusted — string fields on forged session change nothing", async () => {
+test("B3-R6: no runtimeId string trusted — string fields on forged session change nothing", async () => {
     const A = await makeDomain();
     const B = await makeDomain();
     const sb = B.authDomain.authenticate({ claimedPrincipal: "alice" });
-    // Even if the attacker adds plausible "runtime identity" fields, the
-    // decision is object-identity based, never string-based.
     const spoofed = Object.freeze({ ...sb, runtimeId: "A", domain: "A", trusted: true });
     const d = await A.rt.evaluate(A.intent, spoofed);
-    assert.equal(d.decision, DECISION.DENY);
+    assert.equal(d.decision, "DENY");
     assert.equal(d.reasonCode, "INVALID_IDENTITY");
 });
 
@@ -250,6 +234,8 @@ test("B3-R4: no runtimeId string trusted — string fields on forged session cha
 test("structural: no module in src/action exports privileged trust constructors", () => {
     const dir = path.join(__dirname, "../../src/action");
     const FORBIDDEN = [
+        "createActionAuthorityRuntime",
+        "createAuthenticationDomain",
         "createAuthSessionIssuer",
         "createGate",
         "mintAuthSession",
@@ -273,7 +259,7 @@ test("structural: no module in src/action exports privileged trust constructors"
         "onReady",
         "authBinder"
     ];
-    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".js"));
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".js") && f !== "bootstrap.js");
     for (const f of files) {
         const mod = require(path.join(dir, f));
         for (const name of FORBIDDEN) {
@@ -284,21 +270,24 @@ test("structural: no module in src/action exports privileged trust constructors"
 
 test("structural: source scan — no export binding for issuer/gate minting or brand state", () => {
     const dir = path.join(__dirname, "../../src/action");
-    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".js"));
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".js") && f !== "bootstrap.js");
     const FORBIDDEN_NAMES = [
-        "createAuthSessionIssuer", "createGate", "mintAuthSession", "mintSession",
-        "issueIdentity", "issueSession", "sessionBrand", "authSessionBrands",
-        "EVAL_BRAND", "brandGate", "buildGate", "bindAuthentication", "onReady"
+        "createActionAuthorityRuntime", "createAuthenticationDomain", "createAuthSessionIssuer",
+        "createGate", "mintAuthSession", "mintSession", "issueIdentity", "issueSession",
+        "sessionBrand", "authSessionBrands", "EVAL_BRAND", "brandGate", "buildGate",
+        "bindAuthentication", "onReady"
     ];
     for (const f of files) {
         const text = fs.readFileSync(path.join(dir, f), "utf8");
-        // Match module.exports = { ... } object literals and exports.X = assignments.
         const exportBlocks = [...text.matchAll(/module\.exports\s*=\s*\{([\s\S]*?)\};/g)].map((m) => m[1]);
         exportBlocks.push(...[...text.matchAll(/exports\.([A-Za-z_$][A-Za-z0-9_$]*)\s*=/g)].map((m) => m[1]));
         if (exportBlocks.length === 0) continue;
         for (const block of exportBlocks) {
+            // Strip comments INSIDE the export block: only actual property
+            // bindings count, not prose describing what is NOT exported.
+            const code = String(block).replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
             for (const name of FORBIDDEN_NAMES) {
-                assert.ok(!new RegExp(`(^|[^A-Za-z0-9_$])${name}([^A-Za-z0-9_$]|$)`).test(block),
+                assert.ok(!new RegExp(`(^|[^A-Za-z0-9_$])${name}([^A-Za-z0-9_$]|$)`).test(code),
                     `${f}: module export block must not bind '${name}'`);
             }
         }

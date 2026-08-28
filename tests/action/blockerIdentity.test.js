@@ -176,18 +176,16 @@ test("B3: getCapability/getGeneration/countConsumption throws => no ALLOW", asyn
     ];
 
     for (const badStore of stores) {
-        const { createCapabilityRuntime } = require("../../src/capability/registry");
-        const { createActionAuthorityRuntime } = require("../../src/action");
-        const capRuntime = createCapabilityRuntime({ registrars: { core: true }, clock: { nowMs: () => h.clock.nowMs() } });
-        const res = capRuntime.registrars.core.register(JSON.stringify({ schemaVersion: 1, id: "filesystem.read", kind: "system", provider: "core", operations: ["read"], requirements: [], effects: [] }));
-        capRuntime.registry.observeAvailability("filesystem.read", "AVAILABLE", { generation: 1, incarnationId: res.incarnationId });
-        const rt = createActionAuthorityRuntime({
-            capabilityRuntime: capRuntime, authorityStore: badStore,
-            authVerifier: h.authDomain.verifier,
-            trustedScopeBindings: { "filesystem.read": { read: (a) => a && a.target ? [a.target] : [] } },
+        // Trusted-bootstrap facility: compose an internal runtime over the
+        // hostile store to prove fail-closed behavior (never a caller path).
+        const { composeRuntimeOverStore } = require("./helpers");
+        const composed = composeRuntimeOverStore({
+            authorityStore: badStore,
             clock: { nowMs: () => h.clock.nowMs() }
         });
-        const d = await rt.evaluate(intent, id);
+        const res = composed.capabilityRuntime.registrars.core.register(JSON.stringify({ schemaVersion: 1, id: "filesystem.read", kind: "system", provider: "core", operations: ["read"], requirements: [], effects: [] }));
+        composed.capabilityRuntime.registry.observeAvailability("filesystem.read", "AVAILABLE", { generation: 1, incarnationId: res.incarnationId });
+        const d = await composed.rt.evaluate(intent, id);
         assert.equal(d.decision, DECISION.DENY, "store read failure must fail closed");
     }
 });
@@ -199,18 +197,15 @@ test("B3: malformed grant => no ALLOW", async () => {
         schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", arguments: { target: "safe.target" }
     }));
     const badStore = { getCapability: async () => ({ status: "ACTIVE", generation: 0, payload: null }), getGeneration: async () => 0, countConsumption: async () => 0 };
-    const { createCapabilityRuntime } = require("../../src/capability/registry");
-    const { createActionAuthorityRuntime } = require("../../src/action");
-    const capRuntime = createCapabilityRuntime({ registrars: { core: true }, clock: { nowMs: () => h.clock.nowMs() } });
-    const res = capRuntime.registrars.core.register(JSON.stringify({ schemaVersion: 1, id: "filesystem.read", kind: "system", provider: "core", operations: ["read"], requirements: [], effects: [] }));
-    capRuntime.registry.observeAvailability("filesystem.read", "AVAILABLE", { generation: 1, incarnationId: res.incarnationId });
-    const rt = createActionAuthorityRuntime({
-        capabilityRuntime: capRuntime, authorityStore: badStore,
-        authVerifier: h.authDomain.verifier,
-        trustedScopeBindings: { "filesystem.read": { read: (a) => a && a.target ? [a.target] : [] } },
+    // Trusted-bootstrap facility for hostile-store composition (internal only).
+    const { composeRuntimeOverStore } = require("./helpers");
+    const composed = composeRuntimeOverStore({
+        authorityStore: badStore,
         clock: { nowMs: () => h.clock.nowMs() }
     });
-    assert.equal((await rt.evaluate(intent, h.session("alice"))).decision, DECISION.DENY);
+    const res = composed.capabilityRuntime.registrars.core.register(JSON.stringify({ schemaVersion: 1, id: "filesystem.read", kind: "system", provider: "core", operations: ["read"], requirements: [], effects: [] }));
+    composed.capabilityRuntime.registry.observeAvailability("filesystem.read", "AVAILABLE", { generation: 1, incarnationId: res.incarnationId });
+    assert.equal((await composed.rt.evaluate(intent, h.session("alice"))).decision, DECISION.DENY);
 });
 
 // ---------------------------------------------------------------------------

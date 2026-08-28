@@ -11,7 +11,14 @@
  * Also proves the public surface exposes no execution verbs, no authority
  * -minting verbs, and no privileged trust constructors (identity minting,
  * scope resolver injection, generic authorityContext injection, evaluation
- * branding). The only trust issuance surface is `createActionAuthorityRuntime`.
+ * branding). As of the SIXTH targeted repair there is NO trust issuance
+ * surface in the public API at all: canonical composition lives in the
+ * trusted bootstrap layer (src/action/bootstrap.js), and the runtime/domain
+ * factories are not exported anywhere. This file plays the trusted-bootstrap
+ * role in ITS process (binding the one-shot composition hosts via the test
+ * harness), so requiring src/action/bootstrap.js here would fail its one-shot
+ * law; the bootstrap module's own surface is audited exhaustively in
+ * canonicalBootstrap.test.js.
  */
 
 const test = require("node:test");
@@ -49,16 +56,20 @@ test("structural: action module imports no executors, authority mutators, fs/net
     }
 
     // allowed external requires: intra-domain, node:crypto, capability ids, and
-    // the canonical authority evaluator (read-only).
+    // the canonical authority evaluator (read-only). The trusted bootstrap
+    // (bootstrap.js) additionally constructs canonical state, so it may also
+    // require the capability registry + authority store composition roots.
     for (const file of files) {
         const text = fs.readFileSync(file, "utf8");
+        const isBootstrap = file.endsWith("bootstrap.js");
         for (const m of text.matchAll(/require\(\s*["']([^"']+)["']\s*\)/g)) {
             const target = m[1];
             const ok =
                 target.startsWith("./") ||
                 target === "node:crypto" ||
                 target === "../capability/registry/ids" ||
-                target === "../authority/evaluate";
+                target === "../authority/evaluate" ||
+                (isBootstrap && (target === "../capability/registry" || target === "../authority/store"));
             assert.ok(ok, `${file}: unexpected external require '${target}'`);
         }
     }
@@ -103,14 +114,19 @@ test("surface: no authority-minting verbs in public API", () => {
 
 test("surface: no privileged trust constructors exported", () => {
     const api = require("../../src/action");
-    for (const forbidden of ["mintRuntimeIdentity", "createIntentAdmission", "createReadOnlyAuthorityContext", "createRuntimeIdentityContext", "mintAuthSession", "createAuthSessionIssuer", "createGate", "createSessionTrustDomain"]) {
+    for (const forbidden of ["mintRuntimeIdentity", "createIntentAdmission", "createReadOnlyAuthorityContext", "createRuntimeIdentityContext", "mintAuthSession", "createAuthSessionIssuer", "createGate", "createSessionTrustDomain", "createActionAuthorityRuntime", "createAuthenticationDomain", "createTrustedActionRuntime", "createCanonicalVerifier", "createBootstrapFactory"]) {
         assert.equal(typeof api[forbidden], "undefined", `must not export ${forbidden}`);
     }
-    assert.equal(typeof api.createActionAuthorityRuntime, "function");
     assert.equal(typeof api.createAuthSessionIssuer, "undefined",
         "createAuthSessionIssuer must NOT be exported (Wave-4 blocker 1)");
     assert.equal(typeof api.isAuthSession, "undefined",
         "module-global isAuthSession must NOT be exported (runtime-local brand only)");
+    // SIXTH repair: the composition factories are not exported at all —
+    // composition is bootstrap-internal (one-shot host binding).
+    assert.equal(typeof api.createActionAuthorityRuntime, "undefined",
+        "createActionAuthorityRuntime must NOT be a public export (canonical bootstrap ownership)");
+    assert.equal(typeof api.createAuthenticationDomain, "undefined",
+        "createAuthenticationDomain must NOT be a public export (canonical bootstrap ownership)");
 });
 
 test("surface: no session/evaluation brand state reachable from any action module", () => {

@@ -6,10 +6,8 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { parseActionIntent, DECISION, createActionAuthorityRuntime, createAuthenticationDomain, isCanonicalAuthorityEvaluation } = require("../../src/action");
-const { createCapabilityRuntime } = require("../../src/capability/registry");
-const { createMemoryAuthorityStore } = require("../../src/authority/store");
-const { makeHarness } = require("./helpers");
+const { parseActionIntent, DECISION, isCanonicalAuthorityEvaluation } = require("../../src/action");
+const { makeHarness, composeRuntimeOverStore } = require("./helpers");
 
 async function setupAvailable(h, id = "filesystem.read", ops = ["read"]) {
     const res = await h.registerCapability({ id, operations: ops });
@@ -78,36 +76,35 @@ test("B5: canonical evaluator output is accepted (branded)", async () => {
 
 test("B6: invalid clock values reject at runtime construction / admission", async () => {
     for (const bad of [NaN, Infinity, -1, "x", () => 0, {}, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
-        const capabilityRuntime = createCapabilityRuntime({ registrars: { core: true }, clock: { nowMs: () => 1000 } });
-        capabilityRuntime.registrars.core.register(JSON.stringify({
+        // Trusted-bootstrap facility for clock-hardening composition (internal only).
+        // The domain's clock stays valid; the RUNTIME receives the hostile clock,
+        // proving the runtime's own captureClock validation rejects.
+        const composed = composeRuntimeOverStore({
+            authorityStore: { getCapability: async () => null, getGeneration: async () => 0, countConsumption: async () => 0 },
+            clock: { nowMs: () => 1000 },
+            runtimeClock: { nowMs: () => bad },
+            authenticate: () => null,
+            trustedScopeBindings: { "x.one": { read: () => [] } }
+        });
+        composed.capabilityRuntime.registrars.core.register(JSON.stringify({
             schemaVersion: 1, id: "x.one", kind: "system", provider: "core", operations: ["read"], requirements: [], effects: []
         }));
-        const store = createMemoryAuthorityStore();
-        const authDomain = createAuthenticationDomain({ authenticate: () => null, clock: { nowMs: () => 1000 } });
-        const rt = createActionAuthorityRuntime({
-            capabilityRuntime, authorityStore: store,
-            authVerifier: authDomain.verifier,
-            trustedScopeBindings: { "x.one": { read: () => [] } },
-            clock: { nowMs: () => bad }
-        });
-        assert.throws(() => rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "x.one", operation: "read" })),
+        assert.throws(() => composed.rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "x.one", operation: "read" })),
             (e) => e.reasonCode === "MALFORMED_INPUT", `bad clock value ${String(bad)} must reject`);
     }
 });
 
 test("B6: omitted createdAtMs + invalid default clock => reject", async () => {
-    const capabilityRuntime = createCapabilityRuntime({ registrars: { core: true }, clock: { nowMs: () => 1000 } });
-    capabilityRuntime.registrars.core.register(JSON.stringify({
+    const composed = composeRuntimeOverStore({
+        authorityStore: { getCapability: async () => null, getGeneration: async () => 0, countConsumption: async () => 0 },
+        clock: { nowMs: () => 1000 },
+        runtimeClock: { nowMs: () => NaN },
+        authenticate: () => null,
+        trustedScopeBindings: { "x.one": { read: () => [] } }
+    });
+    composed.capabilityRuntime.registrars.core.register(JSON.stringify({
         schemaVersion: 1, id: "x.one", kind: "system", provider: "core", operations: ["read"], requirements: [], effects: []
     }));
-    const store = createMemoryAuthorityStore();
-    const authDomain = createAuthenticationDomain({ authenticate: () => null, clock: { nowMs: () => 1000 } });
-    const rt = createActionAuthorityRuntime({
-        capabilityRuntime, authorityStore: store,
-        authVerifier: authDomain.verifier,
-        trustedScopeBindings: { "x.one": { read: () => [] } },
-        clock: { nowMs: () => NaN }
-    });
-    assert.throws(() => rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "x.one", operation: "read" })),
+    assert.throws(() => composed.rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "x.one", operation: "read" })),
         (e) => e.reasonCode === "MALFORMED_INPUT");
 });

@@ -12,8 +12,9 @@ const crypto = require("node:crypto");
 
 const { createCapabilityRuntime } = require("../../src/capability/registry");
 const { createMemoryAuthorityStore } = require("../../src/authority/store");
-const { createActionAuthorityRuntime, createAuthenticationDomain, parseActionIntent, DECISION, isCanonicalAuthorityEvaluation } = require("../../src/action");
+const { parseActionIntent, DECISION, isCanonicalAuthorityEvaluation } = require("../../src/action");
 const { ActionError } = require("../../src/action");
+const { makeHarness, composeIsolatedTrustDomain } = require("./helpers");
 
 const OP_TARGET = 12000;
 const CAP_POOL = 12;
@@ -35,28 +36,28 @@ function targetScope(args) {
 
 async function runStorm(seed) {
     const rng = mulberry32(seed);
-    const capabilityRuntime = createCapabilityRuntime({ registrars: { core: true }, clock: { nowMs: () => 1000 } });
-    const { registry, registrars } = capabilityRuntime;
-    const store = createMemoryAuthorityStore();
 
+    // ---- trusted test bootstrap (sixth repair): canonical state, the
+    // AuthenticationDomain, and the identity verifier are all owned by the
+    // trusted harness closure. The storm composes through the trusted
+    // bootstrap facilities only. ----
     const bindings = {};
     for (let i = 0; i < CAP_POOL; i++) bindings[`pool.cap.${i}`] = { read: targetScope, write: targetScope };
-    const authDomain = createAuthenticationDomain({
+    const h = await makeHarness({
+        scopeBindings: bindings,
         authenticate: (e) => {
             // Mirror trusted auth infra: the authenticated principal comes
             // from the authenticator's own decision. The caller's claimed
             // principal is echoed ONLY when bootstrap intends to mint it.
             const p = e && (e.claimedPrincipal ?? e.principal);
             return (typeof p === "string" && p.length > 0) ? { principal: p } : null;
-        },
-        clock: { nowMs: () => 1000 }
+        }
     });
-    const rt = createActionAuthorityRuntime({
-        capabilityRuntime, authorityStore: store,
-        authVerifier: authDomain.verifier,
-        trustedScopeBindings: bindings,
-        clock: { nowMs: () => 1000 }
-    });
+    const capabilityRuntime = { registry: h.registry, registrars: h.registrars };
+    const { registry, registrars } = capabilityRuntime;
+    const store = h.store;
+    const authDomain = h.authDomain;
+    const rt = h.rt;
     const session = (o) => authDomain.authenticate({ claimedPrincipal: o && o.principal, ...o }); // trusted infra path
 
     const C = {
@@ -81,21 +82,22 @@ async function runStorm(seed) {
         directGateInjectionSucceeded: 0, forgedSessionAccepted: 0,
         // Wave-4 fifth repair (caller-owned auth bootstrap removed) counters
         callerObtainedAuthBinder: 0, callerObtainedSessionMint: 0,
-        authFailurePrincipalFallback: 0, retainedAuthBindingReplay: 0
+        authFailurePrincipalFallback: 0, retainedAuthBindingReplay: 0,
+        // Wave-4 SIXTH repair (canonical bootstrap ownership) counters
+        publicActionRuntimeFactoryExposed: 0, publicAuthenticationDomainFactoryExposed: 0,
+        callerSelectedVerifierAccepted: 0, canonicalStateReboundByAttacker: 0
     };
 
     // A SECOND runtime over DIFFERENT canonical state: sessions from it must
     // never be accepted by `rt` (runtime-local brand via separate domain).
-    const foreignState = createCapabilityRuntime({ registrars: { core: true }, clock: { nowMs: () => 1000 } });
-    const foreignStore = createMemoryAuthorityStore();
-    const foreignDomain = createAuthenticationDomain({ authenticate: (e) => ({ principal: e && (e.claimedPrincipal ?? e.principal) }), clock: { nowMs: () => 1000 } });
-    const foreignRt = createActionAuthorityRuntime({
-        capabilityRuntime: foreignState,
-        authorityStore: foreignStore,
-        authVerifier: foreignDomain.verifier,
-        trustedScopeBindings: { "pool.cap.0": { read: targetScope } },
-        clock: { nowMs: () => 1000 }
+    const foreign = composeIsolatedTrustDomain({
+        clock: { nowMs: () => 1000 },
+        trustedScopeBindings: { "pool.cap.0": { read: targetScope } }
     });
+    const foreignState = foreign.capabilityRuntime;
+    const foreignStore = foreign.authorityStore;
+    const foreignDomain = foreign.authDomain;
+    const foreignRt = foreign.rt;
     {
         const fres = foreignState.registrars.core.register(JSON.stringify({ schemaVersion: 1, id: "pool.cap.0", kind: "system", provider: "core", operations: ["read", "write"], requirements: [], effects: [] }));
         foreignState.registry.observeAvailability("pool.cap.0", "AVAILABLE", { generation: 1, incarnationId: fres.incarnationId });
@@ -373,30 +375,29 @@ async function runStorm(seed) {
                         }
                         // Also exercise the ignore-options path directly. The
                         // attacker composes over its OWN domain (authVerifier
-                        // composition is mandatory); the injected evaluator/
-                        // verifier options must still be IGNORED — only the
-                        // pre-bound verifier's brand decides identity.
-                        const injectedDomain = createAuthenticationDomain({ authenticate: (e) => ({ principal: e && (e.claimedPrincipal ?? e.principal) }), clock: { nowMs: () => 1000 } });
-                        const injected = createActionAuthorityRuntime({
-                            capabilityRuntime: { registry, registrars },
-                            authorityStore: store,
-                            authVerifier: injectedDomain.verifier,
-                            trustedScopeBindings: { [id]: { read: targetScope } },
-                            clock: { nowMs: () => 1000 },
-                            authorityEvaluator: async () => ({ allowed: true, reasonCode: "AUTHORIZED" }),
-                            isCanonicalEvaluation: () => true,
-                            verifySession: () => true
-                        });
-                        const ii = injected.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
-                        const idInjected = authDomain.authenticate({ claimedPrincipal: subject });
-                        // The injected runtime's brand is injectedDomain's brand, NOT
-                        // authDomain's: a session from authDomain must be rejected even
-                        // though "verifySession:()=>true" (an injected option) claims
-                        // to accept everything — injected options are never read for
-                        // trust; only the pre-bound verifier's brand acceptance holds.
-                        const dd = await injected.evaluate(ii, idInjected);
-                        if (dd.decision === DECISION.ALLOW) C.directGateInjectionSucceeded++;
-                        if (dd.decision === DECISION.ALLOW) C.forgedSessionAccepted++;
+                    //     composition is mandatory); the injected evaluator/
+                    //     verifier options to the historical factory are GONE —
+                    //     the trusted test bootstrap's isolated-domain facility
+                    //     is the only compose path, and it builds its OWN
+                    //     domain+verifier internally. There is no
+                    //     authorityEvaluator/isCanonicalEvaluation/verifySession
+                    //     option to inject at all.
+                    const injected = composeIsolatedTrustDomain({
+                        clock: { nowMs: () => 1000 },
+                        capabilityRuntime: { registry, registrars },
+                        authorityStore: store,
+                        trustedScopeBindings: { [id]: { read: targetScope } }
+                    });
+                    const ii = injected.rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
+                    const idInjected = authDomain.authenticate({ claimedPrincipal: subject });
+                    // The injected runtime's brand is the isolated domain's
+                    // brand, NOT authDomain's: a session from authDomain must
+                    // be rejected. The historical injected options
+                    // (verifySession:()=>true etc.) are GONE — only the
+                    // pre-bound verifier's brand acceptance holds.
+                    const dd = await injected.rt.evaluate(ii, idInjected);
+                    if (dd.decision === DECISION.ALLOW) C.directGateInjectionSucceeded++;
+                    if (dd.decision === DECISION.ALLOW) C.forgedSessionAccepted++;
                     }
                     //   forgedSessionAccepted: a forged/cloned/JSON session must
                     //     never ALLOW.
@@ -411,42 +412,43 @@ async function runStorm(seed) {
                     // ---- Wave-4 FIFTH repair counters (caller-owned auth
                     // bootstrap removed). All active paths; all must stay zero. ----
                     //   callerObtainedAuthBinder: the runtime constructor must
-                    //     expose NO onReady/bindAuthentication callback surface,
-                    //     and must REJECT any caller-bootstrap option key.
+                    //     expose NO onReady/bindAuthentication callback surface.
+                    //     The factory itself is no longer callable by anyone but
+                    //     the trusted bootstrap (one-shot host binding), so there
+                    //     is no composition call to even attempt; the active
+                    //     detection path is probing every reachable surface for
+                    //     a binder-like callable.
                     {
                         let binder = null;
-                        try {
-                            createActionAuthorityRuntime({
-                                capabilityRuntime: { registry, registrars },
-                                authorityStore: store,
-                                authVerifier: authDomain.verifier,
-                                trustedScopeBindings: {},
-                                clock: { nowMs: () => 1000 },
-                                onReady: (caps) => { binder = caps && caps.bindAuthentication ? caps.bindAuthentication : "obtained"; }
-                            });
-                            if (binder !== null) C.callerObtainedAuthBinder++;
-                        } catch (e) {
-                            // Composition must reject with the typed reason; if it
-                            // accepted (no rejection) AND produced a binder, that is
-                            // the exploit — counted above. A rejection is correct.
-                            if (binder !== null) C.callerObtainedAuthBinder++;
-                            if (!e || e.reasonCode !== "CALLER_BOOTSTRAP_REJECTED") {
-                                // rejection missing entirely: the surface regressed
-                                C.callerObtainedAuthBinder++;
-                            }
+                        // The factory is not importable: any attempt to compose
+                        // via a public/direct surface must be impossible.
+                        const api = require("../../src/action");
+                        if (typeof api.createActionAuthorityRuntime === "function") {
+                            // Historical factory re-exposed: try the exploit.
+                            try {
+                                api.createActionAuthorityRuntime({
+                                    capabilityRuntime: { registry, registrars },
+                                    authorityStore: store,
+                                    authVerifier: authDomain.verifier,
+                                    trustedScopeBindings: {},
+                                    clock: { nowMs: () => 1000 },
+                                    onReady: (caps) => { binder = caps && caps.bindAuthentication ? caps.bindAuthentication : "obtained"; }
+                                });
+                            } catch { /* rejection is correct */ }
                         }
+                        if (binder !== null) C.callerObtainedAuthBinder++;
                         // Even a rejected construction must not leave any callable
                         // binder lying on the runtime module exports.
-                        const api = require("../../src/action");
-                        if (typeof api.bindAuthentication === "function" || typeof api.onReady === "function") C.callerObtainedAuthBinder++;
+                        const apiB = require("../../src/action");
+                        if (typeof apiB.bindAuthentication === "function" || typeof apiB.onReady === "function") C.callerObtainedAuthBinder++;
                     }
                     //   callerObtainedSessionMint: no export or runtime surface
                     //     may expose mintSession; probe every runtime property
                     //     and module export for a mint-like callable.
                     {
-                        const api = require("../../src/action");
-                        for (const k of Object.keys(api)) {
-                            if (typeof api[k] === "function" && /mint|issue/i.test(k)) C.callerObtainedSessionMint++;
+                        const apiC = require("../../src/action");
+                        for (const k of Object.keys(apiC)) {
+                            if (typeof apiC[k] === "function" && /mint|issue/i.test(k)) C.callerObtainedSessionMint++;
                         }
                         for (const k of Object.keys(rt)) {
                             if (typeof rt[k] === "function" && /mint|issue|bind/i.test(k)) C.callerObtainedSessionMint++;
@@ -484,7 +486,9 @@ async function runStorm(seed) {
                             () => ({ principal: "" })
                         ];
                         for (const authFn of failingCases) {
-                            const failingAuth = createAuthenticationDomain({ authenticate: authFn, clock: { nowMs: () => 1000 } });
+                            // Trusted test bootstrap isolated-domain facility: the
+                            // domain is constructed internally, not by a caller.
+                            const failingAuth = composeIsolatedTrustDomain({ clock: { nowMs: () => 1000 }, authenticate: authFn }).authDomain;
                             const attempt = failingAuth.authenticate({ claimedPrincipal: "actor.0", principal: "actor.0", requestedPrincipal: "actor.0" });
                             if (attempt !== null) {
                                 // A failing authenticator must never produce a minted session.
@@ -515,10 +519,105 @@ async function runStorm(seed) {
                         }
                         // A second AuthenticationDomain cannot verify (or mint into)
                         // the first domain's brand.
-                        const secondDomain = createAuthenticationDomain({ authenticate: (e) => ({ principal: e && e.claimedPrincipal }), clock: { nowMs: () => 1000 } });
+                        const secondDomain = composeIsolatedTrustDomain({ clock: { nowMs: () => 1000 }, authenticate: (e) => ({ principal: e && e.claimedPrincipal }) }).authDomain;
                         const s2 = secondDomain.authenticate({ claimedPrincipal: "actor.0" });
                         const d2 = await rt.evaluate(rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } })), s2);
                         if (d2.decision === DECISION.ALLOW) C.retainedAuthBindingReplay++;
+                    }
+                    // ---- Wave-4 SIXTH repair counters (canonical bootstrap
+                    // ownership; caller-selectable verifier removed). All active
+                    // paths; all must stay zero. ----
+                    //   publicActionRuntimeFactoryExposed: the public API must
+                    //     expose NO createRuntime/createActionAuthorityRuntime
+                    //     factory, and no action submodule export may be a
+                    //     runtime-factory-like callable.
+                    {
+                        const api = require("../../src/action");
+                        if (typeof api.createActionAuthorityRuntime === "function") C.publicActionRuntimeFactoryExposed++;
+                        for (const name of Object.keys(api)) {
+                            if (typeof api[name] === "function" && /createActionAuthorityRuntime|createRuntime|createActionRuntime/i.test(name)) {
+                                C.publicActionRuntimeFactoryExposed++;
+                            }
+                        }
+                        // direct submodule imports also expose no factory
+                        const runtimeModule = require("../../src/action/runtime");
+                        if (typeof runtimeModule.createActionAuthorityRuntime === "function") C.publicActionRuntimeFactoryExposed++;
+                    }
+                    //   publicAuthenticationDomainFactoryExposed: the public API
+                    //     and authDomain submodule must expose NO
+                    //     createAuthenticationDomain factory.
+                    {
+                        const api = require("../../src/action");
+                        if (typeof api.createAuthenticationDomain === "function") C.publicAuthenticationDomainFactoryExposed++;
+                        for (const name of Object.keys(api)) {
+                            if (typeof api[name] === "function" && /createAuthenticationDomain|createDomain/i.test(name)) {
+                                C.publicAuthenticationDomainFactoryExposed++;
+                            }
+                        }
+                        const authDomainModule = require("../../src/action/authDomain");
+                        if (typeof authDomainModule.createAuthenticationDomain === "function") C.publicAuthenticationDomainFactoryExposed++;
+                    }
+                    //   callerSelectedVerifierAccepted: a fake verifier
+                    //     {verify:()=>victim} has NO path into the canonical
+                    //     runtime. Probe the public API and the trusted
+                    //     bootstrap for any composition surface that accepts an
+                    //     authVerifier/verifier option; none should trust the
+                    //     fake verifier to produce an ALLOW on canonical state.
+                    {
+                        const fakeVerifier = { verify: () => "actor.0" };
+                        // The public API exposes no composition factory at all.
+                        // The trusted test bootstrap's isolated-domain facility
+                        // is the only compose path, and it constructs its OWN
+                        // verifier internally (the fakeVerifier is never read).
+                        let attackerRt = null;
+                        try {
+                            attackerRt = composeIsolatedTrustDomain({
+                                clock: { nowMs: () => 1000 },
+                                capabilityRuntime: { registry, registrars },
+                                authorityStore: store,
+                                trustedScopeBindings: { [id]: { read: targetScope } }
+                                // No authVerifier option accepted — the isolated
+                                // facility builds its own domain+verifier.
+                            });
+                        } catch { /* composition with a caller verifier must reject */ }
+                        if (attackerRt && attackerRt.rt) {
+                            // The canonical victim session must NEVER verify on
+                            // the attacker runtime (separate brand).
+                            const victim = authDomain.authenticate({ claimedPrincipal: "actor.0" });
+                            const ai = attackerRt.rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
+                            const dv = await attackerRt.rt.evaluate(ai, victim);
+                            if (dv.decision === DECISION.ALLOW) C.callerSelectedVerifierAccepted++;
+                        }
+                        // The fake verifier cannot be attached to canonical
+                        // state at all: there is no public/direct factory.
+                        const api = require("../../src/action");
+                        if (typeof api.createActionAuthorityRuntime === "function") C.callerSelectedVerifierAccepted++;
+                    }
+                    //   canonicalStateReboundByAttacker: an attacker that
+                    //     POSSESSES canonical registry+store references cannot
+                    //     construct a runtime over them that accepts its OWN
+                    //     attacker-minted "victim" session for canonical state.
+                    //     The attacker can compose an isolated domain (separate
+                    //     trust), but that domain's sessions never verify on the
+                    //     canonical runtime, and the attacker's runtime never
+                    //     trusts the canonical victim session.
+                    {
+                        const attacker = composeIsolatedTrustDomain({
+                            clock: { nowMs: () => 1000 },
+                            capabilityRuntime: { registry, registrars },
+                            authorityStore: store,
+                            trustedScopeBindings: { [id]: { read: targetScope } }
+                        });
+                        const attackerSession = attacker.authDomain.authenticate({ claimedPrincipal: "actor.0" });
+                        const canonicalIntent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
+                        // attacker session on canonical runtime => DENY
+                        const onCanonical = await rt.evaluate(canonicalIntent, attackerSession);
+                        if (onCanonical.decision === DECISION.ALLOW) C.canonicalStateReboundByAttacker++;
+                        // canonical victim session on attacker runtime => DENY
+                        const victimSession = authDomain.authenticate({ claimedPrincipal: "actor.0" });
+                        const attackerIntent = attacker.rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
+                        const onAttacker = await attacker.rt.evaluate(attackerIntent, victimSession);
+                        if (onAttacker.decision === DECISION.ALLOW) C.canonicalStateReboundByAttacker++;
                     }
                     break;
                 }

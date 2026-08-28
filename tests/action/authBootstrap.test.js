@@ -2,11 +2,16 @@
 
 /**
  * ACTION AUTHORITY GATE V1 — fifth targeted repair regressions (Wave 4):
- * caller-owned auth bootstrap REMOVED.
+ * caller-owned auth bootstrap REMOVED — as re-verified under the SIXTH
+ * targeted repair (canonical bootstrap ownership; caller-selectable verifier
+ * removed).
+ *
+ * All composition goes through the trusted test bootstrap
+ * (tests/action/bootstrapHarness.js); the runtime factory is bootstrap-internal
+ * and no longer a public export.
  *
  * Direct regression for every Codex repro:
- *   1.  runtime constructor rejects/ignores onReady; no privileged callback
- *       obtainable
+ *   1.  no privileged callback obtainable (onReady family deleted + rejected)
  *   2.  no bindAuthentication surface exists
  *   3.  no mintSession surface exists downstream
  *   4.  authenticate => null cannot mint claimed victim
@@ -20,7 +25,7 @@
  *   12. forged/clone/JSON/Proxy sessions remain rejected
  *
  * Plus structural export scans: no action module exports any auth bootstrap,
- * mint, issuer, identity-mint, or session-brand surface.
+ * mint, issuer, identity-mint, session-brand, or composition surface.
  */
 
 const test = require("node:test");
@@ -28,15 +33,8 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const {
-    createActionAuthorityRuntime,
-    createAuthenticationDomain,
-    parseActionIntent,
-    DECISION
-} = require("../../src/action");
-const { createCapabilityRuntime } = require("../../src/capability/registry");
-const { createMemoryAuthorityStore } = require("../../src/authority/store");
-const { makeHarness, authenticate } = require("./helpers");
+const api = require("../../src/action");
+const { makeHarness, composeIsolatedTrustDomain, authenticate } = require("./helpers");
 
 const CLOCK = { nowMs: () => 1000 };
 
@@ -46,78 +44,40 @@ async function setupAvailable(h, id = "filesystem.read", ops = ["read"]) {
     return res;
 }
 
-/** Minimal standalone runtime + trusted AuthenticationDomain. */
 async function makeDomain() {
-    const capabilityRuntime = createCapabilityRuntime({ registrars: { core: true }, clock: CLOCK });
-    const { registry, registrars } = capabilityRuntime;
-    const store = createMemoryAuthorityStore();
-    const authDomain = createAuthenticationDomain({ authenticate, clock: CLOCK });
-    const rt = createActionAuthorityRuntime({
-        capabilityRuntime,
-        authorityStore: store,
-        authVerifier: authDomain.verifier,
-        trustedScopeBindings: { "cap.x": { read: (a) => (a && a.target ? [a.target] : []) } },
-        clock: CLOCK
+    const h = await makeHarness({
+        clock: CLOCK,
+        scopeBindings: { "cap.x": { read: (a) => (a && a.target ? [a.target] : []) } }
     });
-    const res = registrars.core.register(JSON.stringify({
-        schemaVersion: 1, id: "cap.x", kind: "system", provider: "core",
-        operations: ["read"], requirements: [], effects: []
-    }));
-    registry.observeAvailability("cap.x", "AVAILABLE", { generation: 1, incarnationId: res.incarnationId });
-    await store.upsertCapability("cap.x", "ACTIVE", 0, JSON.stringify({
-        capabilityId: "cap.x", kind: "root", subject: "alice", issuer: "test",
-        actions: ["read"], scope: [], allowedPurposes: [],
-        restrictions: { kind: "unrestricted" }, maxExecutions: null, usedExecutions: 0,
-        issuedAt: "2025-01-01T00:00:00Z", notBefore: null, expiresAt: null,
-        status: "ACTIVE", generation: 0, delegationDepth: 0, remainingDelegationDepth: 2,
-        parentCapabilityId: null, rootCapabilityId: "cap.x", ratificationId: null,
-        identityBinding: { principals: ["alice"] }, extra: null
-    }));
-    const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "cap.x", operation: "read", arguments: { target: "safe.target" } }));
-    return { registry, registrars, store, rt, authDomain, intent };
+    const res = await h.registerCapability({ id: "cap.x", operations: ["read"] });
+    await h.registry.observeAvailability("cap.x", "AVAILABLE", { generation: 1, incarnationId: res.incarnationId });
+    await h.grantAuthority({ capabilityId: "cap.x", subject: "alice", actions: ["read"], identityBinding: { principals: ["alice"] } });
+    const intent = h.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "cap.x", operation: "read", arguments: { target: "safe.target" } }));
+    return { registry: h.registry, registrars: h.registrars, store: h.store, rt: h.rt, authDomain: h.authDomain, intent, h };
 }
 
 // ---------------------------------------------------------------------------
-// 1. Runtime constructor rejects onReady; no privileged callback obtainable
+// 1. No privileged callback obtainable (onReady family deleted + rejected)
 // ---------------------------------------------------------------------------
 
-test("R5-1: onReady option is REJECTED at composition (no privileged callback)", () => {
-    const capabilityRuntime = createCapabilityRuntime({ registrars: { core: true }, clock: CLOCK });
-    const store = createMemoryAuthorityStore();
-    const authDomain = createAuthenticationDomain({ authenticate, clock: CLOCK });
-    let captured = null;
-    assert.throws(
-        () => createActionAuthorityRuntime({
-            capabilityRuntime, authorityStore: store,
-            authVerifier: authDomain.verifier,
-            trustedScopeBindings: {}, clock: CLOCK,
-            onReady: (caps) => { captured = caps; }
-        }),
-        (e) => e.reasonCode === "CALLER_BOOTSTRAP_REJECTED",
-        "constructor must reject onReady"
-    );
-    assert.equal(captured, null, "the onReady callback must never be invoked");
-});
-
-test("R5-1: the Codex exploit shape cannot capture bindAuthentication", () => {
-    // EXACT Codex repro shape: createActionAuthorityRuntime({ ..., onReady({
-    // bindAuthentication }) { mint = bindAuthentication({...}).mintSession } })
-    const capabilityRuntime = createCapabilityRuntime({ registrars: { core: true }, clock: CLOCK });
-    const store = createMemoryAuthorityStore();
-    const authDomain = createAuthenticationDomain({ authenticate, clock: CLOCK });
-    let mint;
-    assert.throws(
-        () => createActionAuthorityRuntime({
-            capabilityRuntime, authorityStore: store,
-            authVerifier: authDomain.verifier,
-            trustedScopeBindings: {}, clock: CLOCK,
-            onReady({ bindAuthentication }) {
-                mint = bindAuthentication({ authenticate: () => ({ principal: "victim" }) }).mintSession;
-            }
-        }),
-        (e) => e.reasonCode === "CALLER_BOOTSTRAP_REJECTED"
-    );
-    assert.equal(typeof mint, "undefined", "no mint capability can be captured from onReady");
+test("R5-1: no onReady/bindAuthentication callback surface exists anywhere", () => {
+    // The composition factories are not public exports at all (sixth repair):
+    // there is no constructor that could even receive an onReady option.
+    for (const name of ["createActionAuthorityRuntime", "createAuthenticationDomain", "createGate", "onReady", "bindAuthentication", "mintSession", "issueIdentity", "createAuthSessionIssuer", "mintAuthSession", "issuer", "sessionIssuer", "authBinder", "bootstrapCapability", "trustedBootstrap"]) {
+        assert.equal(typeof api[name], "undefined", `api.${name} must not exist`);
+    }
+    // Direct submodule imports expose no factory either.
+    const runtimeModule = require("../../src/action/runtime");
+    const authDomainModule = require("../../src/action/authDomain");
+    for (const name of ["createActionAuthorityRuntime", "onReady", "bindAuthentication", "mintSession", "issueIdentity"]) {
+        assert.equal(typeof runtimeModule[name], "undefined", `runtime.js.${name} must not be exported`);
+        assert.equal(typeof authDomainModule[name], "undefined", `authDomain.js.${name} must not be exported`);
+    }
+    // The trusted test bootstrap rejects ANY caller-bootstrap option key if a
+    // caller attempts privileged composition through it.
+    // (The exhaustive rejection matrix is proven in canonicalBootstrap.test.js,
+    // which loads the production bootstrap in its own process.)
+    assert.equal(runtimeModule.isCompositionHostBound(), true, "composition host bound one-shot by the trusted bootstrap");
 });
 
 // ---------------------------------------------------------------------------
@@ -125,15 +85,14 @@ test("R5-1: the Codex exploit shape cannot capture bindAuthentication", () => {
 // ---------------------------------------------------------------------------
 
 test("R5-2/3: no bindAuthentication or mintSession surface on runtime, domain, or module exports", () => {
-    const api = require("../../src/action");
     for (const name of ["bindAuthentication", "mintSession", "onReady", "issueIdentity", "createAuthSessionIssuer", "mintAuthSession", "issuer", "sessionIssuer"]) {
         assert.equal(typeof api[name], "undefined", `api.${name} must not exist`);
     }
     const runtimeModule = require("../../src/action/runtime");
-    const domainModule = require("../../src/action/authDomain");
+    const authDomainModule = require("../../src/action/authDomain");
     for (const name of ["bindAuthentication", "mintSession", "onReady", "issueIdentity"]) {
         assert.equal(typeof runtimeModule[name], "undefined", `runtime.js.${name} must not be exported`);
-        assert.equal(typeof domainModule[name], "undefined", `authDomain.js.${name} must not be exported`);
+        assert.equal(typeof authDomainModule[name], "undefined", `authDomain.js.${name} must not be exported`);
     }
 });
 
@@ -171,7 +130,7 @@ test("R5-4: authenticate => null cannot mint claimed victim", async () => {
     assert.equal(minted, null, "null authentication must never mint");
     // And a hostile forged object can never be trusted either.
     const d = await h.evaluate(intent, { principal: "victim", claimedPrincipal: "victim", sessionId: "", channel: "" });
-    assert.equal(d.decision, DECISION.DENY);
+    assert.equal(d.decision, "DENY");
     assert.equal(d.reasonCode, "INVALID_IDENTITY");
 });
 
@@ -183,7 +142,7 @@ test("R5-5: authenticate => undefined cannot mint", async () => {
     const minted = h.authDomain.authenticate({ claimedPrincipal: "victim" });
     assert.equal(minted, null, "undefined authentication must never mint");
     const d = await h.evaluate(intent, { principal: "victim", sessionId: "", channel: "" });
-    assert.equal(d.decision, DECISION.DENY);
+    assert.equal(d.decision, "DENY");
     assert.equal(d.reasonCode, "INVALID_IDENTITY");
 });
 
@@ -196,7 +155,7 @@ test("R5-6: authenticate => malformed object cannot mint", async () => {
         const minted = h.authDomain.authenticate({ claimedPrincipal: "victim" });
         assert.equal(minted, null, `malformed auth result ${JSON.stringify(malformed)} must never mint`);
         const d = await h.evaluate(intent, { principal: "victim", sessionId: "", channel: "" });
-        assert.equal(d.decision, DECISION.DENY);
+        assert.equal(d.decision, "DENY");
         assert.equal(d.reasonCode, "INVALID_IDENTITY");
     }
 });
@@ -209,7 +168,7 @@ test("R5-7: authenticate throws => fail closed", async () => {
     const minted = h.authDomain.authenticate({ claimedPrincipal: "victim" });
     assert.equal(minted, null, "throwing authentication must never mint");
     const d = await h.evaluate(intent, { principal: "victim", sessionId: "", channel: "" });
-    assert.equal(d.decision, DECISION.DENY);
+    assert.equal(d.decision, "DENY");
     assert.equal(d.reasonCode, "INVALID_IDENTITY");
 });
 
@@ -237,7 +196,7 @@ test("R5-8: no caller principal fallback — claimed/requested principals are ne
     ];
     for (const candidate of claimedShapes) {
         const d = await h.evaluate(intent, candidate);
-        assert.equal(d.decision, DECISION.DENY, `claimed-principal fallback must not exist: ${JSON.stringify(candidate)}`);
+        assert.equal(d.decision, "DENY", `claimed-principal fallback must not exist: ${JSON.stringify(candidate)}`);
         assert.equal(d.reasonCode, "INVALID_IDENTITY");
     }
     // Source-level proof: the gate never reads a caller principal field.
@@ -262,13 +221,9 @@ test("R5-8: no caller principal fallback — claimed/requested principals are ne
 test("R5-9: no bootstrap callback exists to retain or replay", async () => {
     const h = await makeDomain();
     // There is no binder capability obtainable at construction time (the
-    // constructor returns only the frozen { admit, evaluate } surface).
-    const rt2 = createActionAuthorityRuntime({
-        capabilityRuntime: { registry: h.registry, registrars: h.registrars },
-        authorityStore: h.store,
-        authVerifier: h.authDomain.verifier,
-        trustedScopeBindings: {}, clock: CLOCK
-    });
+    // constructor returns only the frozen { admit, evaluate } surface, and the
+    // factory itself is bootstrap-internal).
+    const rt2 = h.rt;
     // Whatever the caller keeps references to, none can mint:
     const retained = [rt2, h.authDomain, h.authDomain.verifier, h.authDomain.authenticate];
     for (const r of retained) {
@@ -283,10 +238,10 @@ test("R5-9: no bootstrap callback exists to retain or replay", async () => {
     const notMinted = h.authDomain.verifier.verify({ principal: "alice", claimedPrincipal: "alice" });
     assert.equal(notMinted, null, "retained verifier must not mint from unbranded input");
     // A SECOND domain's sessions can never verify on this runtime (no shared brand).
-    const secondDomain = createAuthenticationDomain({ authenticate, clock: CLOCK });
-    const foreignSession = secondDomain.authenticate({ claimedPrincipal: "alice" });
+    const second = composeIsolatedTrustDomain({ clock: CLOCK, trustedScopeBindings: { "cap.x": { read: (a) => (a && a.target ? [a.target] : []) } } });
+    const foreignSession = second.authDomain.authenticate({ claimedPrincipal: "alice" });
     const d = await h.rt.evaluate(h.intent, foreignSession);
-    assert.equal(d.decision, DECISION.DENY);
+    assert.equal(d.decision, "DENY");
     assert.equal(d.reasonCode, "INVALID_IDENTITY");
 });
 
@@ -300,12 +255,12 @@ test("R5-10: canonical authenticated session still evaluates to ALLOW", async ()
     await h.grantAuthority({ subject: "alice", actions: ["read"], identityBinding: { principals: ["alice"] } });
     const intent = h.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", arguments: { target: "safe.target" } }));
     const d = await h.evaluate(intent, h.session("alice"));
-    assert.equal(d.decision, DECISION.ALLOW);
+    assert.equal(d.decision, "ALLOW");
     assert.equal(d.principal, "alice");
     // And through the direct domain path:
     const h2 = await makeDomain();
     const s = h2.authDomain.authenticate({ claimedPrincipal: "alice" });
-    assert.equal((await h2.rt.evaluate(h2.intent, s)).decision, DECISION.ALLOW);
+    assert.equal((await h2.rt.evaluate(h2.intent, s)).decision, "ALLOW");
 });
 
 // ---------------------------------------------------------------------------
@@ -318,25 +273,23 @@ test("R5-11: cross-runtime session replay remains rejected (both directions, sha
     const sa = A.authDomain.authenticate({ claimedPrincipal: "alice" });
     const sb = B.authDomain.authenticate({ claimedPrincipal: "alice" });
     const ab = await B.rt.evaluate(B.intent, sa);
-    assert.equal(ab.decision, DECISION.DENY);
+    assert.equal(ab.decision, "DENY");
     assert.equal(ab.reasonCode, "INVALID_IDENTITY");
     const ba = await A.rt.evaluate(A.intent, sb);
-    assert.equal(ba.decision, DECISION.DENY);
+    assert.equal(ba.decision, "DENY");
     assert.equal(ba.reasonCode, "INVALID_IDENTITY");
     // Shared canonical state does not federate brand trust:
     const A2 = await makeDomain();
-    const attackerDomain = createAuthenticationDomain({ authenticate, clock: CLOCK });
-    const attackerRt = createActionAuthorityRuntime({
+    const attackerDomain = composeIsolatedTrustDomain({
+        clock: CLOCK,
         capabilityRuntime: { registry: A2.registry, registrars: A2.registrars },
         authorityStore: A2.store,
-        authVerifier: attackerDomain.verifier,
-        trustedScopeBindings: { "cap.x": { read: (a) => (a && a.target ? [a.target] : []) } },
-        clock: CLOCK
+        trustedScopeBindings: { "cap.x": { read: (a) => (a && a.target ? [a.target] : []) } }
     });
     const victimSession = A2.authDomain.authenticate({ claimedPrincipal: "victim" });
-    const attackerIntent = attackerRt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "cap.x", operation: "read", arguments: { target: "safe.target" } }));
-    const d = await attackerRt.evaluate(attackerIntent, victimSession);
-    assert.equal(d.decision, DECISION.DENY);
+    const attackerIntent = attackerDomain.rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "cap.x", operation: "read", arguments: { target: "safe.target" } }));
+    const d = await attackerDomain.rt.evaluate(attackerIntent, victimSession);
+    assert.equal(d.decision, "DENY");
     assert.equal(d.reasonCode, "INVALID_IDENTITY");
 });
 
@@ -359,7 +312,7 @@ test("R5-12: forged/clone/JSON/Proxy sessions remain rejected with zero Proxy tr
     ];
     for (const [label, candidate] of candidates) {
         const d = await h.rt.evaluate(h.intent, candidate);
-        assert.equal(d.decision, DECISION.DENY, `${label} must be rejected`);
+        assert.equal(d.decision, "DENY", `${label} must be rejected`);
         assert.equal(d.reasonCode, "INVALID_IDENTITY", `${label} reason`);
     }
     // Brand-first Proxy rejection: zero traps.
@@ -373,7 +326,7 @@ test("R5-12: forged/clone/JSON/Proxy sessions remain rejected with zero Proxy tr
         set() { traps++; return false; }
     });
     const d = await h.rt.evaluate(h.intent, hostile);
-    assert.equal(d.decision, DECISION.DENY);
+    assert.equal(d.decision, "DENY");
     assert.equal(d.reasonCode, "INVALID_IDENTITY");
     assert.equal(traps, 0, "no Proxy trap may execute during brand-first rejection");
 });
@@ -381,11 +334,6 @@ test("R5-12: forged/clone/JSON/Proxy sessions remain rejected with zero Proxy tr
 // ---------------------------------------------------------------------------
 // AuthenticationDomain composition-time laws
 // ---------------------------------------------------------------------------
-
-test("R5: createAuthenticationDomain without trusted authenticate rejects", () => {
-    assert.throws(() => createAuthenticationDomain({}), (e) => e.reasonCode === "AUTH_VERIFIER_REQUIRED");
-    assert.throws(() => createAuthenticationDomain({ authenticate: "not-a-function" }), (e) => e.reasonCode === "AUTH_VERIFIER_REQUIRED");
-});
 
 test("R5: AuthenticationDomain surface is exactly { authenticate, verifier } — no mint, no brand", async () => {
     const h = await makeDomain();
@@ -420,9 +368,11 @@ test("structural: no action module exports auth bootstrap/mint/issuer/brand surf
         "bootstrapCapability",
         "trustedBootstrap",
         "sessionBrandAccessor",
-        "isAuthSession"
+        "isAuthSession",
+        "createActionAuthorityRuntime",
+        "createAuthenticationDomain"
     ];
-    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".js"));
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".js") && f !== "bootstrap.js");
     for (const f of files) {
         const mod = require(path.join(dir, f));
         for (const name of FORBIDDEN) {
@@ -433,11 +383,12 @@ test("structural: no action module exports auth bootstrap/mint/issuer/brand surf
 
 test("structural: source scan — no export binding for auth bootstrap/mint/issuer", () => {
     const dir = path.join(__dirname, "../../src/action");
-    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".js"));
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".js") && f !== "bootstrap.js");
     const FORBIDDEN_NAMES = [
         "onReady", "bindAuthentication", "mintSession", "mintAuthSession",
         "issueIdentity", "issueSession", "createAuthSessionIssuer",
-        "sessionBrand", "authSessionBrands", "authBinder"
+        "sessionBrand", "authSessionBrands", "authBinder",
+        "createActionAuthorityRuntime", "createAuthenticationDomain"
     ];
     for (const f of files) {
         const text = fs.readFileSync(path.join(dir, f), "utf8");
@@ -445,29 +396,12 @@ test("structural: source scan — no export binding for auth bootstrap/mint/issu
         exportBlocks.push(...[...text.matchAll(/exports\.([A-Za-z_$][A-Za-z0-9_$]*)\s*=/g)].map((m) => m[1]));
         if (exportBlocks.length === 0) continue;
         for (const block of exportBlocks) {
+            const code = String(block).replace(/\/\*[\s\S]*?\*\//g, " ").replace(/\/\/[^\n]*/g, " ");
             for (const name of FORBIDDEN_NAMES) {
-                assert.ok(!new RegExp(`(^|[^A-Za-z0-9_$])${name}([^A-Za-z0-9_$]|$)`).test(block),
+                assert.ok(!new RegExp(`(^|[^A-Za-z0-9_$])${name}([^A-Za-z0-9_$]|$)`).test(code),
                     `${f}: module export block must not bind '${name}'`);
             }
         }
-    }
-});
-
-test("structural: runtime constructor rejects EVERY caller-bootstrap option key", () => {
-    const capabilityRuntime = createCapabilityRuntime({ registrars: { core: true }, clock: CLOCK });
-    const store = createMemoryAuthorityStore();
-    const authDomain = createAuthenticationDomain({ authenticate, clock: CLOCK });
-    for (const key of ["onReady", "bindAuthentication", "mintSession", "issueIdentity", "issueSession", "issuer", "sessionIssuer", "sessionBrand", "authBrand", "authBinder", "bootstrap", "createAuthSessionIssuer", "authSessionIssuer", "bootstrapCapability", "trustedBootstrap"]) {
-        assert.throws(
-            () => createActionAuthorityRuntime({
-                capabilityRuntime, authorityStore: store,
-                authVerifier: authDomain.verifier,
-                trustedScopeBindings: {}, clock: CLOCK,
-                [key]: () => ({ mintSession: () => ({ principal: "victim" }) })
-            }),
-            (e) => e.reasonCode === "CALLER_BOOTSTRAP_REJECTED",
-            `caller-bootstrap key '${key}' must be rejected at composition`
-        );
     }
 });
 
@@ -475,17 +409,16 @@ test("structural: no onReady/bindAuthentication/mintSession call sites remain in
     const dir = path.join(__dirname, "../../src/action");
     const files = fs.readdirSync(dir).filter((f) => f.endsWith(".js"));
     // Match live CALL SITES (option access, invocation), not the rejection
-    // list array literal in runtime.js (which lists these names precisely to
-    // REJECT them). `\bonReady\b` alone would match `onReady:` property access
-    // or `onReady(` invocation; we exclude string-literal entries of the
-    // CALLER_BOOTSTRAP_KEYS rejection list.
+    // list array literals (which list these names precisely to REJECT them).
     const PATTERN = /\b(\w+)\s*\.\s*(onReady|bindAuthentication|mintSession|issueIdentity|createAuthSessionIssuer)\s*\(|\bonReady\s*:\s*(?!.*CALLER)|\bmintSession\s*\(.*\)/;
     for (const f of files) {
         const text = fs.readFileSync(path.join(dir, f), "utf8");
         const noComments = text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
         // Also strip the rejection-list array literal lines (they enumerate the
         // forbidden names as STRINGS, which is the legitimate rejection code).
-        const stripped = noComments.replace(/CALLER_BOOTSTRAP_KEYS\s*=\s*Object\.freeze\(\s*\[[\s\S]*?\]\s*\)/g, "");
+        const stripped = noComments
+            .replace(/CALLER_BOOTSTRAP_KEYS\s*=\s*Object\.freeze\(\s*\[[\s\S]*?\]\s*\)/g, "")
+            .replace(/PRIVILEGED_KEYS\s*=\s*Object\.freeze\(\s*\[[\s\S]*?\]\s*\)/g, "");
         assert.ok(!PATTERN.test(stripped),
             `${f}: no live onReady/bindAuthentication/mintSession call site may exist`);
     }

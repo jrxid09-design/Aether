@@ -14,10 +14,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { createCapabilityRuntime } = require("../../src/capability/registry");
-const { createMemoryAuthorityStore } = require("../../src/authority/store");
 const { loadAndEvaluateAuthority } = require("../../src/authority/evaluate");
-const { createActionAuthorityRuntime, createAuthenticationDomain, isCanonicalAuthorityEvaluation } = require("../../src/action");
+const { makeHarness } = require("./helpers");
 
 function mulberry32(seed) {
     let a = seed >>> 0;
@@ -36,17 +34,19 @@ const PRINCIPALS = ["alice", "bob", "carol"];
 
 async function runDifferential(seed) {
     const rng = mulberry32(seed);
-    const { registry, registrars } = createCapabilityRuntime({ registrars: { core: true }, clock: { nowMs: () => 1000 } });
-    const store = createMemoryAuthorityStore();
 
-    const authDomain = createAuthenticationDomain({ authenticate: (e) => ({ principal: e && e.claimedPrincipal }), clock: { nowMs: () => 1000 } });
-    const rt = createActionAuthorityRuntime({
-        capabilityRuntime: { registry, registrars },
-        authorityStore: store,
-        authVerifier: authDomain.verifier,
-        trustedScopeBindings: { "cap.diff": { read: (a) => a && a.target ? [a.target] : [], write: (a) => a && a.target ? [a.target] : [], delete: (a) => a && a.target ? [a.target] : [] } },
-        clock: { nowMs: () => 1000 }
+    // Trusted test bootstrap composes the canonical evaluation harness and
+    // registers the differential capability + scope resolvers internally.
+    const h = await makeHarness({
+        scopeBindings: {
+            "cap.diff": {
+                read: (a) => a && a.target ? [a.target] : [],
+                write: (a) => a && a.target ? [a.target] : [],
+                delete: (a) => a && a.target ? [a.target] : []
+            }
+        }
     });
+    const { registry, registrars, store, rt, authDomain } = h;
 
     const res = registrars.core.register(JSON.stringify({
         schemaVersion: 1, id: "cap.diff", kind: "system", provider: "core",
@@ -119,7 +119,10 @@ async function runDifferential(seed) {
             schemaVersion: 1, capabilityId: "cap.diff", operation: action,
             arguments: { target: scopeToken }
         }));
-        const lane2 = await rt.evaluate(intent, authDomain.authenticate({ claimedPrincipal: principal }));
+        // Trusted test authentication (harness-owned domain): the differential
+        // principal is asserted by the trusted authenticator, exactly like a
+        // token-guarded transport would decide in production.
+        const lane2 = await rt.evaluate(intent, h.session(principal));
 
         if (canonical.allowed !== true) {
             if (lane2.decision === "ALLOW") {
