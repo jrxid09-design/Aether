@@ -5,11 +5,12 @@
  *
  * Proves structurally that the action module imports no shell/process
  * execution, filesystem mutation, network, device/browser actuation, or
- * Authority mutation APIs. It MAY import (read-only) the existing Authority
- * store and the Capability Registry ids, but never their mutators.
+ * Authority mutation APIs. It MAY import the canonical read-only evaluator
+ * (src/authority/evaluate.js) and capability id grammar (read-only).
  *
  * Also proves the public surface exposes no execution verbs and no
- * authority-minting verbs.
+ * authority-minting verbs, and that the canonical read-only evaluator is the
+ * SINGLE source of truth (no duplicated policy in Lane 2).
  */
 
 const test = require("node:test");
@@ -43,8 +44,6 @@ test("structural: action module imports no executors, authority mutators, fs/net
         /node:fs\b/,
         /require\(\s*["']fs["']\s*\)/,
         /writeFile|readFile|appendFile|mkdir|rmdir|unlink|chmod|chown/,
-        // no authority MUTATORS (consumeExecution, revokeSubjectGeneration,
-        // issueRatifiedRootGrant, delegate, ratify) may be imported/called.
         /consumeExecution/,
         /revokeSubjectGeneration/,
         /issueRatifiedRootGrant/,
@@ -58,18 +57,33 @@ test("structural: action module imports no executors, authority mutators, fs/net
         }
     }
 
-    // only intra-domain requires + read-only capability ids + node builtins
+    // allowed external requires: intra-domain (./), node:crypto, capability ids
+    // (read-only), and the canonical authority evaluator (read-only).
     for (const file of files) {
         const text = fs.readFileSync(file, "utf8");
         for (const m of text.matchAll(/require\(\s*["']([^"']+)["']\s*\)/g)) {
             const target = m[1];
             const ok =
-                target.startsWith("./") ||                       // intra-domain
+                target.startsWith("./") ||
                 target === "node:crypto" ||
-                target === "../capability/registry/ids";          // read-only id grammar
+                target === "../capability/registry/ids" ||
+                target === "../authority/evaluate";
             assert.ok(ok, `${file}: unexpected external require '${target}'`);
         }
     }
+});
+
+test("structural: Lane 2 delegates to the single canonical evaluator (no policy duplication)", () => {
+    // authorityContext.js must require the canonical evaluator, not re-implement
+    // grant checks (no getGeneration/countConsumption/identityBinding logic).
+    const text = fs.readFileSync(path.join(__dirname, "../../src/action/authorityContext.js"), "utf8");
+    assert.ok(/evaluateAuthorityReadOnly/.test(text), "authorityContext must delegate to canonical evaluator");
+    // gate.js must not itself contain grant-validation store reads (getGeneration/
+    // countConsumption) or identity-binding logic (that lives in the canonical
+    // evaluator). Reason-code string mapping is allowed.
+    const gateText = fs.readFileSync(path.join(__dirname, "../../src/action/gate.js"), "utf8");
+    assert.ok(!/getGeneration|countConsumption|identityBinding/.test(gateText),
+        "gate must not duplicate authority grant policy");
 });
 
 test("surface: no execution verbs in public API", () => {
