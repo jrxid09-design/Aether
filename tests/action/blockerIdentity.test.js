@@ -6,7 +6,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { parseActionIntent, ActionAuthorityGate, DECISION, createReadOnlyAuthorityContext } = require("../../src/action");
+const { parseActionIntent, ActionAuthorityGate, DECISION } = require("../../src/action");
 const { makeHarness } = require("./helpers");
 
 async function setupAvailable(h, id = "filesystem.read", ops = ["read"]) {
@@ -164,24 +164,29 @@ test("B2: scope binding survives unchanged into Authority evaluation", async () 
 test("B3: getCapability/getGeneration/countConsumption throws => no ALLOW", async () => {
     const h = await makeHarness();
     await setupAvailable(h);
-    const intent = h.admission.admit(JSON.stringify({
+    const intent = h.admit(JSON.stringify({
         schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", arguments: { target: "safe.target" }
     }));
-    const id = h.identity("alice");
+    const id = h.issueIdentity({ principal: "alice" });
 
     const stores = [
         { getCapability: async () => { throw new Error("db"); }, getGeneration: async () => 0, countConsumption: async () => 0 },
-        { getCapability: async () => ({ status: "ACTIVE", generation: 0, payload: { subject: "alice", actions: ["read"], scope: [], allowedPurposes: [] } }), getGeneration: async () => { throw new Error("db"); }, countConsumption: async () => 0 },
-        { getCapability: async () => ({ status: "ACTIVE", generation: 0, payload: { subject: "alice", actions: ["read"], scope: [], allowedPurposes: [], maxExecutions: 5 } }), getGeneration: async () => 0, countConsumption: async () => { throw new Error("db"); } }
+        { getCapability: async () => ({ status: "ACTIVE", generation: 0, payload: { capabilityId: "filesystem.read", kind: "root", subject: "alice", actions: ["read"], scope: [], allowedPurposes: [], restrictions: { kind: "unrestricted" }, maxExecutions: null, issuedAt: "2025-01-01T00:00:00Z", notBefore: null, expiresAt: null } }), getGeneration: async () => { throw new Error("db"); }, countConsumption: async () => 0 },
+        { getCapability: async () => ({ status: "ACTIVE", generation: 0, payload: { capabilityId: "filesystem.read", kind: "root", subject: "alice", actions: ["read"], scope: [], allowedPurposes: [], restrictions: { kind: "unrestricted" }, maxExecutions: 5, issuedAt: "2025-01-01T00:00:00Z", notBefore: null, expiresAt: null } }), getGeneration: async () => 0, countConsumption: async () => { throw new Error("db"); } }
     ];
 
     for (const badStore of stores) {
-        const gate = new ActionAuthorityGate({
-            capabilityRegistry: h.registry,
-            authorityContext: createReadOnlyAuthorityContext(badStore),
+        const { createCapabilityRuntime } = require("../../src/capability/registry");
+        const { createActionAuthorityRuntime } = require("../../src/action");
+        const capRuntime = createCapabilityRuntime({ registrars: { core: true }, clock: { nowMs: () => h.clock.nowMs() } });
+        const res = capRuntime.registrars.core.register(JSON.stringify({ schemaVersion: 1, id: "filesystem.read", kind: "system", provider: "core", operations: ["read"], requirements: [], effects: [] }));
+        capRuntime.registry.observeAvailability("filesystem.read", "AVAILABLE", { generation: 1, incarnationId: res.incarnationId });
+        const rt = createActionAuthorityRuntime({
+            capabilityRuntime: capRuntime, authorityStore: badStore,
+            trustedScopeBindings: { "filesystem.read": { read: (a) => a && a.target ? [a.target] : [] } },
             clock: { nowMs: () => h.clock.nowMs() }
         });
-        const d = await gate.evaluate(intent, id);
+        const d = await rt.gate.evaluate(intent, id);
         assert.equal(d.decision, DECISION.DENY, "store read failure must fail closed");
     }
 });
@@ -189,14 +194,21 @@ test("B3: getCapability/getGeneration/countConsumption throws => no ALLOW", asyn
 test("B3: malformed grant => no ALLOW", async () => {
     const h = await makeHarness();
     await setupAvailable(h);
-    const intent = h.admission.admit(JSON.stringify({
+    const intent = h.admit(JSON.stringify({
         schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", arguments: { target: "safe.target" }
     }));
     const badStore = { getCapability: async () => ({ status: "ACTIVE", generation: 0, payload: null }), getGeneration: async () => 0, countConsumption: async () => 0 };
-    const gate = new ActionAuthorityGate({
-        capabilityRegistry: h.registry, authorityContext: createReadOnlyAuthorityContext(badStore), clock: { nowMs: () => h.clock.nowMs() }
+    const { createCapabilityRuntime } = require("../../src/capability/registry");
+    const { createActionAuthorityRuntime } = require("../../src/action");
+    const capRuntime = createCapabilityRuntime({ registrars: { core: true }, clock: { nowMs: () => h.clock.nowMs() } });
+    const res = capRuntime.registrars.core.register(JSON.stringify({ schemaVersion: 1, id: "filesystem.read", kind: "system", provider: "core", operations: ["read"], requirements: [], effects: [] }));
+    capRuntime.registry.observeAvailability("filesystem.read", "AVAILABLE", { generation: 1, incarnationId: res.incarnationId });
+    const rt = createActionAuthorityRuntime({
+        capabilityRuntime: capRuntime, authorityStore: badStore,
+        trustedScopeBindings: { "filesystem.read": { read: (a) => a && a.target ? [a.target] : [] } },
+        clock: { nowMs: () => h.clock.nowMs() }
     });
-    assert.equal((await gate.evaluate(intent, h.identity("alice"))).decision, DECISION.DENY);
+    assert.equal((await rt.gate.evaluate(intent, h.issueIdentity({ principal: "alice" }))).decision, DECISION.DENY);
 });
 
 // ---------------------------------------------------------------------------

@@ -1,13 +1,10 @@
 "use strict";
 
-/** Shared helpers for action intent + authority gate tests (post-repair). */
+/** Shared helpers for action intent + authority gate tests (post trust-origin repair). */
 
 const { createCapabilityRuntime } = require("../../src/capability/registry");
 const { createMemoryAuthorityStore } = require("../../src/authority/store");
-const {
-    createIntentAdmission, createRuntimeIdentityContext,
-    ActionAuthorityGate, createReadOnlyAuthorityContext
-} = require("../../src/action");
+const { createActionAuthorityRuntime } = require("../../src/action");
 
 const CLOCK_START = 1_000_000;
 
@@ -22,33 +19,34 @@ function manualClock(startMs = CLOCK_START) {
 }
 
 /** Default deterministic scope resolver: scope token derived from arguments.target. */
-function defaultScopeResolver(capabilityId, operation, args) {
+function defaultScopeResolver(args) {
     const target = args && typeof args.target === "string" ? args.target.trim().toLowerCase() : "";
     return target ? [target] : [];
 }
 
 /**
- * Build a full test harness:
- *   { registry, registrars, store, clock, gate, context, admit, identity,
- *     registerCapability, grantAuthority }
+ * Build a full trusted harness:
+ *   { registry, registrars, store, clock, rt, registerCapability, grantAuthority }
+ *
+ * `rt` is the trusted runtime surface: { admit, issueIdentity, gate }.
  */
-async function makeHarness({ clock, scopeResolver } = {}) {
+async function makeHarness({ clock, scopeBindings } = {}) {
     const c = clock ?? manualClock();
-    const { registry, registrars } = createCapabilityRuntime({
+    const capabilityRuntime = createCapabilityRuntime({
         registrars: { core: true },
         clock: { nowMs: () => c.nowMs() }
     });
     const store = createMemoryAuthorityStore();
-    const context = createReadOnlyAuthorityContext(store, { clock: { nowMs: () => c.nowMs() } });
-    const gate = new ActionAuthorityGate({
-        capabilityRegistry: registry,
-        authorityContext: context,
-        clock: { nowMs: () => c.nowMs() }
-    });
-    const resolver = scopeResolver ?? defaultScopeResolver;
-    const admission = createIntentAdmission({
-        registry,
-        scopeResolver: resolver,
+
+    const bindings = scopeBindings ?? {
+        "filesystem.read": { read: defaultScopeResolver, write: defaultScopeResolver },
+        "filesystem.write": { write: defaultScopeResolver }
+    };
+
+    const rt = createActionAuthorityRuntime({
+        capabilityRuntime,
+        authorityStore: store,
+        trustedScopeBindings: bindings,
         clock: { nowMs: () => c.nowMs() }
     });
 
@@ -63,7 +61,7 @@ async function makeHarness({ clock, scopeResolver } = {}) {
             effects: [],
             ...overrides
         };
-        return registrars.core.register(JSON.stringify(descriptor));
+        return capabilityRuntime.registrars.core.register(JSON.stringify(descriptor));
     }
 
     async function grantAuthority({ capabilityId = "filesystem.read", subject = "alice", actions = ["read"], scope = [], generation = 0, identityBinding = null } = {}) {
@@ -71,7 +69,7 @@ async function makeHarness({ clock, scopeResolver } = {}) {
             capabilityId, kind: "root", subject,
             issuer: "owner-ratification:test",
             actions, scope, allowedPurposes: [],
-            restrictions: null, maxExecutions: null, usedExecutions: 0,
+            restrictions: { kind: "unrestricted" }, maxExecutions: null, usedExecutions: 0,
             issuedAt: "2025-01-01T00:00:00Z", notBefore: null, expiresAt: null,
             status: "ACTIVE", generation, delegationDepth: 0, remainingDelegationDepth: 2,
             parentCapabilityId: null, rootCapabilityId: capabilityId, ratificationId: null,
@@ -80,13 +78,17 @@ async function makeHarness({ clock, scopeResolver } = {}) {
         await store.upsertCapability(capabilityId, "ACTIVE", generation, JSON.stringify(grant));
     }
 
-    function identity(principal = "alice", extra = {}) {
-        return createRuntimeIdentityContext({ principal, ...extra });
-    }
-
     return {
-        registry, registrars, store, clock: c, gate, context,
-        admission, identity, registerCapability, grantAuthority
+        registry: capabilityRuntime.registry,
+        registrars: capabilityRuntime.registrars,
+        store, clock: c, rt,
+        admit: rt.admit,
+        issueIdentity: rt.issueIdentity,
+        gate: rt.gate,
+        // aliases for compatibility with existing tests
+        admission: { admit: rt.admit },
+        identity: (principal, extra = {}) => rt.issueIdentity({ principal, ...extra }),
+        registerCapability, grantAuthority
     };
 }
 

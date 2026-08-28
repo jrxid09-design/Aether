@@ -1,8 +1,8 @@
-# ACTION INTENT + AUTHORITY GATE V1 (repaired)
+# ACTION INTENT + AUTHORITY GATE V1 (trust-origin repaired)
 
-Status: candidate (post-repair, production-unwired)
+Status: candidate (post second repair, production-unwired)
 Branch: `feat/action-authority-v1`
-Base: `53c103b` (Wave 4 Lane 2 pre-cert candidate), on `47827c9` certified Lane 1
+Base: `de6d63f` (Lane 2 pre-cert), on `47827c9` certified Lane 1
 Code: `src/action/**`, `src/authority/evaluate.js`, `tests/action/**`
 
 ## Purpose
@@ -14,109 +14,112 @@ Answers exactly two questions, without executing anything:
 2. Is that proposed action authorized?    (AuthorityDecision)
 ```
 
-## Repaired trust model (post-Codex-pre-cert)
+## Trust model (post trust-origin repair)
 
 ```
 UNTRUSTED serialized proposal
         -> trusted capability resolution (registry)
-        -> canonical scope binding (trusted scopeResolver)
+        -> trusted capability-bound scope resolver (closed mapping)
         -> immutable ActionIntent (incarnation-bound)
-        -> trusted RuntimeIdentityContext
-        -> canonical Authority read-only evaluator (SHARED)
-        -> fully-bound AuthorityEvaluation
+        -> BRANDED trusted RuntimeIdentityContext
+        -> canonical Authority evaluator (SHARED, full rehydration)
+        -> BRANDED immutable AuthorityEvaluation
         -> immutable AuthorityDecision
 ```
 
-## Blocker resolutions
+CORE LAW: `VALID SHAPE != TRUSTED ORIGIN`.
 
-### B1 — identity separation
-ActionIntent has NO `subject`/`session`/`channel` field. Authority identity
-comes exclusively from a trusted `RuntimeIdentityContext` (`principal` /
-`sessionId` / `channel`) built by runtime auth infrastructure. A caller-supplied
-`subject`/`channel`/`session`/`scope` field is rejected as authority-shaped at
-the parse boundary.
+## Group A — trusted composition boundary
 
-### B2 — scope binding
-Canonical scope is produced by a TRUSTED `scopeResolver(capabilityId,
-operation, arguments)` at admission and baked into the immutable intent. The
-raw intent has no `scope` field (rejected). A scoped grant with an empty
-(unresolved) request scope fails closed (`CAP_SCOPE_MISMATCH`).
+`createActionAuthorityRuntime({ capabilityRuntime, authorityStore,
+trustedScopeBindings, clock })` is the SINGLE trusted composition root. It
+constructs and binds, inside a trusted closure:
 
-### B3 — single canonical evaluator
-`src/authority/evaluate.js` exports `evaluateAuthorityReadOnly`, the SINGLE
-source of truth for grant validation (subject/generation/status/notBefore/
-expiry/action/scope/purpose/identity-binding/budget). Both
-`AuthorityRegistry.authorize()` and Lane 2's `createReadOnlyAuthorityContext`
-delegate to it. Store read failures, malformed persisted grants, and unknown
-budget results FAIL CLOSED (never `used = 0`, never a positive).
+- trusted RuntimeIdentity issuer (`mintRuntimeIdentity`, closure-only brand)
+- trusted capability-bound scope resolvers (closed mapping)
+- canonical Authority read-only evaluator (`loadAndEvaluateAuthority`)
+- ActionIntent admission
+- ActionAuthorityGate
 
-### B4 — lifetime binding
-`createIntentAdmission` binds `capabilityIncarnationId` at ADMISSION (never at
-gate evaluation). A missing capability or undeclared operation fails closed at
-admission. The gate requires the intent's incarnation to equal the registry's
-current incarnation (mismatch => DENY).
+It returns ONLY least-privilege surfaces. Raw trust constructors (identity
+minting, scope-resolver injection, generic authorityContext injection,
+evaluation branding) are NOT exported.
 
-### B5 — full evaluation validation
-The gate only emits ALLOW from a fully-validated `AuthorityEvaluation` snapshot
-(`allowed===true`, nonnegative safe-integer `generation`, exact `capabilityId`,
-non-empty `subject`, exact `principal`, exact `action`, exact `scope`, non-empty
-`reasonCode`). Any missing/mismatched/malformed field => `MALFORMED_AUTHORITY_EVALUATION` => DENY.
+### Runtime identity trust
+A RuntimeIdentityContext carries an UNFORGEABLE brand token (WeakSet in module
+closure). `isRuntimeIdentityContext` checks the brand, not shape. A plain
+object, frozen clone, structurally identical object, JSON, or Symbol("same-name")
+is rejected. Only `rt.issueIdentity(...)` (closure-bound) mints identities.
 
-### B6 — hardened clock
-`captureClock` mirrors Lane 1: read `nowMs` once, capture function identity,
-never re-read the caller clock, validate every timestamp (number/finite/
-nonnegative/safe-integer). Applied to intent admission, gate evaluation, and the
-read-only authority evaluator.
+### Scope resolver trust
+`createIntentAdmission({scopeResolver})` is REMOVED. Scope resolvers come only
+from `trustedScopeBindings` (a closed `{capabilityId: {operation: resolverFn}}`
+mapping). The caller submits only `arguments`. Missing resolver, resolver
+exception, or non-array/unbounded result => fail closed at admission.
 
-## Decision model (unchanged)
+### Authority context/evaluation trust
+The gate no longer accepts `{ evaluate() }`. It binds directly to the canonical
+evaluator and to `isCanonicalAuthorityEvaluation` (brand verifier). A positive
+AuthorityEvaluation is an internally-branded immutable value; a fake/copied/
+cloned positive evaluation cannot manufacture ALLOW.
+
+## Group B — one canonical authority semantic path
+
+`loadAndEvaluateAuthority(store, request, opts)` is the SINGLE primitive that
+fully rehydrates + validates a persisted grant and evaluates a request. Both
+`AuthorityRegistry.authorize()` and the Lane 2 gate call it. No duplicated
+policy/rehydration remains.
+
+### Subject/principal binding (canonical, explicit)
+- `identityBinding.principals` (non-empty) => `identity.principal` must be
+  present and in it (delegation).
+- no `identityBinding.principals` + non-empty `identity.principal` =>
+  `identity.principal` must equal `grant.subject` (grant holder acting directly).
+- empty principal + no principals binding => principal dimension unconstrained
+  (existing channel/session-only semantics preserved).
+
+### Complete rehydration / malformed state
+`rehydrateGrant` validates subject, capabilityId (must match store key), kind,
+actions, scope, allowedPurposes, restrictions (canonical restriction set, never
+null), maxExecutions, generation (nonnegative safe int), identityBinding
+(channels/sessionIds/principals arrays), dates (parseable), status. Any
+malformed form (null/NaN/unknown) => DENY (fail closed).
+
+## Decision model
 
 `ALLOW | DENY | OWNER_CONFIRMATION_REQUIRED`, bound to `intentId`,
 `capabilityId`, `capabilityIncarnationId`, `operation`, `principal`,
 `authorityGeneration`, `reasonCode`, `evaluatedAtMs`.
 
-## Reason codes
+## Public API (before -> after)
 
-`INVALID_INTENT`, `INVALID_IDENTITY`, `CAPABILITY_NOT_FOUND`,
-`CAPABILITY_INCARNATION_MISMATCH`, `OPERATION_NOT_DECLARED`,
-`CAPABILITY_UNAVAILABLE`, `CAPABILITY_DEGRADED`, `AUTHORITY_INSUFFICIENT`,
-`AUTHORITY_STATE_STALE`, `OWNER_CONFIRMATION_REQUIRED`,
-`MALFORMED_AUTHORITY_EVALUATION`.
+Before: exported `createRuntimeIdentityContext`, `createIntentAdmission`,
+`createReadOnlyAuthorityContext`, `ActionAuthorityGate` (constructor with
+injectable `authorityContext`).
 
-## Module layout
-
-| File | Responsibility |
-|------|----------------|
-| `src/authority/evaluate.js` | canonical read-only evaluator (shared) |
-| `src/action/errors.js` | `ActionError` + reason codes |
-| `src/action/clock.js` | hardened clock capture |
-| `src/action/intent.js` | `parseActionIntent` (untrusted boundary) + `canonicalScope` |
-| `src/action/admission.js` | `createIntentAdmission` (incarnation+scope binding) |
-| `src/action/runtimeIdentity.js` | trusted `RuntimeIdentityContext` |
-| `src/action/authorityContext.js` | thin adapter over the shared evaluator |
-| `src/action/gate.js` | `ActionAuthorityGate` (decision) |
-| `src/action/index.js` | public surface |
+After: exports `createActionAuthorityRuntime` (the only trust issuance surface),
+`parseActionIntent` (untrusted ingress), inert constants (`DECISION`,
+`GATE_REASONS`, `REASONS`, `ALLOW_REASON`), and read-only brand verifiers
+(`isRuntimeIdentityContext`, `isCanonicalAuthorityEvaluation`).
 
 ## Preserved invariants
 
 STRING-only hostile boundary, zero Proxy execution, recursive authority-shaped
-rejection, intent immutability, decision immutability, no execution, no
-actuation, no Authority mutation, no Capability mutation, no channel-specific
-auth, no Telegram superadmin.
+rejection, intent/decision immutability, no execution, no actuation, no
+Authority/Capability mutation, no channel-specific auth, hardened clock capture,
+incarnation binding.
 
 ## Tests
 
-`tests/action/`:
-- `blockerIdentity.test.js` — B1 identity/channel/session spoof + B2 scope + B3
-  store-failure + B4 incarnation A->B.
-- `blockerEval.test.js` — B5 malformed-evaluation matrix + B6 clock matrix.
-- `adversarial.test.js` — hostile boundary + prototype pollution + model/LLM.
-- `differential.test.js` — >=1200 canonical-vs-gate cases, `lane2AllowCanonicalDeny==0`.
-- `security.test.js` — structural import audit + no execution/authority verbs.
-- `storm.test.js` — >=12000 ops, 25 counters zero.
+`tests/action/`: `blockerIdentity.test.js`, `blockerEval.test.js`,
+`trustOrigin.test.js`, `adversarial.test.js`, `security.test.js`,
+`differential.test.js` (>=2000 cases incl. malformed, `lane2AllowCanonicalReject
+== 0`, `lane2AllowCanonicalDeny == 0`), `storm.test.js` (>=12000 ops, 34 counters
+zero).
 
 ## Known nonblockers
 
-- `OWNER_CONFIRMATION_REQUIRED` is semantic only (owner-auth flow is a later lane).
-- `sqlite3` native module absent in this environment (non-differential env failures).
-- The shared evaluator adds empty-scope-fail-closed and principal-binding to the
-  canonical semantics; existing memory-based Authority tests remain green.
+- `OWNER_CONFIRMATION_REQUIRED` semantic only (owner-auth flow later lane).
+- `sqlite3` native module absent (non-differential env failures).
+- Brand tokens are same-process closure/WeakSet boundaries (not OS isolation);
+  documented honestly in `runtime.js`.

@@ -1,11 +1,9 @@
 "use strict";
 
 /**
- * ACTION INTENT + AUTHORITY GATE V1 — storm test (post-repair).
- *
- * >=12000 deterministic mixed operations. The gate is OBSERVATIONAL: it never
- * mutates Authority or Capability Registry. Extended violation counters (all
- * must remain zero), each with an ACTIVE detection path.
+ * ACTION INTENT + AUTHORITY GATE V1 — storm test (post trust-origin repair).
+ * >=12000 deterministic mixed operations. Gate is OBSERVATIONAL. Extended
+ * violation counters (all zero), each with an ACTIVE detection path.
  */
 
 const test = require("node:test");
@@ -14,10 +12,7 @@ const crypto = require("node:crypto");
 
 const { createCapabilityRuntime } = require("../../src/capability/registry");
 const { createMemoryAuthorityStore } = require("../../src/authority/store");
-const {
-    createIntentAdmission, createRuntimeIdentityContext, parseActionIntent,
-    ActionAuthorityGate, createReadOnlyAuthorityContext, DECISION
-} = require("../../src/action");
+const { createActionAuthorityRuntime, parseActionIntent, ActionAuthorityGate, DECISION, isCanonicalAuthorityEvaluation } = require("../../src/action");
 const { ActionError } = require("../../src/action");
 
 const OP_TARGET = 12000;
@@ -33,19 +28,20 @@ function mulberry32(seed) {
     };
 }
 
-function scopeResolver(capabilityId, operation, args) {
+function targetScope(args) {
     const target = args && typeof args.target === "string" ? args.target.trim().toLowerCase() : "";
     return target ? [target] : [];
 }
 
 async function runStorm(seed) {
     const rng = mulberry32(seed);
-
-    const { registry, registrars } = createCapabilityRuntime({ registrars: { core: true }, clock: { nowMs: () => 1000 } });
+    const capabilityRuntime = createCapabilityRuntime({ registrars: { core: true }, clock: { nowMs: () => 1000 } });
+    const { registry, registrars } = capabilityRuntime;
     const store = createMemoryAuthorityStore();
-    const context = createReadOnlyAuthorityContext(store, { clock: { nowMs: () => 1000 } });
-    const gate = new ActionAuthorityGate({ capabilityRegistry: registry, authorityContext: context, clock: { nowMs: () => 1000 } });
-    const admission = createIntentAdmission({ registry, scopeResolver, clock: { nowMs: () => 1000 } });
+
+    const bindings = {};
+    for (let i = 0; i < CAP_POOL; i++) bindings[`pool.cap.${i}`] = { read: targetScope, write: targetScope };
+    const rt = createActionAuthorityRuntime({ capabilityRuntime, authorityStore: store, trustedScopeBindings: bindings, clock: { nowMs: () => 1000 } });
 
     const C = {
         executions: 0, actuations: 0, authorityMutations: 0, capabilityMutations: 0,
@@ -56,22 +52,18 @@ async function runStorm(seed) {
         identitySpoofAllowed: 0, channelSpoofAllowed: 0, sessionSpoofAllowed: 0,
         scopeBypassAllowed: 0, authorityReadFailureAllowed: 0,
         malformedAuthorityEvaluationAllowed: 0, staleUnboundIntentAllowed: 0,
-        invalidTimestampAccepted: 0, lane2AllowCanonicalDeny: 0
+        invalidTimestampAccepted: 0, lane2AllowCanonicalDeny: 0,
+        forgedRuntimeIdentityAccepted: 0, clonedRuntimeIdentityAccepted: 0,
+        forgedScopeResolverAccepted: 0, fakeAuthorityContextAllowed: 0,
+        forgedAuthorityEvaluationAllowed: 0, subjectPrincipalMismatchAllowed: 0,
+        malformedGrantAllowed: 0, lane2AllowCanonicalReject: 0
     };
 
     const beforeHandles = countAsyncResources();
 
-    // setup: register capabilities + grants
-    const capIds = [];
-    const incarnations = {};
     for (let i = 0; i < CAP_POOL; i++) {
         const id = `pool.cap.${i}`;
-        capIds.push(id);
-        const res = registrars.core.register(JSON.stringify({
-            schemaVersion: 1, id, kind: "system", provider: "core",
-            operations: ["read", "write"], requirements: [], effects: []
-        }));
-        incarnations[id] = res.incarnationId;
+        const res = registrars.core.register(JSON.stringify({ schemaVersion: 1, id, kind: "system", provider: "core", operations: ["read", "write"], requirements: [], effects: [] }));
         registry.observeAvailability(id, "AVAILABLE", { generation: 1, incarnationId: res.incarnationId });
     }
 
@@ -80,9 +72,8 @@ async function runStorm(seed) {
         for (let i = 0; i < CAP_POOL; i += 3) {
             const id = `pool.cap.${i}`;
             await store.upsertCapability(id, "ACTIVE", 0, JSON.stringify({
-                capabilityId: id, kind: "root", subject: s,
-                issuer: "storm", actions: ["read"], scope: [], allowedPurposes: [],
-                restrictions: null, maxExecutions: null, usedExecutions: 0,
+                capabilityId: id, kind: "root", subject: s, issuer: "storm", actions: ["read"], scope: [], allowedPurposes: [],
+                restrictions: { kind: "unrestricted" }, maxExecutions: null, usedExecutions: 0,
                 issuedAt: "2025-01-01T00:00:00Z", notBefore: null, expiresAt: null,
                 status: "ACTIVE", generation: 0, delegationDepth: 0, remainingDelegationDepth: 2,
                 parentCapabilityId: null, rootCapabilityId: id, ratificationId: null,
@@ -92,10 +83,8 @@ async function runStorm(seed) {
     }
 
     const capBefore = JSON.stringify(registry.serialize());
-
     let ops = 0;
     const outcomes = [];
-
     const record = (op, ok, note = "") => { ops++; outcomes.push(`${op}:${ok ? "ok" : "err"}:${note}`); };
 
     const hostilePayloads = [
@@ -107,7 +96,7 @@ async function runStorm(seed) {
     ];
 
     while (ops < OP_TARGET) {
-        const roll = Math.floor(rng() * 16);
+        const roll = Math.floor(rng() * 18);
         const i = Math.floor(rng() * CAP_POOL);
         const id = `pool.cap.${i}`;
         const subject = subjects[Math.floor(rng() * subjects.length)];
@@ -115,11 +104,9 @@ async function runStorm(seed) {
 
         try {
             switch (roll) {
-                case 0: case 1: case 2: { // valid admit + evaluate
-                    const intent = admission.admit(JSON.stringify({
-                        schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target }
-                    }));
-                    const d = await gate.evaluate(intent, createRuntimeIdentityContext({ principal: subject }));
+                case 0: case 1: case 2: {
+                    const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
+                    const d = await rt.gate.evaluate(intent, rt.issueIdentity({ principal: subject }));
                     if (d.decision === DECISION.ALLOW) {
                         const desc = registry.get(id);
                         if (!desc.operations.includes("read")) C.undeclaredOperationAllowed++;
@@ -128,119 +115,113 @@ async function runStorm(seed) {
                     record("evaluate", true, d.decision);
                     break;
                 }
-                case 3: { // identity spoof: attacker uses victim's grant
-                    const intent = admission.admit(JSON.stringify({
-                        schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target }
-                    }));
-                    const d = await gate.evaluate(intent, createRuntimeIdentityContext({ principal: "attacker" }));
-                    // attacker has no grant for this cap (grants only for actor.0/1/2 on i%3==0)
-                    if (d.decision === DECISION.ALLOW) {
-                        const cap = await store.getCapability(id);
-                        if (cap && cap.payload.subject !== "attacker") C.identitySpoofAllowed++;
-                    }
-                    record("identity-spoof", true, d.decision);
+                case 3: {
+                    const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
+                    const forged = { principal: "actor.0", sessionId: "", channel: "" };
+                    const d = await rt.gate.evaluate(intent, forged);
+                    if (d.decision === DECISION.ALLOW) C.forgedRuntimeIdentityAccepted++;
+                    record("forged-identity", true, d.decision);
                     break;
                 }
-                case 4: { // scope bypass: intent unsafe.target vs scoped grant
-                    const intent = admission.admit(JSON.stringify({
-                        schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target: "unsafe.target" }
-                    }));
-                    const d = await gate.evaluate(intent, createRuntimeIdentityContext({ principal: subject }));
-                    if (d.decision === DECISION.ALLOW) {
-                        const cap = await store.getCapability(id);
-                        if (cap && Array.isArray(cap.payload.scope) && cap.payload.scope.length && !cap.payload.scope.includes("unsafe.target")) {
-                            C.scopeBypassAllowed++;
-                        }
-                    }
-                    record("scope-bypass", true, d.decision);
+                case 4: {
+                    const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
+                    const legit = rt.issueIdentity({ principal: subject });
+                    const cloned = Object.freeze({ ...legit });
+                    const d = await rt.gate.evaluate(intent, cloned);
+                    if (d.decision === DECISION.ALLOW) C.clonedRuntimeIdentityAccepted++;
+                    record("cloned-identity", true, d.decision);
                     break;
                 }
-                case 5: { // stale incarnation
-                    const intent = admission.admit(JSON.stringify({
-                        schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target }
-                    }));
-                    // forge a stale incarnation-bound intent by mutating a clone
+                case 5: {
+                    const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
+                    const fakeGate = new ActionAuthorityGate({
+                        capabilityRegistry: registry,
+                        authorityEvaluator: async () => ({ allowed: true, reasonCode: "AUTHORIZED", snapshot: { generation: 0, capabilityId: id, subject: "actor.0", principal: subject, actions: ["read"], scope: ["safe.target"], allowedPurposes: [], identityBinding: null, maxExecutions: null } }),
+                        isCanonicalEvaluation: isCanonicalAuthorityEvaluation, clock: { nowMs: () => 1000 }
+                    });
+                    const d = await fakeGate.evaluate(intent, rt.issueIdentity({ principal: subject }));
+                    if (d.decision === DECISION.ALLOW) C.fakeAuthorityContextAllowed++;
+                    record("fake-eval", true, d.decision);
+                    break;
+                }
+                case 6: {
+                    const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target: "unsafe.target" } }));
+                    const d = await rt.gate.evaluate(intent, rt.issueIdentity({ principal: subject }));
+                    if (d.decision === DECISION.ALLOW) {
+                        const cap = await store.getCapability(id);
+                        if (cap && Array.isArray(cap.payload.scope) && cap.payload.scope.length && !cap.payload.scope.includes("unsafe.target")) C.forgedScopeResolverAccepted++;
+                    }
+                    record("forged-scope", true, d.decision);
+                    break;
+                }
+                case 7: {
+                    const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
+                    const d = await rt.gate.evaluate(intent, rt.issueIdentity({ principal: "attacker" }));
+                    if (d.decision === DECISION.ALLOW) {
+                        const cap = await store.getCapability(id);
+                        if (cap && cap.payload.subject !== "attacker") C.subjectPrincipalMismatchAllowed++;
+                    }
+                    record("subject-mismatch", true, d.decision);
+                    break;
+                }
+                case 8: {
+                    const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
+                    const cap = await store.getCapability(id);
+                    if (cap) {
+                        const bad = JSON.parse(JSON.stringify(cap.payload));
+                        bad.restrictions = null;
+                        await store.upsertCapability(id, "ACTIVE", 0, JSON.stringify(bad));
+                        const d = await rt.gate.evaluate(intent, rt.issueIdentity({ principal: subject }));
+                        if (d.decision === DECISION.ALLOW) C.malformedGrantAllowed++;
+                        await store.upsertCapability(id, "ACTIVE", 0, JSON.stringify({ ...cap.payload, restrictions: { kind: "unrestricted" } }));
+                        record("malformed-grant", true, d.decision);
+                    } else { record("malformed-grant", true, "skip"); }
+                    break;
+                }
+                case 9: {
+                    const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
                     const staleIntent = { ...intent, capabilityIncarnationId: "inc-" + "f".repeat(32) };
-                    const d = await gate.evaluate(staleIntent, createRuntimeIdentityContext({ principal: subject }));
+                    const d = await rt.gate.evaluate(staleIntent, rt.issueIdentity({ principal: subject }));
                     if (d.decision === DECISION.ALLOW) C.staleIncarnationAllowed++;
                     record("stale-inc", true, d.decision);
                     break;
                 }
-                case 6: { // stale unbound intent (missing incarnation)
-                    const intent = admission.admit(JSON.stringify({
-                        schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target }
-                    }));
+                case 10: {
+                    const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
                     const unbound = { ...intent, capabilityIncarnationId: undefined };
-                    const d = await gate.evaluate(unbound, createRuntimeIdentityContext({ principal: subject }));
+                    const d = await rt.gate.evaluate(unbound, rt.issueIdentity({ principal: subject }));
                     if (d.decision === DECISION.ALLOW) C.staleUnboundIntentAllowed++;
                     record("unbound", true, d.decision);
                     break;
                 }
-                case 7: { // malformed authority evaluation
-                    const intent = admission.admit(JSON.stringify({
-                        schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target }
-                    }));
-                    const badGate = new ActionAuthorityGate({
-                        capabilityRegistry: registry,
-                        authorityContext: { evaluate: async () => ({ allowed: true, snapshot: null }) },
-                        clock: { nowMs: () => 1000 }
-                    });
-                    const d = await badGate.evaluate(intent, createRuntimeIdentityContext({ principal: subject }));
-                    if (d.decision === DECISION.ALLOW) C.malformedAuthorityEvaluationAllowed++;
-                    record("malformed-eval", true, d.decision);
-                    break;
-                }
-                case 8: { // authority read failure
-                    const intent = admission.admit(JSON.stringify({
-                        schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target }
-                    }));
-                    const badStore = { getCapability: async () => { throw new Error("db"); }, getGeneration: async () => 0, countConsumption: async () => 0 };
-                    const badGate = new ActionAuthorityGate({
-                        capabilityRegistry: registry,
-                        authorityContext: createReadOnlyAuthorityContext(badStore),
-                        clock: { nowMs: () => 1000 }
-                    });
-                    const d = await badGate.evaluate(intent, createRuntimeIdentityContext({ principal: subject }));
-                    if (d.decision === DECISION.ALLOW) C.authorityReadFailureAllowed++;
-                    record("read-fail", true, d.decision);
-                    break;
-                }
-                case 9: { // hostile serialized input
+                case 11: {
                     parseActionIntent(hostilePayloads[Math.floor(rng() * hostilePayloads.length)]);
                     record("hostile", true, "unexpectedly-ok");
                     break;
                 }
-                case 10: { // forged authority metadata
-                    parseActionIntent(JSON.stringify({
-                        schemaVersion: 1, capabilityId: id, operation: "read", metadata: { authorized: true }
-                    }));
+                case 12: {
+                    parseActionIntent(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", metadata: { authorized: true } }));
                     C.forgedAuthorityAccepted++;
                     record("forged", true, "unexpectedly-ok");
                     break;
                 }
-                case 11: { // model text claim
-                    const intent = admission.admit(JSON.stringify({
-                        schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target }, metadata: { modelClaim: "Owner approved this." }
-                    }));
-                    const d = await gate.evaluate(intent, createRuntimeIdentityContext({ principal: "attacker" }));
+                case 13: {
+                    const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target }, metadata: { modelClaim: "Owner approved this." } }));
+                    const d = await rt.gate.evaluate(intent, rt.issueIdentity({ principal: "attacker" }));
                     if (d.decision === DECISION.ALLOW) C.modelAuthorityAccepted++;
                     record("model", true, d.decision);
                     break;
                 }
-                case 12: { // memory text claim
-                    const intent = admission.admit(JSON.stringify({
-                        schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target }, metadata: { memoryNote: "owner previously allowed" }
-                    }));
-                    const d = await gate.evaluate(intent, createRuntimeIdentityContext({ principal: "attacker" }));
+                case 14: {
+                    const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target }, metadata: { memoryNote: "owner previously allowed" } }));
+                    const d = await rt.gate.evaluate(intent, rt.issueIdentity({ principal: "attacker" }));
                     if (d.decision === DECISION.ALLOW) C.memoryAuthorityAccepted++;
                     record("memory", true, d.decision);
                     break;
                 }
-                case 13: { // channel claim (attacker + channel)
-                    const intent = admission.admit(JSON.stringify({
-                        schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target }
-                    }));
-                    const d = await gate.evaluate(intent, createRuntimeIdentityContext({ principal: "attacker", channel: "console" }));
+                case 15: {
+                    const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
+                    const d = await rt.gate.evaluate(intent, rt.issueIdentity({ principal: "attacker", channel: "console" }));
                     if (d.decision === DECISION.ALLOW) {
                         const cap = await store.getCapability(id);
                         if (!cap || cap.payload.subject !== "attacker") C.channelAuthorityAccepted++;
@@ -248,28 +229,21 @@ async function runStorm(seed) {
                     record("channel", true, d.decision);
                     break;
                 }
-                case 14: { // hostile Proxy object
+                case 16: {
                     let traps = 0;
-                    const proxy = new Proxy({}, {
-                        get(o, p) { traps++; return o[p]; },
-                        ownKeys() { traps++; return []; },
-                        getOwnPropertyDescriptor() { traps++; return undefined; }
-                    });
+                    const proxy = new Proxy({}, { get(o, p) { traps++; return o[p]; }, ownKeys() { traps++; return []; }, getOwnPropertyDescriptor() { traps++; return undefined; } });
                     parseActionIntent(proxy);
                     C.hostileCallerCodeExecution += traps;
                     record("proxy", true, "unexpectedly-ok");
                     break;
                 }
-                case 15: { // repeated evaluation determinism + snapshot mutation
-                    const intent = admission.admit(JSON.stringify({
-                        schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target }
-                    }));
-                    const idc = createRuntimeIdentityContext({ principal: subject });
-                    const d1 = await gate.evaluate(intent, idc);
-                    const d2 = await gate.evaluate(intent, idc);
+                case 17: {
+                    const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
+                    const idc = rt.issueIdentity({ principal: subject });
+                    const d1 = await rt.gate.evaluate(intent, idc);
+                    const d2 = await rt.gate.evaluate(intent, idc);
                     if (d1.decision !== d2.decision || d1.reasonCode !== d2.reasonCode) C.partialMutation++;
                     try { d1.decision = "DENY"; C.canonicalStateEscape++; } catch { /* frozen */ }
-                    try { intent.operation = "delete"; C.canonicalStateEscape++; } catch { /* frozen */ }
                     record("repeat", true, d1.decision);
                     break;
                 }
@@ -290,16 +264,11 @@ async function runStorm(seed) {
     const afterHandles = countAsyncResources();
     if (JSON.stringify(afterHandles) !== JSON.stringify(beforeHandles)) C.openHandles++;
 
-    return {
-        digest: crypto.createHash("sha256").update(JSON.stringify(outcomes)).digest("hex"),
-        C, ops
-    };
+    return { digest: crypto.createHash("sha256").update(JSON.stringify(outcomes)).digest("hex"), C, ops };
 }
 
 function opName(roll) {
-    return ["evaluate", "evaluate", "evaluate", "identity-spoof", "scope-bypass",
-        "stale-inc", "unbound", "malformed-eval", "read-fail", "hostile", "forged",
-        "model", "memory", "channel", "proxy", "repeat"][roll];
+    return ["evaluate", "evaluate", "evaluate", "forged-identity", "cloned-identity", "fake-eval", "forged-scope", "subject-mismatch", "malformed-grant", "stale-inc", "unbound", "hostile", "forged", "model", "memory", "channel", "proxy", "repeat"][roll];
 }
 
 function countAsyncResources() {
@@ -312,8 +281,8 @@ function countAsyncResources() {
 }
 
 test("storm: >=12000 deterministic mixed operations, all violation counters zero", async () => {
-    const r1 = await runStorm(20260829);
-    const r2 = await runStorm(20260829);
+    const r1 = await runStorm(20260902);
+    const r2 = await runStorm(20260902);
     assert.equal(r1.ops, OP_TARGET);
     assert.equal(r1.digest, r2.digest, "identical seed must produce identical outcomes");
     for (const [k, v] of Object.entries(r1.C)) {

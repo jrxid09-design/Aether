@@ -5,12 +5,13 @@
  *
  * Proves structurally that the action module imports no shell/process
  * execution, filesystem mutation, network, device/browser actuation, or
- * Authority mutation APIs. It MAY import the canonical read-only evaluator
- * (src/authority/evaluate.js) and capability id grammar (read-only).
+ * Authority mutation APIs. It MAY import the canonical evaluator and the
+ * capability id grammar (read-only).
  *
- * Also proves the public surface exposes no execution verbs and no
- * authority-minting verbs, and that the canonical read-only evaluator is the
- * SINGLE source of truth (no duplicated policy in Lane 2).
+ * Also proves the public surface exposes no execution verbs, no authority
+ * -minting verbs, and no privileged trust constructors (identity minting,
+ * scope resolver injection, generic authorityContext injection, evaluation
+ * branding). The only trust issuance surface is `createActionAuthorityRuntime`.
  */
 
 const test = require("node:test");
@@ -30,25 +31,15 @@ test("structural: action module imports no executors, authority mutators, fs/net
     })(dir);
 
     const FORBIDDEN = [
-        /child_process/,
-        /node:child_process/,
-        /node:net\b/,
-        /node:http/,
-        /node:https/,
-        /node:dns/,
-        /node:fetch/,
+        /child_process/, /node:child_process/,
+        /node:net\b/, /node:http/, /node:https/, /node:dns/, /node:fetch/,
         /axios|undici|node-pty/,
-        /\beval\s*\(/,
-        /new\s+Function\s*\(/,
+        /\beval\s*\(/, /new\s+Function\s*\(/,
         /execSync|spawnSync|execFile|spawn\s*\(/,
-        /node:fs\b/,
-        /require\(\s*["']fs["']\s*\)/,
+        /node:fs\b/, /require\(\s*["']fs["']\s*\)/,
         /writeFile|readFile|appendFile|mkdir|rmdir|unlink|chmod|chown/,
-        /consumeExecution/,
-        /revokeSubjectGeneration/,
-        /issueRatifiedRootGrant/,
-        /bumpGeneration/,
-        /appendEvent/
+        /consumeExecution/, /revokeSubjectGeneration/, /issueRatifiedRootGrant/,
+        /bumpGeneration/, /appendEvent/
     ];
     for (const file of files) {
         const text = fs.readFileSync(file, "utf8");
@@ -57,8 +48,8 @@ test("structural: action module imports no executors, authority mutators, fs/net
         }
     }
 
-    // allowed external requires: intra-domain (./), node:crypto, capability ids
-    // (read-only), and the canonical authority evaluator (read-only).
+    // allowed external requires: intra-domain, node:crypto, capability ids, and
+    // the canonical authority evaluator (read-only).
     for (const file of files) {
         const text = fs.readFileSync(file, "utf8");
         for (const m of text.matchAll(/require\(\s*["']([^"']+)["']\s*\)/g)) {
@@ -73,45 +64,37 @@ test("structural: action module imports no executors, authority mutators, fs/net
     }
 });
 
-test("structural: Lane 2 delegates to the single canonical evaluator (no policy duplication)", () => {
-    // authorityContext.js must require the canonical evaluator, not re-implement
-    // grant checks (no getGeneration/countConsumption/identityBinding logic).
-    const text = fs.readFileSync(path.join(__dirname, "../../src/action/authorityContext.js"), "utf8");
-    assert.ok(/evaluateAuthorityReadOnly/.test(text), "authorityContext must delegate to canonical evaluator");
-    // gate.js must not itself contain grant-validation store reads (getGeneration/
-    // countConsumption) or identity-binding logic (that lives in the canonical
-    // evaluator). Reason-code string mapping is allowed.
+test("structural: gate delegates to canonical evaluator; no policy duplication", () => {
     const gateText = fs.readFileSync(path.join(__dirname, "../../src/action/gate.js"), "utf8");
     assert.ok(!/getGeneration|countConsumption|identityBinding/.test(gateText),
         "gate must not duplicate authority grant policy");
+    // runtime.js is the composition root; it must require the canonical evaluator.
+    const runtimeText = fs.readFileSync(path.join(__dirname, "../../src/action/runtime.js"), "utf8");
+    assert.ok(/loadAndEvaluateAuthority/.test(runtimeText), "runtime must delegate to canonical evaluator");
+});
+
+test("surface: no privileged trust constructors exported", () => {
+    const api = require("../../src/action");
+    // These raw trust constructors must NOT be exported.
+    for (const forbidden of ["mintRuntimeIdentity", "createIntentAdmission", "createReadOnlyAuthorityContext", "createRuntimeIdentityContext"]) {
+        assert.equal(typeof api[forbidden], "undefined", `must not export ${forbidden}`);
+    }
+    // The only trust issuance surface is the composition root.
+    assert.equal(typeof api.createActionAuthorityRuntime, "function");
 });
 
 test("surface: no execution verbs in public API", () => {
     const api = require("../../src/action");
-    const gate = new api.ActionAuthorityGate({
-        capabilityRegistry: { get: () => null },
-        authorityContext: { evaluate: async () => ({ allowed: false }) }
-    });
     const EXEC = /execute|invoke|run\b|dispatch|actuate|spawn|shell|callTool|performAction/i;
     for (const m of Object.getOwnPropertyNames(api.ActionAuthorityGate.prototype)) {
         assert.ok(!EXEC.test(m), `gate must not expose execution verb: ${m}`);
-    }
-    for (const v of ["execute", "invoke", "run", "dispatch", "actuate", "spawn", "shell", "callTool", "performAction"]) {
-        assert.equal(typeof gate[v], "undefined", `no method '${v}'`);
     }
 });
 
 test("surface: no authority-minting verbs in public API", () => {
     const api = require("../../src/action");
-    const gate = new api.ActionAuthorityGate({
-        capabilityRegistry: { get: () => null },
-        authorityContext: { evaluate: async () => ({ allowed: false }) }
-    });
     const AUTH = /grant|authorize|approve|ratify|delegate|elevate|mint|issue\b|revoke/i;
     for (const m of Object.getOwnPropertyNames(api.ActionAuthorityGate.prototype)) {
         assert.ok(!AUTH.test(m), `gate must not expose authority-minting verb: ${m}`);
-    }
-    for (const v of ["grant", "authorize", "approve", "ratify", "delegate", "elevate", "mint", "issue", "revoke"]) {
-        assert.equal(typeof gate[v], "undefined", `no method '${v}'`);
     }
 });

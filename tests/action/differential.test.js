@@ -3,14 +3,12 @@
 /**
  * ACTION AUTHORITY GATE V1 — canonical Authority differential matrix.
  *
- * For >=1000 generated grant/request cases, compare the canonical evaluator
- * (used by AuthorityRegistry.authorize) against the Lane 2 gate's authority
- * outcome. The invariant is:
+ * For >=2000 generated grant/request cases (including MALFORMED persisted
+ * state), compare the canonical evaluator (`loadAndEvaluateAuthority`, used by
+ * AuthorityRegistry.authorize) against the Lane 2 gate. Invariants:
  *
- *   lane2AllowCanonicalDeny == 0
- *
- * i.e., there must be zero cases where Lane 2 ALLOWs while the canonical
- * evaluator denies.
+ *   lane2AllowCanonicalReject == 0   (Lane 2 never ALLOWs what canonical rejects)
+ *   lane2AllowCanonicalDeny   == 0   (Lane 2 never ALLOWs what canonical denies)
  */
 
 const test = require("node:test");
@@ -18,8 +16,8 @@ const assert = require("node:assert/strict");
 
 const { createCapabilityRuntime } = require("../../src/capability/registry");
 const { createMemoryAuthorityStore } = require("../../src/authority/store");
-const { evaluateAuthorityReadOnly } = require("../../src/authority/evaluate");
-const { ActionAuthorityGate, createReadOnlyAuthorityContext } = require("../../src/action");
+const { loadAndEvaluateAuthority } = require("../../src/authority/evaluate");
+const { createActionAuthorityRuntime, isCanonicalAuthorityEvaluation } = require("../../src/action");
 
 function mulberry32(seed) {
     let a = seed >>> 0;
@@ -40,77 +38,103 @@ async function runDifferential(seed) {
     const rng = mulberry32(seed);
     const { registry, registrars } = createCapabilityRuntime({ registrars: { core: true }, clock: { nowMs: () => 1000 } });
     const store = createMemoryAuthorityStore();
-    const context = createReadOnlyAuthorityContext(store, { clock: { nowMs: () => 1000 } });
-    const gate = new ActionAuthorityGate({ capabilityRegistry: registry, authorityContext: context, clock: { nowMs: () => 1000 } });
 
-    // register one capability available, declared ops read/write/delete
+    const rt = createActionAuthorityRuntime({
+        capabilityRuntime: { registry, registrars },
+        authorityStore: store,
+        trustedScopeBindings: { "cap.diff": { read: (a) => a && a.target ? [a.target] : [], write: (a) => a && a.target ? [a.target] : [], delete: (a) => a && a.target ? [a.target] : [] } },
+        clock: { nowMs: () => 1000 }
+    });
+
     const res = registrars.core.register(JSON.stringify({
         schemaVersion: 1, id: "cap.diff", kind: "system", provider: "core",
         operations: ["read", "write", "delete"], requirements: [], effects: []
     }));
     registry.observeAvailability("cap.diff", "AVAILABLE", { generation: 1, incarnationId: res.incarnationId });
 
+    let lane2AllowCanonicalReject = 0;
     let lane2AllowCanonicalDeny = 0;
     let cases = 0;
 
-    for (let i = 0; i < 1200; i++) {
+    for (let i = 0; i < 2200; i++) {
         const action = ACTIONS[Math.floor(rng() * ACTIONS.length)];
         const scopeToken = SCOPES[Math.floor(rng() * SCOPES.length)];
         const status = STATUSES[Math.floor(rng() * STATUSES.length)];
         const grantScope = rng() < 0.5 ? [scopeToken] : [];
         const grantActions = rng() < 0.5 ? [action] : ["read", "write"];
         const principal = PRINCIPALS[Math.floor(rng() * PRINCIPALS.length)];
-        const grantPrincipal = rng() < 0.5 ? principal : PRINCIPALS[Math.floor(rng() * PRINCIPALS.length)];
+        const grantSubject = rng() < 0.5 ? principal : PRINCIPALS[Math.floor(rng() * PRINCIPALS.length)];
         const useIdentityBinding = rng() < 0.5;
+        // occasionally inject a malformed persisted grant
+        const malformed = rng() < 0.05;
 
-        const grant = {
-            capabilityId: "cap.diff", kind: "root", subject: "grant-holder",
-            issuer: "diff", actions: grantActions, scope: grantScope, allowedPurposes: [],
-            restrictions: null, maxExecutions: null, usedExecutions: 0,
-            issuedAt: "2025-01-01T00:00:00Z", notBefore: null, expiresAt: null,
-            status, generation: 0, delegationDepth: 0, remainingDelegationDepth: 2,
-            parentCapabilityId: null, rootCapabilityId: "cap.diff", ratificationId: null,
-            identityBinding: useIdentityBinding ? { principals: [grantPrincipal] } : null,
-            extra: null
-        };
-        await store.upsertCapability("cap.diff", status, 0, JSON.stringify(grant));
+        let payload;
+        if (malformed) {
+            const malformedKinds = [
+                { restrictions: null },
+                { actions: null },
+                { maxExecutions: "NaN" },
+                { subject: null },
+                { identityBinding: { principals: "not-an-array" } },
+                { scope: "not-an-array" }
+            ];
+            const m = malformedKinds[Math.floor(rng() * malformedKinds.length)];
+            payload = {
+                capabilityId: "cap.diff", kind: "root", subject: grantSubject,
+                issuer: "diff", actions: grantActions, scope: grantScope, allowedPurposes: [],
+                restrictions: { kind: "unrestricted" }, maxExecutions: null, usedExecutions: 0,
+                issuedAt: "2025-01-01T00:00:00Z", notBefore: null, expiresAt: null,
+                status, generation: 0, delegationDepth: 0, remainingDelegationDepth: 2,
+                parentCapabilityId: null, rootCapabilityId: "cap.diff", ratificationId: null,
+                identityBinding: useIdentityBinding ? { principals: [grantSubject] } : null,
+                extra: null,
+                ...m
+            };
+        } else {
+            payload = {
+                capabilityId: "cap.diff", kind: "root", subject: grantSubject,
+                issuer: "diff", actions: grantActions, scope: grantScope, allowedPurposes: [],
+                restrictions: { kind: "unrestricted" }, maxExecutions: null, usedExecutions: 0,
+                issuedAt: "2025-01-01T00:00:00Z", notBefore: null, expiresAt: null,
+                status, generation: 0, delegationDepth: 0, remainingDelegationDepth: 2,
+                parentCapabilityId: null, rootCapabilityId: "cap.diff", ratificationId: null,
+                identityBinding: useIdentityBinding ? { principals: [grantSubject] } : null,
+                extra: null
+            };
+        }
+        await store.upsertCapability("cap.diff", status, 0, JSON.stringify(payload));
 
         const request = {
             capabilityId: "cap.diff",
             action,
-            scope: rng() < 0.5 ? [scopeToken] : [],
+            scope: [scopeToken],
             identity: { principal }
         };
 
-        const canonical = await evaluateAuthorityReadOnly(store, request, { nowMs: 1000 });
+        const canonical = await loadAndEvaluateAuthority(store, request, { nowMs: 1000 });
 
-        // Lane 2 gate path: build a canonical intent bound to the incarnation and
-        // scope, then evaluate with the trusted identity.
-        const intent = {
-            schemaVersion: 1, intentId: `int-${i}`, capabilityId: "cap.diff",
-            capabilityIncarnationId: res.incarnationId, operation: action,
-            arguments: {}, scope: request.scope, correlationId: "", metadata: {},
-            createdAtMs: 1000
-        };
-        const lane2 = await gate.evaluate(intent, { principal, sessionId: "", channel: "" });
+        const intent = rt.admit(JSON.stringify({
+            schemaVersion: 1, capabilityId: "cap.diff", operation: action,
+            arguments: { target: scopeToken }
+        }));
+        const lane2 = await rt.gate.evaluate(intent, rt.issueIdentity({ principal }));
 
-        if (canonical.allowed === true && lane2.decision !== "ALLOW") {
-            // canonical allows but lane2 denies: acceptable? The gate is stricter
-            // (e.g., incarnation/availability), but for this matrix availability is
-            // AVAILABLE and incarnation matches, so they should agree on ALLOW.
-            // We only require zero lane2-ALLOW-when-canonical-DENY.
-        }
-        if (canonical.allowed !== true && lane2.decision === "ALLOW") {
-            lane2AllowCanonicalDeny++;
+        if (canonical.allowed !== true) {
+            if (lane2.decision === "ALLOW") {
+                // canonical denied/rejected; lane2 must NOT allow.
+                if (canonical.reasonCode === "CAP_MALFORMED") lane2AllowCanonicalReject++;
+                else lane2AllowCanonicalDeny++;
+            }
         }
         cases++;
     }
 
-    return { lane2AllowCanonicalDeny, cases };
+    return { lane2AllowCanonicalReject, lane2AllowCanonicalDeny, cases };
 }
 
-test("differential: >=1000 cases, lane2AllowCanonicalDeny == 0", async () => {
-    const r = await runDifferential(20260828);
-    assert.ok(r.cases >= 1000);
-    assert.equal(r.lane2AllowCanonicalDeny, 0, "Lane 2 must never ALLOW when canonical Authority denies");
+test("differential: >=2000 cases (incl. malformed), zero lane2-ALLOW-vs-canonical-reject/deny", async () => {
+    const r = await runDifferential(20260901);
+    assert.ok(r.cases >= 2000);
+    assert.equal(r.lane2AllowCanonicalReject, 0, "Lane 2 must never ALLOW when canonical rejects (malformed)");
+    assert.equal(r.lane2AllowCanonicalDeny, 0, "Lane 2 must never ALLOW when canonical denies");
 });
