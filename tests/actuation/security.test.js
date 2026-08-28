@@ -71,26 +71,25 @@ test("structural: public actuation API exports no privileged factory", () => {
     }
 });
 
-test("structural: no action/actuation submodule exports privileged composition", () => {
+test("structural: no action/actuation submodule exports privileged composition (DIRECT module.exports scan, not index-re-export)", () => {
     const dir = path.join(__dirname, "../../src/action/actuation");
     const files = fs.readdirSync(dir).filter((f) => f.endsWith(".js"));
-    // INTERNAL formers (actuatorRegistry/executionRequest/result/dispatcher)
-    // are bootstrap-private implementation modules: they are never reachable
-    // from src/action or src/action/actuation/index.js, and their factories
-    // exist for the trusted bootstrap closure only. What must NOT happen is
-    // any of them leaking into a PUBLIC surface. The public surface is
-    // index.js; scan every module's exports for factory-like callables and
-    // verify none of them is re-exported publicly.
-    const publicApi = require("../../src/action/actuation");
+    // FIRST targeted repair: scan EVERY production actuation module's actual
+    // module.exports. Reject privileged exports regardless of whether index.js
+    // re-exports them. Direct imports must yield ONLY inert vocabulary + pure
+    // predicates.
+    const FORBIDDEN = [
+        "buildActuatorRegistry", "composeDispatcher", "formExecutionRequest",
+        "createLifecycleTracker", "createExecutionResult", "createAuditEvidence",
+        "buildExecutionResult", "buildExecutionEvidence", "sanitizeActuatorOutput",
+        "registerActuator", "removeActuator",
+        "requestBrandSet", "resultBrandSet", "REQUEST_BRAND", "RESULT_BRAND",
+        "registrar"
+    ];
     for (const f of files) {
         const mod = require(path.join(dir, f));
-        for (const name of ["composeDispatcher", "buildActuatorRegistry", "formExecutionRequest", "buildExecutionResult", "buildExecutionEvidence", "createLifecycleTracker", "registerActuator", "removeActuator"]) {
-            if (typeof mod[name] === "function") {
-                // internal module exporting an internal former is allowed ONLY
-                // if the public API never re-exports it
-                assert.equal(typeof publicApi[name], "undefined",
-                    `internal module ${f} exports ${name}; the PUBLIC actuation API must not re-export it`);
-            }
+        for (const name of FORBIDDEN) {
+            assert.equal(typeof mod[name], "undefined", `${f} (direct import) must NOT export ${name}`);
         }
     }
     // The Lane 2 public action API must not re-export any actuation factory.
@@ -98,6 +97,206 @@ test("structural: no action/actuation submodule exports privileged composition",
     for (const name of ["composeDispatcher", "buildActuatorRegistry", "formExecutionRequest", "buildExecutionResult", "registerActuator", "createCanonicalActuationFacade"]) {
         assert.equal(typeof lane2Api[name], "undefined", `src/action index must not re-export ${name}`);
     }
+    // Bootstrap.js (the trusted layer) may expose ONLY the facade factories.
+    const bs = require("../../src/action/bootstrap");
+    assert.equal(typeof bs.createCanonicalActuationFacade, "function", "bootstrap exposes the actuation facade factory (its designated role)");
+    for (const name of ["buildActuatorRegistry", "composeDispatcher", "formExecutionRequest", "createLifecycleTracker", "buildExecutionResult", "registerActuator", "requestBrandSet", "resultBrandSet"]) {
+        assert.equal(typeof bs[name], "undefined", `bootstrap must NOT expose ${name} as a public export`);
+    }
+});
+
+// ---------------------------------------------------------------------------
+// BRAND REGRESSION TESTS (FIRST targeted repair — brand sets closure-private)
+// ---------------------------------------------------------------------------
+
+test("brand: requestBrandSet is undefined from every production import", () => {
+    const dir = path.join(__dirname, "../../src/action/actuation");
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".js"));
+    for (const f of files) {
+        const mod = require(path.join(dir, f));
+        assert.equal(typeof mod.requestBrandSet, "undefined", `${f}.requestBrandSet must be undefined`);
+        assert.equal(typeof mod.resultBrandSet, "undefined", `${f}.resultBrandSet must be undefined`);
+        assert.equal(typeof mod.REQUEST_BRAND, "undefined", `${f}.REQUEST_BRAND must be undefined`);
+        assert.equal(typeof mod.RESULT_BRAND, "undefined", `${f}.RESULT_BRAND must be undefined`);
+    }
+    const errors = require("../../src/action/actuation/errors");
+    assert.equal(typeof errors.requestBrandSet, "undefined");
+    assert.equal(typeof errors.REQUEST_BRAND, "undefined");
+    const api = require("../../src/action/actuation");
+    assert.equal(typeof api.requestBrandSet, "undefined");
+    assert.equal(typeof api.resultBrandSet, "undefined");
+    const bs = require("../../src/action/bootstrap");
+    assert.equal(typeof bs.requestBrandSet, "undefined");
+    assert.equal(typeof bs.resultBrandSet, "undefined");
+    assert.equal(typeof bs.REQUEST_BRAND, "undefined");
+    assert.equal(typeof bs.RESULT_BRAND, "undefined");
+    const lane2Api = require("../../src/action");
+    assert.equal(typeof lane2Api.requestBrandSet, "undefined");
+    assert.equal(typeof lane2Api.resultBrandSet, "undefined");
+});
+
+test("brand: resultBrandSet is undefined from every production import", () => {
+    const dir = path.join(__dirname, "../../src/action/actuation");
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".js"));
+    for (const f of files) {
+        const mod = require(path.join(dir, f));
+        assert.equal(typeof mod.resultBrandSet, "undefined", `${f}.resultBrandSet must be undefined`);
+        assert.equal(typeof mod.REQUEST_BRAND, "undefined", `${f}.REQUEST_BRAND must be undefined`);
+    }
+    const dispatcher = require("../../src/action/actuation/dispatcher");
+    const lifecycle = require("../../src/action/actuation/lifecycle");
+    const req = require("../../src/action/actuation/executionRequest");
+    const reg = require("../../src/action/actuation/actuatorRegistry");
+    const res = require("../../src/action/actuation/result");
+    for (const m of [dispatcher, lifecycle, req, reg, res]) {
+        assert.equal(typeof m.resultBrandSet, "undefined");
+        assert.equal(typeof m.requestBrandSet, "undefined");
+        assert.equal(typeof m.RESULT_BRAND, "undefined");
+        assert.equal(typeof m.REQUEST_BRAND, "undefined");
+    }
+});
+
+test("brand: REQUEST_BRAND / RESULT_BRAND mint tokens unavailable from every production import", () => {
+    const api = require("../../src/action/actuation");
+    const errors = require("../../src/action/actuation/errors");
+    const dispatcher = require("../../src/action/actuation/dispatcher");
+    const lifecycle = require("../../src/action/actuation/lifecycle");
+    const req = require("../../src/action/actuation/executionRequest");
+    const reg = require("../../src/action/actuation/actuatorRegistry");
+    const res = require("../../src/action/actuation/result");
+    const bs = require("../../src/action/bootstrap");
+    const lane2Api = require("../../src/action");
+    for (const m of [api, errors, dispatcher, lifecycle, req, reg, res, bs, lane2Api]) {
+        assert.equal(typeof m.REQUEST_BRAND, "undefined");
+        assert.equal(typeof m.RESULT_BRAND, "undefined");
+        assert.equal(typeof m.requestBrandSet, "undefined");
+        assert.equal(typeof m.resultBrandSet, "undefined");
+    }
+});
+
+test("brand: plain request cannot be made canonical by any exported function", () => {
+    const api = require("../../src/action/actuation");
+    const bs = require("../../src/action/bootstrap");
+    const facade = bs.createCanonicalActuationFacade();
+    const forged = Object.freeze({ schemaVersion: 1, executionId: "forged", intentId: "x", capabilityId: "c", capabilityIncarnationId: "inc-" + "0".repeat(32), operation: "read", principal: "p", scope: [], authorityGeneration: 0, admittedAtMs: 1, requestedAtMs: 1, parameters: {}, metadata: {} });
+    // No exported function accepts an arbitrary object and marks it canonical.
+    for (const [name, value] of Object.entries(api)) {
+        if (typeof value !== "function") continue;
+        if (name === "ExecutionError") continue;
+        let produced = null;
+        try { produced = value(forged); } catch { /* rejection fine */ }
+        if (produced && typeof produced === "object") {
+            assert.equal(facade.isCanonicalExecutionRequest(produced), false, `export ${name} must not produce a canonical request`);
+            assert.equal(facade.isCanonicalExecutionResult(produced), false, `export ${name} must not produce a canonical result`);
+        }
+    }
+    assert.equal(facade.isCanonicalExecutionRequest(forged), false, "a plain object is never canonical");
+    // Every possible option attempt on the facade factory also fails (it takes none).
+    for (const k of ["actuator", "registrar", "brandSet", "marker"]) {
+        assert.throws(() => bs.createCanonicalActuationFacade({ [k]: {} }), (e) => e.reasonCode === "CALLER_BOOTSTRAP_REJECTED");
+    }
+});
+
+test("brand: plain result cannot be made canonical by any exported function", async () => {
+    const bs = require("../../src/action/bootstrap");
+    const facade = bs.createCanonicalActuationFacade();
+    const forgedResult = Object.freeze({
+        schemaVersion: 1, executionId: "x", intentId: "x", capabilityId: "c",
+        capabilityIncarnationId: "inc-" + "0".repeat(32), operation: "read", principal: "p",
+        actuatorId: "a", actuatorIncarnationId: "ainc-x", state: "EXECUTED",
+        startedAtMs: 1, completedAtMs: 2, actuatorReport: null,
+        failureReason: "", failureDetail: "", authorityGeneration: 0,
+        lifecycleTrace: [], verified: null, verificationClaim: null
+    });
+    assert.equal(facade.isCanonicalExecutionResult(forgedResult), false, "a plain object is never canonical");
+});
+
+test("brand: frozen clone rejected", async () => {
+    const h = await makeActuationHarness();
+    const res = await h.lane2.registerCapability({ id: "filesystem.read", operations: ["read"] });
+    await h.lane2.registry.observeAvailability("filesystem.read", "AVAILABLE", { generation: 1, incarnationId: res.incarnationId });
+    await h.lane2.grantAuthority({ capabilityId: "filesystem.read", subject: "alice", actions: ["read"], identityBinding: { principals: ["alice"] } });
+    h.registerActuator({ capabilityId: "filesystem.read", operations: ["read"], capabilityIncarnationId: res.incarnationId, actuatorId: "a", invoke: async () => ({ ok: true }) });
+    const intent = h.lane2.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", arguments: { target: "t" } }));
+    const r = await h.execute({ intent, authSession: h.lane2.session("alice"), parameters: { t: 1 } });
+    assert.equal(h.isCanonicalExecutionResult(r), true);
+    assert.equal(h.isCanonicalExecutionResult(Object.freeze({ ...r })), false, "frozen clone rejected");
+    assert.equal(h.isCanonicalExecutionResult(Object.freeze(Object.assign({}, r))), false, "assign clone rejected");
+});
+
+test("brand: JSON clone rejected", async () => {
+    const h = await makeActuationHarness();
+    const res = await h.lane2.registerCapability({ id: "filesystem.read", operations: ["read"] });
+    await h.lane2.registry.observeAvailability("filesystem.read", "AVAILABLE", { generation: 1, incarnationId: res.incarnationId });
+    await h.lane2.grantAuthority({ capabilityId: "filesystem.read", subject: "alice", actions: ["read"], identityBinding: { principals: ["alice"] } });
+    h.registerActuator({ capabilityId: "filesystem.read", operations: ["read"], capabilityIncarnationId: res.incarnationId, actuatorId: "a", invoke: async () => ({ ok: true }) });
+    const intent = h.lane2.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", arguments: { target: "t" } }));
+    const r = await h.execute({ intent, authSession: h.lane2.session("alice"), parameters: { t: 1 } });
+    assert.equal(h.isCanonicalExecutionResult(JSON.parse(JSON.stringify(r))), false, "JSON clone rejected");
+});
+
+test("brand: lookalike rejected", async () => {
+    const h = await makeActuationHarness();
+    const lookalikes = [
+        null, undefined, 42, "string", [],
+        { schemaVersion: 1, executionId: "x" },
+        Object.freeze({ schemaVersion: 1, executionId: "x", intentId: "x", capabilityId: "c", capabilityIncarnationId: "inc-" + "0".repeat(32), operation: "read", principal: "p", scope: [], authorityGeneration: 0, admittedAtMs: 1, requestedAtMs: 1, parameters: {}, metadata: {} }),
+        Object.assign(Object.create(null), { schemaVersion: 1, executionId: "x", intentId: "x", capabilityId: "c", capabilityIncarnationId: "inc-" + "0".repeat(32), operation: "read", principal: "p", scope: [], authorityGeneration: 0, admittedAtMs: 1, requestedAtMs: 1, parameters: {}, metadata: {} }),
+        { schemaVersion: 1, executionId: "x", [Symbol("brand")]: true },
+        new Proxy({ schemaVersion: 1, executionId: "x" }, { get(t, p) { return t[p]; } }),
+    ];
+    for (const c of lookalikes) {
+        assert.equal(h.isCanonicalExecutionRequest(c), false, "lookalike rejected");
+        assert.equal(h.isCanonicalExecutionResult(c), false, "lookalike rejected");
+    }
+});
+
+test("brand: foreign/test-domain object rejected by canonical predicate", async () => {
+    const bs = require("../../src/action/bootstrap");
+    const prodFacade = bs.createCanonicalActuationFacade();
+    // A TEST-DOMAIN result (from the test harness's own brand WeakSet) must be
+    // rejected by the PRODUCTION facade predicate: the production brand and
+    // the test-domain brand are distinct closures. This proves the predicate
+    // reads the production closure's brand, not a shape.
+    const h = await makeActuationHarness();
+    const res = await h.lane2.registerCapability({ id: "filesystem.read", operations: ["read"] });
+    await h.lane2.registry.observeAvailability("filesystem.read", "AVAILABLE", { generation: 1, incarnationId: res.incarnationId });
+    await h.lane2.grantAuthority({ capabilityId: "filesystem.read", subject: "alice", actions: ["read"], identityBinding: { principals: ["alice"] } });
+    h.registerActuator({ capabilityId: "filesystem.read", operations: ["read"], capabilityIncarnationId: res.incarnationId, actuatorId: "a", invoke: async () => ({ ok: true }) });
+    const intent = h.lane2.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", arguments: { target: "t" } }));
+    const r = await h.execute({ intent, authSession: h.lane2.session("alice"), parameters: { t: 1 } });
+    assert.equal(h.isCanonicalExecutionResult(r), true, "the test-domain predicate recognizes its own branded result");
+    assert.equal(prodFacade.isCanonicalExecutionResult(r), false, "the PRODUCTION predicate rejects the test-domain result (distinct brand closures)");
+    // And a production-branded value never satisfies a forged lookalike either.
+    assert.equal(prodFacade.isCanonicalExecutionResult(Object.freeze({ ...r, executionId: "different" })), false);
+});
+
+test("brand: no exported function accepts arbitrary object and marks it canonical", () => {
+    const api = require("../../src/action/actuation");
+    const bs = require("../../src/action/bootstrap");
+    const facade = bs.createCanonicalActuationFacade();
+    // The brand predicates are METHODS on the facade (not free exports) and
+    // are pure: calling them cannot mutate brand state.
+    const obj = Object.freeze({ schemaVersion: 1, executionId: "x" });
+    const before = facade.isCanonicalExecutionRequest(obj);
+    facade.isCanonicalExecutionRequest(obj);
+    facade.isCanonicalExecutionResult(obj);
+    assert.equal(facade.isCanonicalExecutionRequest(obj), before, "predicates must not mutate brand state");
+    // No free export of ANY production module accepts an arbitrary object and
+    // returns/marks it canonical.
+    for (const [name, value] of Object.entries(api)) {
+        if (typeof value !== "function") continue;
+        if (name === "ExecutionError") continue;
+        let produced = null;
+        try { produced = value({}); } catch { /* fine */ }
+        if (produced && typeof produced === "object") {
+            assert.equal(facade.isCanonicalExecutionRequest(produced), false);
+            assert.equal(facade.isCanonicalExecutionResult(produced), false);
+        }
+    }
+    // The facade itself is frozen: its methods cannot be replaced.
+    assert.ok(Object.isFrozen(facade));
+    assert.throws(() => { facade.isCanonicalExecutionRequest = () => true; });
 });
 
 test("structural: brand predicates are unforgeable (clone/JSON/forged rejected)", async () => {
@@ -107,27 +306,34 @@ test("structural: brand predicates are unforgeable (clone/JSON/forged rejected)"
     h.registerActuator({ capabilityId: "filesystem.read", operations: ["read"], capabilityIncarnationId: h.lane2.registry.get("filesystem.read").incarnationId, actuatorId: "fs.read", invoke: makeRecordingActuator([]) });
     const intent = h.lane2.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", arguments: { target: "safe.target" } }));
     const result = await h.execute({ intent, authSession: h.lane2.session("alice") });
-    assert.equal(actuationApi.isCanonicalExecutionResult(result), true);
+    assert.equal(h.isCanonicalExecutionResult(result), true);
     // forged/clone/JSON never satisfy the brand
-    assert.equal(actuationApi.isCanonicalExecutionResult({ ...result }), false);
-    assert.equal(actuationApi.isCanonicalExecutionResult(JSON.parse(JSON.stringify(result))), false);
-    assert.equal(actuationApi.isCanonicalExecutionResult(Object.freeze({ schemaVersion: 1, executionId: "x" })), false);
-    assert.equal(actuationApi.isCanonicalExecutionResult(null), false);
+    assert.equal(h.isCanonicalExecutionResult({ ...result }), false);
+    assert.equal(h.isCanonicalExecutionResult(JSON.parse(JSON.stringify(result))), false);
+    assert.equal(h.isCanonicalExecutionResult(Object.freeze({ schemaVersion: 1, executionId: "x" })), false);
+    assert.equal(h.isCanonicalExecutionResult(null), false);
 });
 
 test("structural: lifecycle state machine — illegal transitions rejected", () => {
-    const { createLifecycleTracker, LIFECYCLE } = require("../../src/action/actuation/lifecycle");
-    const t = createLifecycleTracker();
-    assert.equal(t.state, LIFECYCLE.CREATED);
+    // FIRST targeted repair: no tracker factory exists in production. Verify
+    // the pure transition predicates + the state machine invariants instead.
+    const { TRANSITIONS, LIFECYCLE, isLegalTransition, isLifecycleState, isCancellable, isTerminal } = require("../../src/action/actuation/lifecycle");
+    assert.equal(typeof require("../../src/action/actuation/lifecycle").createLifecycleTracker, "undefined", "no tracker factory may be exported");
     // CREATED -> DISPATCHING is illegal (must revalidate first)
-    assert.throws(() => t.advance(LIFECYCLE.DISPATCHING, 1), (e) => e.reasonCode === REASONS.MALFORMED_REQUEST);
+    assert.equal(isLegalTransition(LIFECYCLE.CREATED, LIFECYCLE.DISPATCHING), false);
+    // CREATED -> REVALIDATING is legal
+    assert.equal(isLegalTransition(LIFECYCLE.CREATED, LIFECYCLE.REVALIDATING), true);
     // EXECUTED is terminal
-    t.advance(LIFECYCLE.REVALIDATING, 1);
-    t.advance(LIFECYCLE.READY, 2);
-    t.advance(LIFECYCLE.DISPATCHING, 3);
-    t.advance(LIFECYCLE.EXECUTED, 4);
-    assert.equal(t.isTerminal(), true);
-    assert.throws(() => t.advance(LIFECYCLE.CREATED, 5), (e) => e.reasonCode === REASONS.MALFORMED_REQUEST);
+    assert.equal(isTerminal(LIFECYCLE.EXECUTED), true);
+    assert.equal(isLegalTransition(LIFECYCLE.EXECUTED, LIFECYCLE.CREATED), false);
+    // Cancellable only pre-dispatch
+    assert.equal(isCancellable(LIFECYCLE.READY), true);
+    assert.equal(isCancellable(LIFECYCLE.DISPATCHING), false);
+    // All states recognized
+    for (const s of Object.values(LIFECYCLE)) assert.equal(isLifecycleState(s), true);
+    assert.equal(isLifecycleState("NOT_A_STATE"), false);
+    // The transition table itself is frozen
+    assert.ok(Object.isFrozen(TRANSITIONS));
 });
 
 // ---------------------------------------------------------------------------

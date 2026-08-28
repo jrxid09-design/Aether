@@ -1,11 +1,12 @@
-# Action Actuation Fabric V1 (Lane 3 — first implementation)
+# Action Actuation Fabric V1 (Lane 3 — post FIRST targeted repair)
 
 Status: candidate (production-unwired; actuator wiring via trusted/test-only
 harness)
 Branch: `feat/action-authority-v1`
-Foundation: `45bc318` (Wave 4 Lane 2 — certified closed), on `47827c9`
-certified Lane 1.
-Code: `src/action/actuation/**`, `tests/actuation/**`
+Foundation: `1913252` (Lane 3 first implementation), on `45bc318`
+(Lane 2 certified closed), `47827c9` certified Lane 1.
+Code: `src/action/actuation/**`, `src/action/bootstrap.js`,
+`tests/actuation/**`
 
 ## Purpose
 
@@ -44,16 +45,60 @@ AUTHORITY DECISION IS HISTORICAL EVIDENCE,
 NOT A BEARER EXECUTION TOKEN.
 ```
 
-## Canonical bootstrap ownership
+## FIRST targeted repair — private composition + closure-private brands
 
-Lane 3 mirrors Lane 2's seventh-repair trust model exactly. There is no
-public factory, no binder, no token, no first-call-wins surface anywhere:
+The first Lane 3 implementation left the privileged constructors as DIRECT
+EXPORTS of production actuation submodules (buildActuatorRegistry,
+composeDispatcher, formExecutionRequest, createLifecycleTracker,
+buildExecutionResult/buildExecutionEvidence) and exposed the canonical brand
+WeakSets + tokens (requestBrandSet/resultBrandSet/REQUEST_BRAND/RESULT_BRAND)
+from errors.js — a confirmed direct-import exploit (rogue actuator
+registration) and a provenance-defeating brand mutation
+(`errors.requestBrandSet.add(forged)`). The repair applies Lane 2's certified
+ownership discipline:
+
+- **ALL privileged Lane 3 construction now lives inside the trusted
+  bootstrap's private lexical closure** (`src/action/bootstrap.js`): the
+  actuator registry + registrar, the dispatcher, the request former, the
+  lifecycle tracker, the result/evidence builders, the hostile-output
+  sanitizer, AND the canonical brand WeakSets. No binder, no token, no
+  first-call-wins host, no secret argument, no shape validation — acquiring
+  privileged construction requires ALREADY executing inside that closure.
+- **Production actuation submodules export ONLY inert vocabulary + pure
+  predicates.** Direct imports of `actuatorRegistry.js`, `dispatcher.js`,
+  `executionRequest.js`, `result.js`, `lifecycle.js`, `errors.js` yield no
+  constructor of any kind — verified by a DIRECT module.exports scan over
+  every production actuation module (not just index re-exports).
+- **Brand state is closure-private.** The brand WeakSets and tokens are NOT
+  exported from ANY production module. Brand membership is established ONLY
+  by the private formers inside the bootstrap closure. Downstream can ASK
+  "is this canonical?" — via the two PURE brand-first recognition predicates
+  exposed as METHODS on the canonical actuation facade
+  (`isCanonicalExecutionRequest` / `isCanonicalExecutionResult`), which read
+  the closure-private WeakSets directly. Downstream cannot CAUSE "make this
+  canonical": no export accepts an arbitrary object and marks it canonical.
+- **Test isolation**: the test harness (`tests/actuation/harness.js`) owns
+  its OWN private copies of all privileged implementations and its OWN
+  brand WeakSets (a distinct test-domain brand). Production `src/**` never
+  imports `tests/**`. A test-domain-branded result is REJECTED by the
+  production facade predicate — distinct closures prove the predicates read
+  real brand membership, not shape.
+
+## Canonical bootstrap ownership
 
 ```
 TRUSTED BOOTSTRAP LAYER  (src/action/bootstrap.js)
         │
-        │ owns (defined in its PRIVATE closure):
+        │ owns (defined in its PRIVATE lexical closure):
         ├── Lane 2 canonical facade (admit / evaluate / authenticate / session)
+        ├── PRIVILEGED Lane 3 constructors (closure-private):
+        │     buildActuatorRegistry3 / composeDispatcher3 /
+        │     formExecutionRequest3 / createLifecycleTracker3 /
+        │     buildExecutionResult3 / buildExecutionEvidence3 /
+        │     sanitizeActuatorOutput3
+        ├── CANONICAL BRANDS (closure-private WeakSets + tokens):
+        │     requestBrandSet3 / resultBrandSet3 (populated ONLY by the
+        │     private formers)
         ├── actuator registry + REGISTRAR CAPABILITY (bootstrap-owned;
         │     downstream NEVER receives it)
         └── canonical dispatcher (fresh-revalidating, exact-once guard,
@@ -61,114 +106,69 @@ TRUSTED BOOTSTRAP LAYER  (src/action/bootstrap.js)
                 │
                 ▼
         frozen least-privilege actuation facade:
-            Object.freeze({ execute })
+            Object.freeze({
+              execute,
+              isCanonicalExecutionRequest,   // PURE brand-first predicate
+              isCanonicalExecutionResult     // PURE brand-first predicate
+            })
 ```
 
 `createCanonicalActuationFacade()` takes NO options (any option is rejected
-with `CALLER_BOOTSTRAP_REJECTED`). The test-only harness
-(`tests/actuation/harness.js`) mirrors this composition for controlled test
-actuators; it lives under `tests/` and is NOT reachable from src/action.
+with `CALLER_BOOTSTRAP_REJECTED`).
 
-Public actuation API (`src/action/actuation/index.js`) exposes ONLY:
-`LIFECYCLE`, `RESULT_STATE`, `REASONS`, `TRANSITIONS`, `ExecutionError`,
-`isCanonicalExecutionRequest`, `isCanonicalExecutionResult` — inert
-vocabularies + pure brand predicates (closure-only WeakSets; clones/JSON/
-forged symbols are never in the brand). NOT exported: every privileged
-former/registry/dispatcher function and the brand tokens themselves.
+## Production module surfaces (after repair)
+
+| module | exports |
+|---|---|
+| `actuation/index.js` | LIFECYCLE, RESULT_STATE, REASONS, TRANSITIONS, ExecutionError |
+| `actuation/errors.js` | LIFECYCLE, RESULT_STATE, REASONS, fail |
+| `actuation/lifecycle.js` | LIFECYCLE, TRANSITIONS, isLifecycleState, isLegalTransition, isCancellable, isTerminal |
+| `actuation/executionRequest.js` | REQUEST_SCHEMA_VERSION, BOUNDS |
+| `actuation/actuatorRegistry.js` | READINESS, isReadiness |
+| `actuation/result.js` | RESULT_SCHEMA_VERSION, EVIDENCE_SCHEMA_VERSION |
+| `actuation/dispatcher.js` | DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS, MIN_TIMEOUT_MS, CALLER_EXECUTOR_KEYS, BEARER_DECISION_KEYS, isValidTimeoutMs, isCallerExecutorKey, isBearerDecisionKey |
+| `bootstrap.js` (Lane 3) | createCanonicalActuationFacade (no options), PRIVILEGED_KEYS |
+
+NOT exported anywhere: buildActuatorRegistry, composeDispatcher,
+formExecutionRequest, createLifecycleTracker, buildExecutionResult,
+buildExecutionEvidence, sanitizeActuatorOutput, registrar, registerActuator,
+removeActuator, requestBrandSet, resultBrandSet, REQUEST_BRAND, RESULT_BRAND,
+and every equivalent privileged construction/mint surface.
 
 ## Actuator registry model
 
-`buildActuatorRegistry()` (bootstrap-private) constructs a closure-owned
-registry with a registrar capability that the trusted layer captures and
-never hands downstream. Each binding identifies:
-
-- `capabilityId` (canonical id)
-- `operations` (supported operations, lowercased)
-- `capabilityIncarnationId` (exact capability incarnation the binding was
-  registered against)
-- `actuatorId` (stable logical identity)
-- `actuatorIncarnationId` (fresh lifetime identity per registration —
-  binding A removed/recreated as B is a DIFFERENT lifetime; an ExecutionRequest
-  bound to A never dispatches to B's semantics silently)
-- `readiness` ("READY" | "UNAVAILABLE" | "DEGRADED")
-- `invoke` — the invocation function, captured ONCE at trusted registration
-  (function identity bind; post-registration mutation of caller-owned objects
-  has zero semantic effect)
-
-Atomic registration: a duplicate (capabilityId, operation) binding rolls the
-whole registration back.
-
-Downstream action requests may select capability, operation, parameters.
-They may NOT select the executor function, actuator implementation, verifier,
-or registry implementation — every caller-executor option
-(`actuator`, `executor`, `invoke`, `fn`, `handler`, `impl`, ...) is rejected
-with `CALLER_EXECUTOR_REJECTED` at call entry.
+Each binding identifies: capabilityId (canonical), operations, exact
+capabilityIncarnationId, actuatorId (stable logical id),
+actuatorIncarnationId (fresh per registration — ABA-safe), readiness, and
+the invocation function captured ONCE at trusted registration (caller-object
+mutation after registration has zero semantic effect). Atomic registration
+(duplicate capabilityId+operation rolls back).
 
 ## ExecutionRequest schema
 
-Immutable, deep-frozen, schemaVersion 1:
+Immutable, deep-frozen, schemaVersion 1: executionId, intentId,
+capabilityId, capabilityIncarnationId, operation, principal, canonical scope,
+authorityGeneration (observed at revalidation), admittedAtMs, requestedAtMs,
+parameters (detached bounded snapshot), metadata (bounded; authority-shaped
+keys rejected recursively). No hidden authority inside arbitrary metadata.
 
-```
-{
-  schemaVersion: 1,
-  executionId:                       UUID (minted at formation)
-  intentId:                          canonical ActionIntent identity
-  capabilityId:                      canonical capability id
-  capabilityIncarnationId:           exact capability incarnation
-  operation:                         declared operation
-  principal:                         authenticated principal (post-revalidation)
-  scope:                             canonical scope tokens (frozen, sorted)
-  authorityGeneration:               Authority generation observed at revalidation
-  admittedAtMs / requestedAtMs:      intent admission / request formation
-  parameters:                        detached bounded payload snapshot
-  metadata:                          detached bounded metadata (authority-shaped
-                                     keys rejected recursively)
-}
-```
+## Fresh revalidation path
 
-Bounds: payload ≤ 64KiB-ish node/key/string budgets; functions, symbols,
-accessors, class instances, cycles, `__proto__`/`constructor`/`prototype`
-rejected fail-closed. No hidden authority inside arbitrary metadata.
+execute(): (1) rejects caller-executor and bearer-decision options;
+(2) requires canonical ActionIntent + authenticated session; (3) REVALIDATING
+→ fresh canonical Lane 2 evaluate(); (4) non-ALLOW ⇒ FAILED, NO EXECUTION;
+(5) capability-incarnation re-check against the fresh decision; (6) actuator
+binding resolution with existence/incarnation/readiness gates; (7) READY ⇒
+dispatch. There is NO path: old ALLOW → direct actuator().
 
-## Fresh revalidation path (the core invariant)
+## Exact-once semantics
 
-Immediately before dispatch, execute():
-
-1. rejects caller-executor / bearer-decision options (fail-closed)
-2. requires a canonical ActionIntent + authenticated session (shape + brand)
-3. REVALIDATING: calls the canonical Lane 2 `evaluate(intent, session)`
-   — the SAME canonical evaluation path certified in Lane 2 — fresh
-4. non-ALLOW (revoked / stale generation / suspended / exhausted / foreign
-   session / unavailable / undeclared) ⇒ FAILED + AUTHORITY_DENIED. NO EXECUTION.
-5. re-checks capability incarnation against the fresh decision; mismatch ⇒
-   FAILED + CAPABILITY_INCARNATION_MISMATCH
-6. resolves the actuator binding and checks:
-   - binding exists (ACTUATOR_NOT_FOUND)
-   - binding capabilityIncarnationId == intent capabilityIncarnationId
-     (ACTUATOR_INCARNATION_MISMATCH — actuator ABA)
-   - readiness == READY (ACTUATOR_UNAVAILABLE)
-7. READY ⇒ dispatch
-
-There is NO path: old ALLOW → direct actuator(). A fake AuthorityDecision
-passed by the caller is rejected outright (`CALLER_EXECUTOR_REJECTED`);
-`expectedDecisionEvidence` is not implemented as a bypass — the fresh
-canonical evaluation always decides.
-
-## Exact-once / duplicate semantics
-
-Deterministic content key (process-local): sha256 over
-intent identity + capability incarnation + operation + session identity
-(principal + sessionId) + canonical scope + parameter-hash + metadata-hash.
-
-- duplicate IN-FLIGHT request → awaits the SAME promise (deterministic response)
-- COMPLETED executionId replay (same content key) → returns the recorded
-  result; NO second actuation
-- conflicting payload (different parameters) → different content key →
-  different execution (no false dedupe)
-
-HONEST SCOPE: this is a PROCESS-LOCAL / RUNTIME-LOCAL exactly-once guard
-(in-memory Map, completed results bounded at 4096 entries with FIFO eviction).
-It is NOT a distributed exactly-once guarantee. That is the actual guarantee.
+Deterministic content key (sha256 of intent identity + capability incarnation
++ operation + session identity + scope + parameter-hash + metadata-hash):
+duplicate in-flight → same promise; completed replay → recorded result, no
+second actuation; conflicting payload → different execution. HONEST SCOPE:
+process-local / runtime-local (in-memory Map, bounded at 4096 completed
+results with FIFO eviction). NOT a distributed exactly-once guarantee.
 
 ## Lifecycle model
 
@@ -177,81 +177,71 @@ CREATED → REVALIDATING → READY → DISPATCHING → EXECUTED | FAILED | TIMED
                 ↘ FAILED              ↘ CANCELLED (pre-dispatch only)
 ```
 
-- Illegal transitions throw (`MALFORMED_REQUEST`) — the state machine is
-  fail-closed, driven by a frozen transition table.
-- There is deliberately NO VERIFIED state (Lane 4 owns verification).
-- EXECUTED means the actuator invocation completed per Lane 3 semantics —
-  NOT that the real-world effect was verified.
+Frozen transition table; illegal transitions fail closed. NO VERIFIED state
+(Lane 4 owns verification). EXECUTED = actuator invocation completed per Lane
+3 semantics, NOT verified real-world effect.
 
 ## Timeout / cancellation semantics
 
-- Timeout (default 30s, per-execution override in [1ms, 5min]) → TIMED_OUT;
-  NO silent retry; the actuator's uncancelable side-effect ambiguity is
-  preserved. **timeout != proof of no side effect** (documented in the result
-  and in this doc).
-- Cancellation via AbortSignal: pre-dispatch abort → CANCELLED with ZERO
-  invocations guaranteed. Abort AFTER invocation started → CANCELLATION_TOO_LATE
-  semantics: the execution continues to its real outcome and is recorded
-  honestly (never falsely "prevented").
+Timeout (default 30s; per-execution [1ms, 5min]) → TIMED_OUT; no silent
+retry; **timeout != proof of no side effect** (ambiguity preserved).
+Pre-dispatch abort → CANCELLED with zero invocations. Abort after invocation
+started → execution continues to its honest real outcome (never a false
+"prevented" claim).
 
 ## Result / evidence model
 
-Structured result (deep-frozen, schemaVersion 1): executionId, intentId,
-capabilityId, capabilityIncarnationId, operation, principal, actuatorId,
+Structured result (deep-frozen): executionId, intentId, capabilityId,
+capabilityIncarnationId, operation, principal, actuatorId,
 actuatorIncarnationId, state, startedAtMs, completedAtMs, actuatorReport
-(sanitized), failureReason/failureDetail, authorityGeneration used,
-lifecycleTrace, and the explicit non-claims `verified: null` +
-`verificationClaim: null`.
-
-Audit evidence (`buildExecutionEvidence`, dispatcher-private): kind, who
-(principal), what (capability/operation/scope), which lifetimes (capability +
-actuator incarnations), why authorized (authority generation observed at
-revalidation + revalidatedAtMs), when (started/completed), outcome/lifecycle.
-The Audit Ledger is NOT the source of current truth.
-
-Actuator output sanitization: Errors → { name, message } (no stack);
-functions/symbols/undefined/bigints → null; class instances/Maps/Sets → null;
-accessors skipped; depth/node/string bounds enforced. Hostile thrown objects
-never escape canonical boundaries.
+(sanitized), failureReason/failureDetail, authorityGeneration, lifecycleTrace,
+`verified: null` + `verificationClaim: null` (explicit non-claims). Audit
+evidence: who/what/which lifetimes/why authorized (authority generation at
+revalidation)/when/outcome. The Audit Ledger is NOT the source of current
+truth. Hostile actuator output is sanitized (Errors → name+message; no
+functions/symbols/exotics escape).
 
 ## Security regression tests
 
-`tests/actuation/security.test.js` (22 tests): all 18 required proofs plus
-4 structural tests (no privileged factory on any public surface; brand
-predicates unforgeable against clone/JSON/forged; lifecycle state machine
-integrity; public-API-only factory scan).
+`tests/actuation/security.test.js` (34 tests): all 18 required Lane 3 proofs,
+the brand regression block (10 tests: brand sets/tokens undefined from every
+production import; no exported function can mark an arbitrary object
+canonical; frozen/JSON clone rejection; lookalike rejection; foreign
+test-domain object rejected by the production predicate; predicates are pure
+and the facade is frozen), and the DIRECT module.exports structural scan
+(every production actuation module must expose only inert vocabulary +
+pure predicates — checked regardless of index re-exports).
 
 `tests/actuation/storm.test.js` (2 tests): ≥12,000 deterministic mixed
-operations ×2 seeds + divergent seed; all 15 violation counters zero with
-ACTIVE detection paths:
-
-```
-staleAuthorityExecuted, staleCapabilityIncarnationExecuted,
-staleActuatorIncarnationExecuted, fakeActuatorExecuted,
-foreignSessionExecuted, unavailableCapabilityExecuted,
-undeclaredOperationExecuted, duplicateExecution,
-conflictingReplayExecuted, timeoutRetriedActuation,
-callerMutationChangedActuator, decisionUsedAsBearerAuthority,
-authorityMutationDuringExecution, capabilityMutationDuringExecution,
-verificationClaimedByLane3
-```
+operations ×2 seeds + divergent seed; all 19 violation counters zero with
+ACTIVE detection paths, including the four FIRST-repair counters:
+`directRegistryFactoryAcquired`, `directDispatcherFactoryAcquired`,
+`exportedRequestBrandMutated`, `exportedResultBrandMutated` (each scans the
+actual module.exports of every production actuation module + bootstrap for
+factory/mint surfaces).
 
 ## Test results
 
-- Lane 3 targeted: 24 tests (22 security + 2 storm), 0 failures
+- Lane 3 targeted: 36 tests (34 security + 2 storm), 0 failures
 - Lane 2 regression: 89 tests, 0 failures
 - Lane 1 capability + canonical Authority: 186 tests, 171 pass, 15 fail —
   the 15 are the documented pre-existing `sqlite3` native-module environment
   nonblockers, IDENTICAL to the Lane 2 baseline (verified via stash); zero
   regressions, no unrelated dependencies touched.
+- Lane 2 differential (>=2200 cases): lane2AllowCanonicalReject = 0,
+  lane2AllowCanonicalDeny = 0.
 
 ## Known nonblockers
 
 - Production actuator wiring: the canonical registrar capability is owned by
   the bootstrap closure; a later lane wires real actuators through trusted
-  composition (Lane 3 ships the fabric + the test-only harness).
+  composition.
 - Exactly-once is process-local (documented above), not distributed.
 - OWNER_CONFIRMATION_REQUIRED remains semantic-only (Lane 2 nonblocker).
 - sqlite3-native authority tests: environment-only failures (see above).
 - Lane 4 (verification/compensation) intentionally NOT implemented: results
   carry `verified: null` and no VERIFIED lifecycle state exists.
+- Brand predicates are facade methods (not free functions): a closure-private
+  brand cannot be recognized by a free function in a non-privileged module
+  without either exporting the WeakSet (forbidden) or degrading to a
+  forgeable structural check (rejected).

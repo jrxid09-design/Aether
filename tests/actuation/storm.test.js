@@ -76,6 +76,11 @@ async function runStorm(seed) {
         authorityMutationDuringExecution: 0,
         capabilityMutationDuringExecution: 0,
         verificationClaimedByLane3: 0,
+        // FIRST targeted repair counters
+        directRegistryFactoryAcquired: 0,
+        directDispatcherFactoryAcquired: 0,
+        exportedRequestBrandMutated: 0,
+        exportedResultBrandMutated: 0,
         untypedErrors: 0
     };
 
@@ -212,6 +217,60 @@ async function runStorm(seed) {
                         C.decisionUsedAsBearerAuthority++;
                     } catch (e) {
                         if (e.reasonCode !== REASONS.CALLER_EXECUTOR_REJECTED) C.untypedErrors++;
+                    }
+                    // ---- FIRST targeted repair counters (direct privileged
+                    // exports + brand mutation). Active detection paths. ----
+                    // directRegistryFactoryAcquired: NO production actuation
+                    //   module may export buildActuatorRegistry (or equivalent).
+                    {
+                        const dir = require("node:path").join(__dirname, "../../src/action/actuation");
+                        const fsmod = require("node:fs");
+                        for (const f of fsmod.readdirSync(dir).filter((x) => x.endsWith(".js"))) {
+                            const mod = require(require("node:path").join(dir, f));
+                            for (const name of ["buildActuatorRegistry", "registerActuator", "registrar"]) {
+                                if (typeof mod[name] === "function") C.directRegistryFactoryAcquired++;
+                            }
+                        }
+                    }
+                    // directDispatcherFactoryAcquired: NO production actuation
+                    //   module may export composeDispatcher (or equivalent).
+                    {
+                        const dir = require("node:path").join(__dirname, "../../src/action/actuation");
+                        const fsmod = require("node:fs");
+                        for (const f of fsmod.readdirSync(dir).filter((x) => x.endsWith(".js"))) {
+                            const mod = require(require("node:path").join(dir, f));
+                            for (const name of ["composeDispatcher", "formExecutionRequest", "createLifecycleTracker", "buildExecutionResult", "buildExecutionEvidence"]) {
+                                if (typeof mod[name] === "function") C.directDispatcherFactoryAcquired++;
+                            }
+                        }
+                    }
+                    // exportedRequestBrandMutated: NO production module may
+                    //   export the request brand WeakSet/token (if re-exposed,
+                    //   the mutation would be observable).
+                    {
+                        const dir = require("node:path").join(__dirname, "../../src/action/actuation");
+                        const fsmod = require("node:fs");
+                        for (const f of fsmod.readdirSync(dir).filter((x) => x.endsWith(".js"))) {
+                            const mod = require(require("node:path").join(dir, f));
+                            if (mod.requestBrandSet instanceof WeakSet) C.exportedRequestBrandMutated++;
+                            if (typeof mod.REQUEST_BRAND === "symbol") C.exportedRequestBrandMutated++;
+                            if (typeof mod.addRequestBrand === "function" || typeof mod.markRequest === "function" || typeof mod.brandRequest === "function") C.exportedRequestBrandMutated++;
+                        }
+                        const bsmod = require("../../src/action/bootstrap");
+                        if (bsmod.requestBrandSet instanceof WeakSet || typeof bsmod.REQUEST_BRAND === "symbol") C.exportedRequestBrandMutated++;
+                    }
+                    // exportedResultBrandMutated: same for the result brand.
+                    {
+                        const dir = require("node:path").join(__dirname, "../../src/action/actuation");
+                        const fsmod = require("node:fs");
+                        for (const f of fsmod.readdirSync(dir).filter((x) => x.endsWith(".js"))) {
+                            const mod = require(require("node:path").join(dir, f));
+                            if (mod.resultBrandSet instanceof WeakSet) C.exportedResultBrandMutated++;
+                            if (typeof mod.RESULT_BRAND === "symbol") C.exportedResultBrandMutated++;
+                            if (typeof mod.addResultBrand === "function" || typeof mod.markResult === "function" || typeof mod.brandResult === "function") C.exportedResultBrandMutated++;
+                        }
+                        const bsmod = require("../../src/action/bootstrap");
+                        if (bsmod.resultBrandSet instanceof WeakSet || typeof bsmod.RESULT_BRAND === "symbol") C.exportedResultBrandMutated++;
                     }
                     record("fake-probe", true, "rejected");
                     break;
