@@ -12,7 +12,7 @@ const crypto = require("node:crypto");
 
 const { createCapabilityRuntime } = require("../../src/capability/registry");
 const { createMemoryAuthorityStore } = require("../../src/authority/store");
-const { createActionAuthorityRuntime, parseActionIntent, DECISION, isCanonicalAuthorityEvaluation } = require("../../src/action");
+const { createActionAuthorityRuntime, createAuthenticationDomain, parseActionIntent, DECISION, isCanonicalAuthorityEvaluation } = require("../../src/action");
 const { ActionError } = require("../../src/action");
 
 const OP_TARGET = 12000;
@@ -41,15 +41,23 @@ async function runStorm(seed) {
 
     const bindings = {};
     for (let i = 0; i < CAP_POOL; i++) bindings[`pool.cap.${i}`] = { read: targetScope, write: targetScope };
-    let issuer = null;
-    const rt = createActionAuthorityRuntime({
-        capabilityRuntime, authorityStore: store, trustedScopeBindings: bindings,
-        clock: { nowMs: () => 1000 },
-        onReady: ({ bindAuthentication }) => {
-            issuer = bindAuthentication({ authenticate: (f) => ({ principal: f.principal }) });
-        }
+    const authDomain = createAuthenticationDomain({
+        authenticate: (e) => {
+            // Mirror trusted auth infra: the authenticated principal comes
+            // from the authenticator's own decision. The caller's claimed
+            // principal is echoed ONLY when bootstrap intends to mint it.
+            const p = e && (e.claimedPrincipal ?? e.principal);
+            return (typeof p === "string" && p.length > 0) ? { principal: p } : null;
+        },
+        clock: { nowMs: () => 1000 }
     });
-    const session = (o) => issuer.mintSession(o); // bootstrap-held runtime-local issuer
+    const rt = createActionAuthorityRuntime({
+        capabilityRuntime, authorityStore: store,
+        authVerifier: authDomain.verifier,
+        trustedScopeBindings: bindings,
+        clock: { nowMs: () => 1000 }
+    });
+    const session = (o) => authDomain.authenticate({ claimedPrincipal: o && o.principal, ...o }); // trusted infra path
 
     const C = {
         executions: 0, actuations: 0, authorityMutations: 0, capabilityMutations: 0,
@@ -70,22 +78,23 @@ async function runStorm(seed) {
         scopeBindingMutationAffectedRuntime: 0, hostileIdentityTrapExecution: 0,
         // Wave-4 fourth repair (runtime-local trust domain) counters
         publicIssuerMintedVictim: 0, crossRuntimeSessionAccepted: 0,
-        directGateInjectionSucceeded: 0, forgedSessionAccepted: 0
+        directGateInjectionSucceeded: 0, forgedSessionAccepted: 0,
+        // Wave-4 fifth repair (caller-owned auth bootstrap removed) counters
+        callerObtainedAuthBinder: 0, callerObtainedSessionMint: 0,
+        authFailurePrincipalFallback: 0, retainedAuthBindingReplay: 0
     };
 
     // A SECOND runtime over DIFFERENT canonical state: sessions from it must
-    // never be accepted by `rt` (runtime-local brand).
+    // never be accepted by `rt` (runtime-local brand via separate domain).
     const foreignState = createCapabilityRuntime({ registrars: { core: true }, clock: { nowMs: () => 1000 } });
     const foreignStore = createMemoryAuthorityStore();
-    let foreignIssuer = null;
+    const foreignDomain = createAuthenticationDomain({ authenticate: (e) => ({ principal: e && (e.claimedPrincipal ?? e.principal) }), clock: { nowMs: () => 1000 } });
     const foreignRt = createActionAuthorityRuntime({
         capabilityRuntime: foreignState,
         authorityStore: foreignStore,
+        authVerifier: foreignDomain.verifier,
         trustedScopeBindings: { "pool.cap.0": { read: targetScope } },
-        clock: { nowMs: () => 1000 },
-        onReady: ({ bindAuthentication }) => {
-            foreignIssuer = bindAuthentication({ authenticate: (f) => ({ principal: f.principal }) });
-        }
+        clock: { nowMs: () => 1000 }
     });
     {
         const fres = foreignState.registrars.core.register(JSON.stringify({ schemaVersion: 1, id: "pool.cap.0", kind: "system", provider: "core", operations: ["read", "write"], requirements: [], effects: [] }));
@@ -339,7 +348,7 @@ async function runStorm(seed) {
                     //   crossRuntimeSessionAccepted: a session from the foreign
                     //     runtime must NOT satisfy THIS runtime's verifier.
                     {
-                        const foreignSession = foreignIssuer.mintSession({ principal: "actor.0" });
+                        const foreignSession = foreignDomain.authenticate({ claimedPrincipal: "actor.0" });
                         const crossIntent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
                         const cd = await rt.evaluate(crossIntent, foreignSession);
                         if (cd.decision === DECISION.ALLOW) C.crossRuntimeSessionAccepted++;
@@ -362,10 +371,16 @@ async function runStorm(seed) {
                                 C.directGateInjectionSucceeded++;
                             } catch { /* even a constructor must not enable injection */ }
                         }
-                        // Also exercise the ignore-options path directly.
+                        // Also exercise the ignore-options path directly. The
+                        // attacker composes over its OWN domain (authVerifier
+                        // composition is mandatory); the injected evaluator/
+                        // verifier options must still be IGNORED — only the
+                        // pre-bound verifier's brand decides identity.
+                        const injectedDomain = createAuthenticationDomain({ authenticate: (e) => ({ principal: e && (e.claimedPrincipal ?? e.principal) }), clock: { nowMs: () => 1000 } });
                         const injected = createActionAuthorityRuntime({
                             capabilityRuntime: { registry, registrars },
                             authorityStore: store,
+                            authVerifier: injectedDomain.verifier,
                             trustedScopeBindings: { [id]: { read: targetScope } },
                             clock: { nowMs: () => 1000 },
                             authorityEvaluator: async () => ({ allowed: true, reasonCode: "AUTHORIZED" }),
@@ -373,11 +388,12 @@ async function runStorm(seed) {
                             verifySession: () => true
                         });
                         const ii = injected.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
-                        const idInjected = issuer.mintSession({ principal: subject });
-                        // The injected runtime does NOT bind authentication via
-                        // onReady, so it has NO issuer of its own: even
-                        // "verifySession:()=>true" (an injected option) must be
-                        // ignored — only runtime-local brand acceptance holds.
+                        const idInjected = authDomain.authenticate({ claimedPrincipal: subject });
+                        // The injected runtime's brand is injectedDomain's brand, NOT
+                        // authDomain's: a session from authDomain must be rejected even
+                        // though "verifySession:()=>true" (an injected option) claims
+                        // to accept everything — injected options are never read for
+                        // trust; only the pre-bound verifier's brand acceptance holds.
                         const dd = await injected.evaluate(ii, idInjected);
                         if (dd.decision === DECISION.ALLOW) C.directGateInjectionSucceeded++;
                         if (dd.decision === DECISION.ALLOW) C.forgedSessionAccepted++;
@@ -385,12 +401,124 @@ async function runStorm(seed) {
                     //   forgedSessionAccepted: a forged/cloned/JSON session must
                     //     never ALLOW.
                     {
-                        const legit = issuer.mintSession({ principal: subject });
+                        const legit = authDomain.authenticate({ claimedPrincipal: subject });
                         for (const forged of [Object.freeze({ ...legit }), JSON.parse(JSON.stringify(legit)), { principal: subject, sessionId: "", channel: "" }]) {
                             const fi = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
                             const fd = await rt.evaluate(fi, forged);
                             if (fd.decision === DECISION.ALLOW) C.forgedSessionAccepted++;
                         }
+                    }
+                    // ---- Wave-4 FIFTH repair counters (caller-owned auth
+                    // bootstrap removed). All active paths; all must stay zero. ----
+                    //   callerObtainedAuthBinder: the runtime constructor must
+                    //     expose NO onReady/bindAuthentication callback surface,
+                    //     and must REJECT any caller-bootstrap option key.
+                    {
+                        let binder = null;
+                        try {
+                            createActionAuthorityRuntime({
+                                capabilityRuntime: { registry, registrars },
+                                authorityStore: store,
+                                authVerifier: authDomain.verifier,
+                                trustedScopeBindings: {},
+                                clock: { nowMs: () => 1000 },
+                                onReady: (caps) => { binder = caps && caps.bindAuthentication ? caps.bindAuthentication : "obtained"; }
+                            });
+                            if (binder !== null) C.callerObtainedAuthBinder++;
+                        } catch (e) {
+                            // Composition must reject with the typed reason; if it
+                            // accepted (no rejection) AND produced a binder, that is
+                            // the exploit — counted above. A rejection is correct.
+                            if (binder !== null) C.callerObtainedAuthBinder++;
+                            if (!e || e.reasonCode !== "CALLER_BOOTSTRAP_REJECTED") {
+                                // rejection missing entirely: the surface regressed
+                                C.callerObtainedAuthBinder++;
+                            }
+                        }
+                        // Even a rejected construction must not leave any callable
+                        // binder lying on the runtime module exports.
+                        const api = require("../../src/action");
+                        if (typeof api.bindAuthentication === "function" || typeof api.onReady === "function") C.callerObtainedAuthBinder++;
+                    }
+                    //   callerObtainedSessionMint: no export or runtime surface
+                    //     may expose mintSession; probe every runtime property
+                    //     and module export for a mint-like callable.
+                    {
+                        const api = require("../../src/action");
+                        for (const k of Object.keys(api)) {
+                            if (typeof api[k] === "function" && /mint|issue/i.test(k)) C.callerObtainedSessionMint++;
+                        }
+                        for (const k of Object.keys(rt)) {
+                            if (typeof rt[k] === "function" && /mint|issue|bind/i.test(k)) C.callerObtainedSessionMint++;
+                        }
+                        // createAuthenticationDomain itself must expose no mintSession
+                        // method on its returned surface (authenticate + verifier only).
+                        if (typeof authDomain.mintSession === "function" || typeof authDomain.issuer === "function") C.callerObtainedSessionMint++;
+                        // Even with authentication failing, a "claimed victim" object
+                        // minted through any public path must never verify.
+                        const victimAttempt = authDomain.authenticate({ claimedPrincipal: "victim", principal: "victim", requestedPrincipal: "victim" });
+                        // (attacker grant for actor.0 exists for cap.0 only; use a
+                        // subject that has a grant to prove ALLOW is impossible for
+                        // an unauthenticated claim.)
+                        if (victimAttempt && (await rt.evaluate(rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } })), victimAttempt)).decision === DECISION.ALLOW && !subjects.includes("victim")) {
+                            C.callerObtainedSessionMint++;
+                        }
+                    }
+                    //   authFailurePrincipalFallback: authentication that fails
+                    //     (null/undefined/malformed/throws) must NEVER mint a session
+                    //     that verifies, and the gate must not fall back to any
+                    //     caller-asserted principal string.
+                    {
+                        const intentF = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
+                        // Deterministic failing authenticator: returns null,
+                        // undefined, malformed, or throws — never a valid principal.
+                        // No rng() consumption (keeps the storm op-count stable).
+                        const failingCases = [
+                            () => null,
+                            () => undefined,
+                            () => false,
+                            () => ({}),
+                            () => { throw new Error("auth infra down"); },
+                            () => ({ principal: null }),
+                            () => ({ principal: 123 }),
+                            () => ({ principal: "" })
+                        ];
+                        for (const authFn of failingCases) {
+                            const failingAuth = createAuthenticationDomain({ authenticate: authFn, clock: { nowMs: () => 1000 } });
+                            const attempt = failingAuth.authenticate({ claimedPrincipal: "actor.0", principal: "actor.0", requestedPrincipal: "actor.0" });
+                            if (attempt !== null) {
+                                // A failing authenticator must never produce a minted session.
+                                C.authFailurePrincipalFallback++;
+                            }
+                        }
+                        // Even if a hostile caller forges an object with claimed
+                        // fields, the gate must DENY (no fallback to claimed identity).
+                        const hostile = { claimedPrincipal: "actor.0", principal: "actor.0", requestedPrincipal: "actor.0", sessionId: "", channel: "" };
+                        const fd = await rt.evaluate(intentF, hostile);
+                        if (fd.decision === DECISION.ALLOW) C.authFailurePrincipalFallback++;
+                    }
+                    //   retainedAuthBindingReplay: there is no retained binder to
+                    //     replay; a hostile caller cannot obtain one from the
+                    //     AuthenticationDomain surface, and any retained reference
+                    //     to the verifier cannot mint.
+                    {
+                        // The domain surface is authenticate + verifier only; the
+                        // verifier cannot mint anything (verify() reads the brand).
+                        const retained = authDomain.verifier;
+                        if (typeof retained.mint === "function" || typeof retained.mintSession === "function" || typeof retained.bindAuthentication === "function") {
+                            C.retainedAuthBindingReplay++;
+                        } else {
+                            // Attempt to "replay" the verifier as an issuer: verify
+                            // must not mint new sessions (brand membership only).
+                            const forgedReplay = retained.verify({ claimedPrincipal: "actor.0", principal: "actor.0" });
+                            if (forgedReplay !== null) C.retainedAuthBindingReplay++;
+                        }
+                        // A second AuthenticationDomain cannot verify (or mint into)
+                        // the first domain's brand.
+                        const secondDomain = createAuthenticationDomain({ authenticate: (e) => ({ principal: e && e.claimedPrincipal }), clock: { nowMs: () => 1000 } });
+                        const s2 = secondDomain.authenticate({ claimedPrincipal: "actor.0" });
+                        const d2 = await rt.evaluate(rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } })), s2);
+                        if (d2.decision === DECISION.ALLOW) C.retainedAuthBindingReplay++;
                     }
                     break;
                 }

@@ -17,7 +17,7 @@ const assert = require("node:assert/strict");
 const { createCapabilityRuntime } = require("../../src/capability/registry");
 const { createMemoryAuthorityStore } = require("../../src/authority/store");
 const { loadAndEvaluateAuthority } = require("../../src/authority/evaluate");
-const { createActionAuthorityRuntime, isCanonicalAuthorityEvaluation } = require("../../src/action");
+const { createActionAuthorityRuntime, createAuthenticationDomain, isCanonicalAuthorityEvaluation } = require("../../src/action");
 
 function mulberry32(seed) {
     let a = seed >>> 0;
@@ -39,15 +39,13 @@ async function runDifferential(seed) {
     const { registry, registrars } = createCapabilityRuntime({ registrars: { core: true }, clock: { nowMs: () => 1000 } });
     const store = createMemoryAuthorityStore();
 
-    let issuer = null;
+    const authDomain = createAuthenticationDomain({ authenticate: (e) => ({ principal: e && e.claimedPrincipal }), clock: { nowMs: () => 1000 } });
     const rt = createActionAuthorityRuntime({
         capabilityRuntime: { registry, registrars },
         authorityStore: store,
+        authVerifier: authDomain.verifier,
         trustedScopeBindings: { "cap.diff": { read: (a) => a && a.target ? [a.target] : [], write: (a) => a && a.target ? [a.target] : [], delete: (a) => a && a.target ? [a.target] : [] } },
-        clock: { nowMs: () => 1000 },
-        onReady: ({ bindAuthentication }) => {
-            issuer = bindAuthentication({ authenticate: (f) => ({ principal: f.principal }) });
-        }
+        clock: { nowMs: () => 1000 }
     });
 
     const res = registrars.core.register(JSON.stringify({
@@ -121,7 +119,7 @@ async function runDifferential(seed) {
             schemaVersion: 1, capabilityId: "cap.diff", operation: action,
             arguments: { target: scopeToken }
         }));
-        const lane2 = await rt.evaluate(intent, issuer.mintSession({ principal }));
+        const lane2 = await rt.evaluate(intent, authDomain.authenticate({ claimedPrincipal: principal }));
 
         if (canonical.allowed !== true) {
             if (lane2.decision === "ALLOW") {

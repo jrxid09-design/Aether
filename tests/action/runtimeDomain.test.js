@@ -19,9 +19,10 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const { createActionAuthorityRuntime, DECISION } = require("../../src/action");
+const { createActionAuthorityRuntime, createAuthenticationDomain, DECISION } = require("../../src/action");
 const { createCapabilityRuntime } = require("../../src/capability/registry");
 const { createMemoryAuthorityStore } = require("../../src/authority/store");
+const { authenticate } = require("./helpers");
 
 const CLOCK = { nowMs: () => 1000 };
 
@@ -29,15 +30,13 @@ async function makeDomain() {
     const capabilityRuntime = createCapabilityRuntime({ registrars: { core: true }, clock: CLOCK });
     const { registry, registrars } = capabilityRuntime;
     const store = createMemoryAuthorityStore();
-    let issuer = null;
+    const authDomain = createAuthenticationDomain({ authenticate, clock: CLOCK });
     const rt = createActionAuthorityRuntime({
         capabilityRuntime,
         authorityStore: store,
+        authVerifier: authDomain.verifier,
         trustedScopeBindings: { "cap.x": { read: (a) => (a && a.target ? [a.target] : []) } },
-        clock: CLOCK,
-        onReady: ({ bindAuthentication }) => {
-            issuer = bindAuthentication({ authenticate: (f) => ({ principal: f.principal }) });
-        }
+        clock: CLOCK
     });
     const res = registrars.core.register(JSON.stringify({
         schemaVersion: 1, id: "cap.x", kind: "system", provider: "core",
@@ -54,7 +53,7 @@ async function makeDomain() {
         identityBinding: { principals: ["alice"] }, extra: null
     }));
     const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "cap.x", operation: "read", arguments: { target: "safe.target" } }));
-    return { registry, registrars, store, rt, issuer, intent };
+    return { registry, registrars, store, rt, authDomain, intent };
 }
 
 // ---------------------------------------------------------------------------
@@ -70,13 +69,14 @@ test("B1-R4: direct require of every action submodule exposes no issuer mint", (
     const modules = [
         "../../src/action/index.js",
         "../../src/action/authSession.js",
+        "../../src/action/authDomain.js",
         "../../src/action/gate.js",
         "../../src/action/runtime.js",
         "../../src/action/intent.js",
         "../../src/action/errors.js",
         "../../src/action/clock.js"
     ];
-    const FORBIDDEN = ["createAuthSessionIssuer", "mintAuthSession", "issueIdentity", "issueSession"];
+    const FORBIDDEN = ["createAuthSessionIssuer", "mintAuthSession", "issueIdentity", "issueSession", "mintSession", "bindAuthentication", "onReady"];
     for (const m of modules) {
         const mod = require(m);
         for (const name of FORBIDDEN) {
@@ -107,9 +107,9 @@ test("B1-R4: no public callable can produce a session trusted by a canonical run
     }
 });
 
-test("B1-R4: runtime surface exposes no mint/issuer/bind function", async () => {
+test("B1-R4: runtime surface exposes no mint/issuer/bind/bootstrap function", async () => {
     const h = await makeDomain();
-    for (const forbidden of ["mintSession", "issueIdentity", "issueSession", "bindAuthentication", "issuer", "sessionIssuer", "gate", "createGate"]) {
+    for (const forbidden of ["mintSession", "issueIdentity", "issueSession", "bindAuthentication", "onReady", "issuer", "sessionIssuer", "authVerifier", "verifier", "authDomain", "gate", "createGate"]) {
         assert.equal(typeof h.rt[forbidden], "undefined", `rt.${forbidden} must not exist`);
     }
     assert.deepEqual(Object.keys(h.rt).sort(), ["admit", "evaluate"]);
@@ -150,12 +150,17 @@ test("B2-R4: forged evaluator over canonical registry cannot be injected anywher
     };
 
     // The historical exploit path is gone: no importable constructor accepts
-    // an authorityEvaluator. createActionAuthorityRuntime accepts NO evaluator
-    // or verifier parameter at all — even if an attacker passes one, it is
-    // ignored (extra unknown options are never read for trust).
+    // an authorityEvaluator. createActionAuthorityRuntime requires a
+    // pre-bound authVerifier and accepts NO evaluator or verifier injection
+    // parameter at all — even if an attacker passes one, it is ignored
+    // (extra unknown options are never read for trust). The attacker uses
+    // its OWN AuthenticationDomain (that is a separate trust domain, which
+    // grants no access to h's domain).
+    const attackerDomain = createAuthenticationDomain({ authenticate, clock: CLOCK });
     const attackerRuntime = createActionAuthorityRuntime({
         capabilityRuntime: { registry: h.registry, registrars: h.registrars },
         authorityStore: h.store,
+        authVerifier: attackerDomain.verifier,
         trustedScopeBindings: { "cap.x": { read: (a) => (a && a.target ? [a.target] : []) } },
         clock: CLOCK,
         authorityEvaluator: async () => forgedEvaluation,   // injection attempt: IGNORED
@@ -166,17 +171,18 @@ test("B2-R4: forged evaluator over canonical registry cannot be injected anywher
     });
     const attackerIntent = attackerRuntime.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "cap.x", operation: "read", arguments: { target: "safe.target" } }));
 
-    // No authentication was bound on the attacker runtime, so it has NO issuer:
-    // every session candidate is rejected. The forged evaluation object passed
-    // as a session is rejected as identity (it is not in the brand), and the
-    // injected evaluator hooks had zero effect.
+    // The injected evaluator/verifier options are NOT the trust path: the
+    // runtime consults only its pre-bound authVerifier. The forged evaluation
+    // object passed as a session is rejected as identity (it is not in the
+    // attacker domain's brand), and the injected evaluator hooks had zero
+    // effect.
     const d = await attackerRuntime.evaluate(attackerIntent, forgedEvaluation);
     assert.equal(d.decision, DECISION.DENY, "injected evaluator/gate options must be ignored");
     assert.equal(d.reasonCode, "INVALID_IDENTITY");
 
     // And a session minted by runtime h cannot be replayed on the attacker
     // runtime either (different brand), even with the injected hooks.
-    const legitSession = h.issuer.mintSession({ principal: "alice" });
+    const legitSession = h.authDomain.authenticate({ claimedPrincipal: "alice" });
     const d2 = await attackerRuntime.evaluate(attackerIntent, legitSession);
     assert.equal(d2.decision, DECISION.DENY, "cross-runtime replay must fail even with injected options");
     assert.equal(d2.reasonCode, "INVALID_IDENTITY");
@@ -188,15 +194,15 @@ test("B2-R4: forged evaluator over canonical registry cannot be injected anywher
 
 test("B3-R4: A session -> A accepted", async () => {
     const A = await makeDomain();
-    const s = A.issuer.mintSession({ principal: "alice" });
+    const s = A.authDomain.authenticate({ claimedPrincipal: "alice" });
     assert.equal((await A.rt.evaluate(A.intent, s)).decision, DECISION.ALLOW);
 });
 
 test("B3-R4: A session -> B rejected; B session -> A rejected (both directions)", async () => {
     const A = await makeDomain();
     const B = await makeDomain();
-    const sa = A.issuer.mintSession({ principal: "alice" });
-    const sb = B.issuer.mintSession({ principal: "alice" });
+    const sa = A.authDomain.authenticate({ claimedPrincipal: "alice" });
+    const sb = B.authDomain.authenticate({ claimedPrincipal: "alice" });
 
     const ab = await B.rt.evaluate(B.intent, sa);
     assert.equal(ab.decision, DECISION.DENY);
@@ -209,7 +215,7 @@ test("B3-R4: A session -> B rejected; B session -> A rejected (both directions)"
 
 test("B3-R4: forged/cloned/JSON session rejected by canonical runtime", async () => {
     const A = await makeDomain();
-    const s = A.issuer.mintSession({ principal: "alice" });
+    const s = A.authDomain.authenticate({ claimedPrincipal: "alice" });
     const candidates = [
         ["clone", { ...s }],
         ["frozenClone", Object.freeze({ ...s })],
@@ -228,7 +234,7 @@ test("B3-R4: forged/cloned/JSON session rejected by canonical runtime", async ()
 test("B3-R4: no runtimeId string trusted — string fields on forged session change nothing", async () => {
     const A = await makeDomain();
     const B = await makeDomain();
-    const sb = B.issuer.mintSession({ principal: "alice" });
+    const sb = B.authDomain.authenticate({ claimedPrincipal: "alice" });
     // Even if the attacker adds plausible "runtime identity" fields, the
     // decision is object-identity based, never string-based.
     const spoofed = Object.freeze({ ...sb, runtimeId: "A", domain: "A", trusted: true });
@@ -252,7 +258,7 @@ test("structural: no module in src/action exports privileged trust constructors"
         "createRuntimeIdentityContext",
         "createIntentAdmission",
         "createReadOnlyAuthorityContext",
-        "mintSessionBrand",
+        "mintSession",
         "createSessionTrustDomain",
         "createEvaluationBrand",
         "injectEvaluator",
@@ -262,7 +268,10 @@ test("structural: no module in src/action exports privileged trust constructors"
         "sessionBrand",
         "authSessionBrands",
         "EVAL_BRAND",
-        "brandGate"
+        "brandGate",
+        "bindAuthentication",
+        "onReady",
+        "authBinder"
     ];
     const files = fs.readdirSync(dir).filter((f) => f.endsWith(".js"));
     for (const f of files) {
@@ -279,7 +288,7 @@ test("structural: source scan — no export binding for issuer/gate minting or b
     const FORBIDDEN_NAMES = [
         "createAuthSessionIssuer", "createGate", "mintAuthSession", "mintSession",
         "issueIdentity", "issueSession", "sessionBrand", "authSessionBrands",
-        "EVAL_BRAND", "brandGate", "buildGate"
+        "EVAL_BRAND", "brandGate", "buildGate", "bindAuthentication", "onReady"
     ];
     for (const f of files) {
         const text = fs.readFileSync(path.join(dir, f), "utf8");

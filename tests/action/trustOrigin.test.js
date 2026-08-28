@@ -14,7 +14,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { createActionAuthorityRuntime, DECISION, isCanonicalAuthorityEvaluation } = require("../../src/action");
+const { createActionAuthorityRuntime, createAuthenticationDomain, DECISION, isCanonicalAuthorityEvaluation } = require("../../src/action");
 const { createCapabilityRuntime } = require("../../src/capability/registry");
 const { createMemoryAuthorityStore } = require("../../src/authority/store");
 const { makeHarness, authenticate } = require("./helpers");
@@ -27,21 +27,19 @@ async function setupAvailable(h, id = "filesystem.read", ops = ["read"]) {
     return res;
 }
 
-/** Build a minimal standalone runtime + bootstrap-held issuer (for
+/** Build a minimal standalone runtime + trusted AuthenticationDomain (for
  *  cross-runtime replay tests). */
 async function makeRuntime({ nowMs = () => 1000 } = {}) {
     const capabilityRuntime = createCapabilityRuntime({ registrars: { core: true }, clock: { nowMs } });
     const { registry, registrars } = capabilityRuntime;
     const store = createMemoryAuthorityStore();
-    let issuer = null;
+    const authDomain = createAuthenticationDomain({ authenticate, clock: { nowMs } });
     const rt = createActionAuthorityRuntime({
         capabilityRuntime,
         authorityStore: store,
+        authVerifier: authDomain.verifier,
         trustedScopeBindings: { "cap.x": { read: (a) => (a && a.target ? [a.target] : []) } },
-        clock: { nowMs },
-        onReady: ({ bindAuthentication }) => {
-            issuer = bindAuthentication({ authenticate });
-        }
+        clock: { nowMs }
     });
     const res = registrars.core.register(JSON.stringify({
         schemaVersion: 1, id: "cap.x", kind: "system", provider: "core",
@@ -58,7 +56,7 @@ async function makeRuntime({ nowMs = () => 1000 } = {}) {
         identityBinding: { principals: ["alice"] }, extra: null
     }));
     const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "cap.x", operation: "read", arguments: { target: "safe.target" } }));
-    return { registry, registrars, store, rt, issuer, intent };
+    return { registry, registrars, store, rt, authDomain, intent };
 }
 
 test("trust-origin: runtime surface is exactly { admit, evaluate } — no identity minting", async () => {
@@ -68,43 +66,78 @@ test("trust-origin: runtime surface is exactly { admit, evaluate } — no identi
     assert.equal(typeof h.rt.mintSession, "undefined", "no mintSession surface");
     assert.equal(typeof h.rt.issueSession, "undefined", "no issueSession surface");
     assert.equal(typeof h.rt.bindAuthentication, "undefined", "no bindAuthentication on runtime surface");
+    assert.equal(typeof h.rt.onReady, "undefined", "no onReady on runtime surface");
+    assert.equal(typeof h.rt.authVerifier, "undefined", "no authVerifier surface");
     assert.deepEqual(Object.keys(h.rt).sort(), ["admit", "evaluate"].sort());
 });
 
-test("trust-origin: bindAuthentication is one-time; second bind throws", async () => {
+test("trust-origin: caller-owned auth bootstrap option is REJECTED at composition", () => {
     const capabilityRuntime = createCapabilityRuntime({ registrars: { core: true }, clock: CLOCK });
     const store = createMemoryAuthorityStore();
-    let bindFn = null;
-    let firstIssuer = null;
-    createActionAuthorityRuntime({
-        capabilityRuntime, authorityStore: store,
-        trustedScopeBindings: {},
-        clock: CLOCK,
-        onReady: ({ bindAuthentication }) => {
-            bindFn = bindAuthentication;
-            firstIssuer = bindAuthentication({ authenticate });
-        }
-    });
-    assert.ok(typeof firstIssuer.mintSession === "function");
-    assert.throws(() => bindFn({ authenticate }), (e) => e.reasonCode === "INVALID_DECISION_STATE",
-        "second bindAuthentication must throw");
-});
-
-test("trust-origin: without binding authentication, no session can exist and evaluate fails closed", async () => {
-    const capabilityRuntime = createCapabilityRuntime({ registrars: { core: true }, clock: CLOCK });
-    const { registry, registrars } = capabilityRuntime;
-    const store = createMemoryAuthorityStore();
+    const authDomain = createAuthenticationDomain({ authenticate, clock: CLOCK });
+    // The historical exploit: pass onReady({ bindAuthentication }) and capture
+    // the mint capability during composition. This MUST be rejected at the
+    // constructor — no privileged callback obtainable by the runtime caller.
+    assert.throws(
+        () => createActionAuthorityRuntime({
+            capabilityRuntime, authorityStore: store,
+            authVerifier: authDomain.verifier,
+            trustedScopeBindings: {},
+            clock: CLOCK,
+            onReady: ({ bindAuthentication }) => { bindAuthentication({ authenticate }); }
+        }),
+        (e) => e.reasonCode === "CALLER_BOOTSTRAP_REJECTED",
+        "onReady option must be rejected at composition"
+    );
+    // Any caller-bootstrap key is rejected.
+    for (const key of ["bindAuthentication", "mintSession", "issueIdentity", "issuer", "sessionIssuer", "sessionBrand", "bootstrap"]) {
+        assert.throws(
+            () => createActionAuthorityRuntime({
+                capabilityRuntime, authorityStore: store,
+                authVerifier: authDomain.verifier,
+                trustedScopeBindings: {},
+                clock: CLOCK,
+                [key]: () => ({ mintSession: () => ({ principal: "victim" }) })
+            }),
+            (e) => e.reasonCode === "CALLER_BOOTSTRAP_REJECTED",
+            `caller-bootstrap key '${key}' must be rejected at composition`
+        );
+    }
+    // And a runtime constructed WITHOUT onReady/bindAuthentication keys works
+    // normally (the only valid path is authVerifier-only composition).
     const rt = createActionAuthorityRuntime({
         capabilityRuntime, authorityStore: store,
-        trustedScopeBindings: { "cap.x": { read: () => [] } },
-        clock: CLOCK
+        authVerifier: authDomain.verifier,
+        trustedScopeBindings: {}, clock: CLOCK
     });
-    const res = registrars.core.register(JSON.stringify({ schemaVersion: 1, id: "cap.x", kind: "system", provider: "core", operations: ["read"], requirements: [], effects: [] }));
-    registry.observeAvailability("cap.x", "AVAILABLE", { generation: 1, incarnationId: res.incarnationId });
-    const intent = rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "cap.x", operation: "read" }));
-    const d = await rt.evaluate(intent, { principal: "alice", sessionId: "", channel: "" });
-    assert.equal(d.decision, DECISION.DENY);
-    assert.equal(d.reasonCode, "INVALID_IDENTITY");
+    assert.deepEqual(Object.keys(rt).sort(), ["admit", "evaluate"].sort());
+});
+
+test("trust-origin: without a pre-bound authVerifier, composition fails closed", () => {
+    const capabilityRuntime = createCapabilityRuntime({ registrars: { core: true }, clock: CLOCK });
+    const store = createMemoryAuthorityStore();
+    // No authVerifier => composition rejects. There is no path to a runtime
+    // that evaluates identities without a trusted verifier.
+    assert.throws(
+        () => createActionAuthorityRuntime({
+            capabilityRuntime, authorityStore: store,
+            trustedScopeBindings: { "cap.x": { read: () => [] } },
+            clock: CLOCK
+        }),
+        (e) => e.reasonCode === "AUTH_VERIFIER_REQUIRED",
+        "composition without authVerifier must reject"
+    );
+    // A malformed verifier (no .verify) also rejects.
+    assert.throws(
+        () => createActionAuthorityRuntime({
+            capabilityRuntime, authorityStore: store,
+            authVerifier: { notVerify: () => true },
+            trustedScopeBindings: { "cap.x": { read: () => [] } },
+            clock: CLOCK
+        }),
+        (e) => e.reasonCode === "AUTH_VERIFIER_REQUIRED",
+        "composition with a malformed authVerifier must reject"
+    );
 });
 
 test("trust-origin: public surface no longer exports createAuthSessionIssuer", () => {
@@ -142,8 +175,8 @@ test("trust-origin: cross-runtime session replay A -> B rejected; B -> A rejecte
     const A = await makeRuntime();
     const B = await makeRuntime();
 
-    const sessionA = A.issuer.mintSession({ principal: "alice" });
-    const sessionB = B.issuer.mintSession({ principal: "alice" });
+    const sessionA = A.authDomain.authenticate({ claimedPrincipal: "alice" });
+    const sessionB = B.authDomain.authenticate({ claimedPrincipal: "alice" });
 
     // 1. A session -> A accepted
     assert.equal((await A.rt.evaluate(A.intent, sessionA)).decision, DECISION.ALLOW);
@@ -179,29 +212,29 @@ test("trust-origin: shared canonical state does NOT federate session trust (atta
         identityBinding: { principals: ["victim"] }, extra: null
     }));
 
-    let issuerA = null;
+    const domainA = createAuthenticationDomain({ authenticate, clock: CLOCK });
     const A = createActionAuthorityRuntime({
         capabilityRuntime, authorityStore: store,
+        authVerifier: domainA.verifier,
         trustedScopeBindings: { "cap.x": { read: (a) => (a && a.target ? [a.target] : []) } },
-        clock: CLOCK,
-        onReady: ({ bindAuthentication }) => { issuerA = bindAuthentication({ authenticate }); }
+        clock: CLOCK
     });
-    let issuerAtk = null;
+    const domainAtk = createAuthenticationDomain({ authenticate, clock: CLOCK });
     const attackerRuntime = createActionAuthorityRuntime({
         capabilityRuntime, authorityStore: store,
+        authVerifier: domainAtk.verifier,
         trustedScopeBindings: { "cap.x": { read: (a) => (a && a.target ? [a.target] : []) } },
-        clock: CLOCK,
-        onReady: ({ bindAuthentication }) => { issuerAtk = bindAuthentication({ authenticate }); }
+        clock: CLOCK
     });
 
-    const victimSession = issuerA.mintSession({ principal: "victim" });
+    const victimSession = domainA.authenticate({ claimedPrincipal: "victim" });
     const attackerIntent = attackerRuntime.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "cap.x", operation: "read", arguments: { target: "safe.target" } }));
 
     const d = await attackerRuntime.evaluate(attackerIntent, victimSession);
     assert.equal(d.decision, DECISION.DENY, "victim session must not be replayable on a new runtime over shared state");
     assert.equal(d.reasonCode, "INVALID_IDENTITY");
 
-    const forged = issuerAtk.mintSession({ principal: "victim" });
+    const forged = domainAtk.authenticate({ claimedPrincipal: "victim" });
     const aIntent = A.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "cap.x", operation: "read", arguments: { target: "safe.target" } }));
     const d2 = await A.evaluate(aIntent, forged);
     assert.equal(d2.decision, DECISION.DENY, "runtime B session must be rejected by runtime A even over shared canonical state");
@@ -279,9 +312,10 @@ test("trust-origin: scope-binding outer/nested mutation has zero effect", async 
     const res = capabilityRuntime.registrars.core.register(JSON.stringify({ schemaVersion: 1, id: "x.one", kind: "system", provider: "core", operations: ["read"], requirements: [], effects: [] }));
     capabilityRuntime.registry.observeAvailability("x.one", "AVAILABLE", { generation: 1, incarnationId: res.incarnationId });
     const store = createMemoryAuthorityStore();
+    const authDomain = createAuthenticationDomain({ authenticate, clock: CLOCK });
 
     const bindings = { "x.one": { read: (a) => (a && a.target ? [a.target] : []) } };
-    const rt = createActionAuthorityRuntime({ capabilityRuntime, authorityStore: store, trustedScopeBindings: bindings, clock: CLOCK });
+    const rt = createActionAuthorityRuntime({ capabilityRuntime, authorityStore: store, authVerifier: authDomain.verifier, trustedScopeBindings: bindings, clock: CLOCK });
 
     // mutate the outer binding object and nested resolver AFTER composition
     bindings["x.one"] = { read: () => ["MALICIOUS.SCOPE"] };

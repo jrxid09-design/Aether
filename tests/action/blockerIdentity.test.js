@@ -183,6 +183,7 @@ test("B3: getCapability/getGeneration/countConsumption throws => no ALLOW", asyn
         capRuntime.registry.observeAvailability("filesystem.read", "AVAILABLE", { generation: 1, incarnationId: res.incarnationId });
         const rt = createActionAuthorityRuntime({
             capabilityRuntime: capRuntime, authorityStore: badStore,
+            authVerifier: h.authDomain.verifier,
             trustedScopeBindings: { "filesystem.read": { read: (a) => a && a.target ? [a.target] : [] } },
             clock: { nowMs: () => h.clock.nowMs() }
         });
@@ -205,6 +206,7 @@ test("B3: malformed grant => no ALLOW", async () => {
     capRuntime.registry.observeAvailability("filesystem.read", "AVAILABLE", { generation: 1, incarnationId: res.incarnationId });
     const rt = createActionAuthorityRuntime({
         capabilityRuntime: capRuntime, authorityStore: badStore,
+        authVerifier: h.authDomain.verifier,
         trustedScopeBindings: { "filesystem.read": { read: (a) => a && a.target ? [a.target] : [] } },
         clock: { nowMs: () => h.clock.nowMs() }
     });

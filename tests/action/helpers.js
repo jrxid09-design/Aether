@@ -1,13 +1,17 @@
 "use strict";
 
-/** Shared helpers for action intent + authority gate tests (runtime-local
- *  trust domain). The session issuer is INTERNAL to each runtime: tests obtain
- *  it only through the one-time trusted bootstrap `onReady` /
- *  `bindAuthentication` hook during composition. */
+/** Shared helpers for action intent + authority gate tests (caller-owned
+ *  auth bootstrap REMOVED — fifth targeted repair).
+ *
+ *  The session issuer lives INSIDE a trusted AuthenticationDomain created by
+ *  the test bootstrap (mirrors trusted Aether bootstrap). The runtime is then
+ *  composed over the domain's pre-bound `verifier` capability only; it
+ *  receives no mint, no bootstrap callback, and no caller-supplied identity.
+ */
 
 const { createCapabilityRuntime } = require("../../src/capability/registry");
 const { createMemoryAuthorityStore } = require("../../src/authority/store");
-const { createActionAuthorityRuntime } = require("../../src/action");
+const { createActionAuthorityRuntime, createAuthenticationDomain } = require("../../src/action");
 
 const CLOCK_START = 1_000_000;
 
@@ -27,18 +31,37 @@ function defaultScopeResolver(args) {
 }
 
 /** Trusted test authentication: accepts whatever principal bootstrap asserts
- *  (mirrors external trusted auth infra bound during bootstrap). */
-function authenticate(fields) {
-    return { principal: fields.principal };
+ *  (mirrors external trusted auth infra bound during bootstrap). The
+ *  AuthenticationDomain treats the principal the way an external authenticator
+ *  would: it MUST return a non-empty string for a session to be minted; on any
+ *  failure (null, undefined, malformed, throw) it fails closed. */
+function authenticate(evidence) {
+    const p = evidence && typeof evidence === "object" ? evidence.claimedPrincipal : null;
+    if (typeof p === "string" && p.length > 0) {
+        return { principal: p };
+    }
+    return null;
 }
 
 /**
  * Build a full trusted harness:
- *   { registry, registrars, store, clock, rt, session, registerCapability, grantAuthority }
+ *   { registry, registrars, store, clock, authDomain, rt, session,
+ *     registerCapability, grantAuthority, mintAuthSession }
  *
- * `rt` is the trusted runtime surface: exactly { admit, evaluate }.
- * `session(principal, extra)` mints a session in THIS runtime's trust domain
- * via the bootstrap-held issuer captured through onReady/bindAuthentication.
+ * `authDomain` is the trusted AuthenticationDomain created by this harness's
+ * bootstrap; it owns authenticate(), the session brand, and the verifier
+ * capability handed to the runtime.
+ *
+ * `rt` is the trusted runtime surface: exactly { admit, evaluate }, composed
+ * over `authDomain.verifier` (the ONLY authentication capability it receives).
+ *
+ * `session(principal, extra)` mints an authenticated session through the
+ * domain's authenticate() path (trusted infra). It cannot mint a principal
+ * the authenticator does not endorse; failure to authenticate yields null
+ * (fail closed) — mirroring the production trust model.
+ *
+ * `mintAuthSession(evidence)` exposes the domain's authenticate() surface for
+ * direct fail-closed tests (null / undefined / malformed / throw).
  */
 async function makeHarness({ clock, scopeBindings, authenticate: authenticateFn = authenticate } = {}) {
     const c = clock ?? manualClock();
@@ -53,17 +76,21 @@ async function makeHarness({ clock, scopeBindings, authenticate: authenticateFn 
         "filesystem.write": { write: defaultScopeResolver }
     };
 
-    let issuer = null;
+    // ---- trusted bootstrap: AuthenticationDomain established OUTSIDE the
+    // runtime constructor. It owns authenticate(), the session brand, the
+    // only mint path, and the verifier capability. ----
+    const authDomain = createAuthenticationDomain({
+        authenticate: authenticateFn,
+        clock: { nowMs: () => c.nowMs() }
+    });
+
     const rt = createActionAuthorityRuntime({
         capabilityRuntime,
         authorityStore: store,
+        authVerifier: authDomain.verifier,
         trustedScopeBindings: bindings,
-        clock: { nowMs: () => c.nowMs() },
-        onReady: ({ bindAuthentication }) => {
-            issuer = bindAuthentication({ authenticate: authenticateFn });
-        }
+        clock: { nowMs: () => c.nowMs() }
     });
-    if (!issuer) throw new Error("test bootstrap must bind authentication during composition");
 
     async function registerCapability(overrides = {}) {
         const descriptor = {
@@ -93,15 +120,28 @@ async function makeHarness({ clock, scopeBindings, authenticate: authenticateFn 
         await store.upsertCapability(capabilityId, "ACTIVE", generation, JSON.stringify(grant));
     }
 
+    // Mint through the domain's authenticate() path (trusted infra). The
+    // caller passes `principal`; the test authenticator echoes it back as
+    // the authenticated principal. A test authenticator that refuses (null/
+    // throws) makes session() throw — which is the documented fail-closed
+    // behavior and is asserted explicitly in the dedicated fail-closed tests.
     function session(principal = "alice", extra = {}) {
-        return issuer.mintSession({ principal, ...extra });
+        const evidence = { claimedPrincipal: principal, ...extra };
+        const s = authDomain.authenticate(evidence);
+        if (!s) throw new Error("test authenticate failed closed; no session minted");
+        return s;
+    }
+
+    function mintAuthSession(evidence) {
+        return authDomain.authenticate(evidence);
     }
 
     return {
         registry: capabilityRuntime.registry,
         registrars: capabilityRuntime.registrars,
-        store, clock: c, rt,
+        store, clock: c, authDomain, rt,
         session,
+        mintAuthSession,
         admit: rt.admit,
         evaluate: rt.evaluate,
         gate: rt,

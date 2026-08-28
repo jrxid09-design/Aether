@@ -6,7 +6,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { parseActionIntent, DECISION, createActionAuthorityRuntime, isCanonicalAuthorityEvaluation } = require("../../src/action");
+const { parseActionIntent, DECISION, createActionAuthorityRuntime, createAuthenticationDomain, isCanonicalAuthorityEvaluation } = require("../../src/action");
 const { createCapabilityRuntime } = require("../../src/capability/registry");
 const { createMemoryAuthorityStore } = require("../../src/authority/store");
 const { makeHarness } = require("./helpers");
@@ -83,8 +83,10 @@ test("B6: invalid clock values reject at runtime construction / admission", asyn
             schemaVersion: 1, id: "x.one", kind: "system", provider: "core", operations: ["read"], requirements: [], effects: []
         }));
         const store = createMemoryAuthorityStore();
+        const authDomain = createAuthenticationDomain({ authenticate: () => null, clock: { nowMs: () => 1000 } });
         const rt = createActionAuthorityRuntime({
             capabilityRuntime, authorityStore: store,
+            authVerifier: authDomain.verifier,
             trustedScopeBindings: { "x.one": { read: () => [] } },
             clock: { nowMs: () => bad }
         });
@@ -99,8 +101,10 @@ test("B6: omitted createdAtMs + invalid default clock => reject", async () => {
         schemaVersion: 1, id: "x.one", kind: "system", provider: "core", operations: ["read"], requirements: [], effects: []
     }));
     const store = createMemoryAuthorityStore();
+    const authDomain = createAuthenticationDomain({ authenticate: () => null, clock: { nowMs: () => 1000 } });
     const rt = createActionAuthorityRuntime({
         capabilityRuntime, authorityStore: store,
+        authVerifier: authDomain.verifier,
         trustedScopeBindings: { "x.one": { read: () => [] } },
         clock: { nowMs: () => NaN }
     });
