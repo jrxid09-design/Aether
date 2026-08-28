@@ -61,23 +61,19 @@ async function makeDomain() {
 // ---------------------------------------------------------------------------
 
 test("R5-1: no onReady/bindAuthentication callback surface exists anywhere", () => {
-    // The composition factories are not public exports at all (sixth repair):
-    // there is no constructor that could even receive an onReady option.
-    for (const name of ["createActionAuthorityRuntime", "createAuthenticationDomain", "createGate", "onReady", "bindAuthentication", "mintSession", "issueIdentity", "createAuthSessionIssuer", "mintAuthSession", "issuer", "sessionIssuer", "authBinder", "bootstrapCapability", "trustedBootstrap"]) {
+    // The composition factories are not public exports at all (seventh
+    // repair): there is no constructor that could even receive an onReady
+    // option, and no binder/token/first-call-wins surface to acquire one.
+    for (const name of ["createActionAuthorityRuntime", "createAuthenticationDomain", "createGate", "onReady", "bindAuthentication", "mintSession", "issueIdentity", "createAuthSessionIssuer", "mintAuthSession", "issuer", "sessionIssuer", "authBinder", "bootstrapCapability", "trustedBootstrap", "bindCompositionHost", "bindAuthenticationHost", "bindHost", "acquireHost", "registerHost", "installHost", "claimComposition", "bootstrapBind", "hostToken", "getFactory", "getComposer"]) {
         assert.equal(typeof api[name], "undefined", `api.${name} must not exist`);
     }
-    // Direct submodule imports expose no factory either.
+    // Direct submodule imports expose no factory or binder either.
     const runtimeModule = require("../../src/action/runtime");
     const authDomainModule = require("../../src/action/authDomain");
-    for (const name of ["createActionAuthorityRuntime", "onReady", "bindAuthentication", "mintSession", "issueIdentity"]) {
+    for (const name of ["createActionAuthorityRuntime", "composeActionAuthorityRuntime", "onReady", "bindAuthentication", "mintSession", "issueIdentity", "bindCompositionHost", "isCompositionHostBound"]) {
         assert.equal(typeof runtimeModule[name], "undefined", `runtime.js.${name} must not be exported`);
         assert.equal(typeof authDomainModule[name], "undefined", `authDomain.js.${name} must not be exported`);
     }
-    // The trusted test bootstrap rejects ANY caller-bootstrap option key if a
-    // caller attempts privileged composition through it.
-    // (The exhaustive rejection matrix is proven in canonicalBootstrap.test.js,
-    // which loads the production bootstrap in its own process.)
-    assert.equal(runtimeModule.isCompositionHostBound(), true, "composition host bound one-shot by the trusted bootstrap");
 });
 
 // ---------------------------------------------------------------------------

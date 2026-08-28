@@ -85,7 +85,10 @@ async function runStorm(seed) {
         authFailurePrincipalFallback: 0, retainedAuthBindingReplay: 0,
         // Wave-4 SIXTH repair (canonical bootstrap ownership) counters
         publicActionRuntimeFactoryExposed: 0, publicAuthenticationDomainFactoryExposed: 0,
-        callerSelectedVerifierAccepted: 0, canonicalStateReboundByAttacker: 0
+        callerSelectedVerifierAccepted: 0, canonicalStateReboundByAttacker: 0,
+        // Wave-4 SEVENTH repair counters (first-binder + caller authenticator + facade seeding)
+        exportedCompositionBinderAcquired: 0, exportedAuthenticationBinderAcquired: 0,
+        callerAuthenticatorControlledCanonicalIdentity: 0, productionFacadeAuthorityMutationSucceeded: 0
     };
 
     // A SECOND runtime over DIFFERENT canonical state: sessions from it must
@@ -618,6 +621,90 @@ async function runStorm(seed) {
                         const attackerIntent = attacker.rt.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
                         const onAttacker = await attacker.rt.evaluate(attackerIntent, victimSession);
                         if (onAttacker.decision === DECISION.ALLOW) C.canonicalStateReboundByAttacker++;
+                    }
+                    // ---- Wave-4 SEVENTH repair counters (first-binder trust
+                    // + caller authenticator + facade seeding removed). All
+                    // active paths; all must stay zero. ----
+                    //   exportedCompositionBinderAcquired: NO exported binder,
+                    //     token, host, or first-call-wins surface may exist on
+                    //     any action module (runtime.js/authDomain.js are pure
+                    //     non-privileged vocabulary modules).
+                    {
+                        const runtimeModule = require("../../src/action/runtime");
+                        for (const name of ["bindCompositionHost", "bindHost", "acquireHost", "registerHost", "installHost", "claimComposition", "bootstrapBind", "hostToken", "getFactory", "getComposer", "composeActionAuthorityRuntime", "createActionAuthorityRuntime"]) {
+                            if (typeof runtimeModule[name] === "function") C.exportedCompositionBinderAcquired++;
+                        }
+                    }
+                    //   exportedAuthenticationBinderAcquired: same for the
+                    //     authentication/domain composition surface.
+                    {
+                        const authDomainModule = require("../../src/action/authDomain");
+                        for (const name of ["bindAuthenticationHost", "bindHost", "acquireHost", "registerHost", "installHost", "claimComposition", "bootstrapBind", "hostToken", "getFactory", "getComposer", "composeAuthenticationDomain", "createAuthenticationDomain"]) {
+                            if (typeof authDomainModule[name] === "function") C.exportedAuthenticationBinderAcquired++;
+                        }
+                    }
+                    //   callerAuthenticatorControlledCanonicalIdentity: the
+                    //     PRODUCTION canonical facade must accept NO caller-
+                    //     selected authenticator/verifier, and its fixed
+                    //     fail-closed adapter must never mint a caller-asserted
+                    //     principal.
+                    {
+                        // The storm process holds the trusted TEST bootstrap
+                        // (bootstrapHarness); the production bootstrap no
+                        // longer depends on any host binding (composition is
+                        // its own private closure), so requiring it is safe.
+                        let production = null;
+                        try { production = require("../../src/action/bootstrap"); } catch { /* unreachable */ }
+                        if (production && typeof production.createCanonicalActionFacade === "function") {
+                            const fakeAuth = () => ({ principal: "attacker" });
+                            const fakeVerifier = { verify: () => "attacker" };
+                            for (const [key, value] of [["authenticate", fakeAuth], ["authenticator", fakeAuth], ["authVerifier", fakeVerifier], ["verifyCredentials", fakeAuth], ["resolvePrincipal", fakeAuth]]) {
+                                try {
+                                    production.createCanonicalActionFacade({ [key]: value });
+                                    // Composition SUCCEEDED with a caller
+                                    // authenticator — the exploit.
+                                    C.callerAuthenticatorControlledCanonicalIdentity++;
+                                } catch (e) {
+                                    // must reject with the typed reason
+                                    if (!e || e.reasonCode !== "CALLER_BOOTSTRAP_REJECTED") {
+                                        C.callerAuthenticatorControlledCanonicalIdentity++;
+                                    }
+                                }
+                            }
+                            // The fixed fail-closed adapter must never mint:
+                            const facade = production.createCanonicalActionFacade();
+                            const minted = facade.authenticate({ claimedPrincipal: "attacker", principal: "attacker", requestedPrincipal: "attacker" });
+                            if (minted !== null) C.callerAuthenticatorControlledCanonicalIdentity++;
+                        }
+                    }
+                    //   productionFacadeAuthorityMutationSucceeded: the
+                    //     production facade must expose NO seeding/mutation
+                    //     surface (grantAuthority/registerCapability/registry/
+                    //     registrars/store/...), and attempting any mutation
+                    //     through it must be impossible.
+                    {
+                        let production = null;
+                        try { production = require("../../src/action/bootstrap"); } catch { /* unreachable */ }
+                        if (production && typeof production.createCanonicalActionFacade === "function") {
+                            const facade = production.createCanonicalActionFacade();
+                            for (const name of ["grantAuthority", "revokeAuthority", "seedAuthority", "registerCapability", "unregisterCapability", "registry", "registrars", "store", "authorityStore", "capabilityRuntime", "registrar", "seed", "bootstrap", "verifier", "evaluator", "authDomain", "mint", "mintSession", "issue", "issueIdentity"]) {
+                                if (typeof facade[name] !== "undefined") C.productionFacadeAuthorityMutationSucceeded++;
+                            }
+                            // Attempting to CALL a nonexistent mutator throws
+                            // (TypeError), never silently succeeds.
+                            let mutated = false;
+                            try {
+                                if (typeof facade.grantAuthority === "function") {
+                                    await facade.grantAuthority({ capabilityId: id, subject: "attacker", actions: ["read"] });
+                                    mutated = true;
+                                }
+                                if (typeof facade.registerCapability === "function") {
+                                    await facade.registerCapability({ id: "attacker.cap" });
+                                    mutated = true;
+                                }
+                            } catch { /* TypeError — the methods do not exist */ }
+                            if (mutated) C.productionFacadeAuthorityMutationSucceeded++;
+                        }
                     }
                     break;
                 }

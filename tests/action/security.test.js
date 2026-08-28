@@ -79,9 +79,15 @@ test("structural: gate delegates to canonical evaluator; no policy duplication",
     const gateText = fs.readFileSync(path.join(__dirname, "../../src/action/gate.js"), "utf8");
     assert.ok(!/getGeneration|countConsumption|identityBinding/.test(gateText),
         "gate must not duplicate authority grant policy");
-    // runtime.js is the composition root; it must require the canonical evaluator.
+    // The trusted bootstrap (src/action/bootstrap.js) is the composition root
+    // (seventh repair: the runtime factory lives in its private closure); it
+    // must require the canonical evaluator.
+    const bootstrapText = fs.readFileSync(path.join(__dirname, "../../src/action/bootstrap.js"), "utf8");
+    assert.ok(/loadAndEvaluateAuthority/.test(bootstrapText), "bootstrap must delegate to canonical evaluator");
+    // runtime.js is now a pure non-privileged vocabulary module: no factory,
+    // no evaluator policy duplication.
     const runtimeText = fs.readFileSync(path.join(__dirname, "../../src/action/runtime.js"), "utf8");
-    assert.ok(/loadAndEvaluateAuthority/.test(runtimeText), "runtime must delegate to canonical evaluator");
+    assert.ok(!/loadAndEvaluateAuthority\s*\(/.test(runtimeText), "runtime.js must contain no evaluation logic (vocabulary only)");
 });
 
 test("surface: no execution verbs in public API", () => {

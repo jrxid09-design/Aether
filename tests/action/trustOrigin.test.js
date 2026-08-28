@@ -59,22 +59,23 @@ test("trust-origin: runtime surface is exactly { admit, evaluate } — no identi
 });
 
 test("trust-origin: public API exposes no composition/verifier factory at all", () => {
-    // The factories are no longer public exports (sixth repair). A caller
-    // cannot obtain a runtime/domain/gate/verifier constructor at all.
-    for (const name of ["createActionAuthorityRuntime", "createAuthenticationDomain", "createGate", "createAuthSessionIssuer", "bindAuthentication", "mintSession", "onReady", "issueIdentity", "issuer", "sessionIssuer", "authVerifier", "verifier"]) {
+    // The factories are no longer public exports (seventh repair). A caller
+    // cannot obtain a runtime/domain/gate/verifier constructor at all, and
+    // there are no binders / tokens / first-call-wins surfaces anywhere.
+    for (const name of ["createActionAuthorityRuntime", "createAuthenticationDomain", "createGate", "createAuthSessionIssuer", "bindCompositionHost", "bindAuthenticationHost", "bindHost", "acquireHost", "registerHost", "installHost", "claimComposition", "bootstrapBind", "hostToken", "getFactory", "getComposer", "bindAuthentication", "mintSession", "onReady", "issueIdentity", "issuer", "sessionIssuer", "authVerifier", "verifier"]) {
         assert.equal(typeof api[name], "undefined", `api.${name} must not exist`);
     }
-    // Direct submodule imports expose no factory either (the one-shot host
-    // binding in this process belongs to the trusted test bootstrap).
+    // Direct submodule imports expose no factory or binder either (the
+    // privileged factories live ONLY inside the trusted bootstrap's private
+    // closure; runtime.js/authDomain.js are pure non-privileged modules).
     const runtimeModule = require("../../src/action/runtime");
     const authDomainModule = require("../../src/action/authDomain");
-    assert.equal(typeof runtimeModule.createActionAuthorityRuntime, "undefined");
-    assert.equal(typeof authDomainModule.createAuthenticationDomain, "undefined");
-    assert.equal(runtimeModule.isCompositionHostBound(), true, "composition host bound by the trusted bootstrap in this process");
-    assert.equal(authDomainModule.isAuthenticationHostBound(), true, "authentication host bound by the trusted bootstrap in this process");
-    // A second bind from ANY module object is rejected.
-    assert.throws(() => runtimeModule.bindCompositionHost(module), (e) => e.reasonCode === "CALLER_BOOTSTRAP_REJECTED");
-    assert.throws(() => authDomainModule.bindAuthenticationHost(module), (e) => e.reasonCode === "CALLER_BOOTSTRAP_REJECTED");
+    for (const name of ["createActionAuthorityRuntime", "composeActionAuthorityRuntime", "bindCompositionHost", "isCompositionHostBound"]) {
+        assert.equal(typeof runtimeModule[name], "undefined", `runtime.js.${name} must not be exported`);
+    }
+    for (const name of ["createAuthenticationDomain", "composeAuthenticationDomain", "bindAuthenticationHost", "isAuthenticationHostBound"]) {
+        assert.equal(typeof authDomainModule[name], "undefined", `authDomain.js.${name} must not be exported`);
+    }
 });
 
 test("trust-origin: caller cannot mint a session trusted by any canonical runtime", async () => {

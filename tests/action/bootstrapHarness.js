@@ -1,50 +1,388 @@
 "use strict";
 
 /**
- * ACTION AUTHORITY GATE V1 — TRUSTED TEST BOOTSTRAP (sixth repair).
+ * ACTION AUTHORITY GATE V1 — TRUSTED TEST BOOTSTRAP (seventh targeted repair).
  *
- * This file is the trusted-bootstrap equivalent for the action test suite.
- * In Lane 2's evaluation-only architecture there is no production wiring of
- * the canonical runtime yet, so the test harness plays the role of the trusted
- * Aether runtime/bootstrap layer (mirroring src/action/bootstrap.js). This
- * helper centralizes that role so every test file composes through ONE
- * trusted path.
+ * TEST-ONLY COMPOSITION HARNESS. Lives under tests/ and is explicitly NOT
+ * reachable from src/action production exports. It defines its OWN private
+ * mirror of the trusted composition (the same composition functions the
+ * production trusted bootstrap defines in ITS private closure) so tests can:
  *
- * This module is NOT shipped as a public/downstream API. It lives under
- * tests/ and mirrors the production trusted bootstrap's ownership law:
- *   - canonical state is constructed INSIDE this closure
- *   - the identity verifier is constructed INSIDE this closure
- *   - no caller of makeHarness can supply a verifier, an AuthenticationDomain,
- *     a capabilityRuntime, an authorityStore, or any evaluator/gate
+ *   - inject controlled test authenticators (per-harness trust domains)
+ *   - seed authority (grantAuthority) and register capabilities
+ *   - compose isolated trust domains for cross-domain replay proofs
  *
- * For cross-domain / cross-runtime replay proofs, the harness additionally
- * exposes `composeIsolatedTrustDomain`, which builds a SECOND, structurally
- * identical but brand-distinct trust domain. This is the trusted bootstrap's
- * own internal facility for minting an adversarial "domain B"; it is NOT a
- * public trust factory and grants no access to the canonical domain's brand.
+ * PRODUCTION SEPARATION (seventh repair):
+ *   production: src/action/bootstrap.js
+ *       createCanonicalActionFacade()  — takes NO options; fixed fail-closed
+ *                                        bootstrap-owned auth adapter; facade
+ *                                        is EXACTLY { admit, evaluate,
+ *                                        authenticate, session }
+ *   tests:      tests/action/bootstrapHarness.js (THIS file)
+ *       makeHarness({ authenticate, scopeBindings }) — per-test trust domain
+ *       with controlled auth + seeding helpers
+ *
+ * The test harness is NOT a public trust factory: it is not exported from
+ * src/action, requires an explicit tests/ file path to reach, and grants no
+ * access to the canonical runtime's brand, state, or facade.
  */
 
 const { createCapabilityRuntime } = require("../../src/capability/registry");
 const { createMemoryAuthorityStore } = require("../../src/authority/store");
-// Trusted-bootstrap-internal composition capabilities. Tests reach the
-// internal factory surface via the SAME one-shot host binding the production
-// bootstrap uses; this file binds itself as host, mirroring src/action/bootstrap.js.
-const { bindCompositionHost } = require("../../src/action/runtime");
-const { bindAuthenticationHost } = require("../../src/action/authDomain");
-const { ActionError, REASONS } = require("../../src/action/errors");
+const { fail, REASONS } = require("../../src/action/errors");
+const { extractAuthenticatedPrincipal } = require("../../src/action/authDomain");
+const { AUTH_TELEMETRY_KEYS } = require("../../src/action/authSession");
+const {
+    parseActionIntent, canonicalScope, validateTimestamp, isValidIncarnationId
+} = require("../../src/action/intent");
+const { loadAndEvaluateAuthority, isCanonicalAuthorityEvaluation } = require("../../src/authority/evaluate");
+const { captureClock } = require("../../src/action/clock");
+const { DECISION, GATE_REASONS, ALLOW_REASON, validateAuthorityEvaluation } = require("../../src/action/gate");
+
+// ---------------------------------------------------------------------------
+// TEST-ONLY PRIVATE COMPOSITION MIRROR
+// (same semantics as the production bootstrap's private closure; kept here
+// so the test harness never touches production privileged surfaces)
+// ---------------------------------------------------------------------------
+
+const MAX_TELEMETRY_CHARS = 128;
+const MAX_SESSIONS_PER_DOMAIN = 4096;
+
+function cleanToken(v, field, maxChars) {
+    if (v === undefined || v === null) return "";
+    if (typeof v !== "string") {
+        throw fail(REASONS.INVALID_INTENT, `auth '${field}' must be a string, got ${typeof v}`);
+    }
+    const s = v.trim();
+    if (s.length > maxChars) {
+        throw fail(REASONS.BOUND_EXCEEDED, `auth '${field}' exceeds ${maxChars} chars`);
+    }
+    return s;
+}
+
+function mapAuthorityReason(reasonCode) {
+    if (reasonCode === "CAP_GENERATION_STALE") return GATE_REASONS.AUTHORITY_STATE_STALE;
+    return GATE_REASONS.AUTHORITY_INSUFFICIENT;
+}
+
+function deepFreeze(obj) {
+    if (obj !== null && typeof obj === "object") {
+        for (const key of Object.getOwnPropertyNames(obj)) deepFreeze(obj[key]);
+        Object.freeze(obj);
+    }
+    return obj;
+}
+
+/** TEST-ONLY AuthenticationDomain composition (private to this harness). */
+function composeTestAuthenticationDomain({ authenticate, clock = { nowMs: () => Date.now() } } = {}) {
+    if (typeof authenticate !== "function") {
+        throw fail(REASONS.AUTH_VERIFIER_REQUIRED, "AuthenticationDomain requires trusted authenticate infrastructure");
+    }
+    if (!clock || typeof clock.nowMs !== "function") {
+        throw fail(REASONS.AUTH_VERIFIER_REQUIRED, "AuthenticationDomain requires a hardened clock");
+    }
+    let capturedClock = null;
+    try { capturedClock = clock.nowMs(); } catch { capturedClock = null; }
+    if (typeof capturedClock !== "number" || !Number.isFinite(capturedClock)) {
+        throw fail(REASONS.AUTH_VERIFIER_REQUIRED, "AuthenticationDomain clock must produce a finite number");
+    }
+
+    const sessionBrand = new WeakSet();
+    let sessionCount = 0;
+
+    function mintAuthenticatedSession(authResult, evidence) {
+        const principal = extractAuthenticatedPrincipal(authResult);
+
+        const claimed = evidence && typeof evidence === "object"
+            ? cleanToken(evidence[AUTH_TELEMETRY_KEYS.claimedPrincipal], AUTH_TELEMETRY_KEYS.claimedPrincipal, MAX_TELEMETRY_CHARS)
+            : "";
+        const channel = evidence && typeof evidence === "object"
+            ? cleanToken(evidence.channel, "channel", 64)
+            : "";
+
+        if (sessionCount >= MAX_SESSIONS_PER_DOMAIN) {
+            throw fail(REASONS.BOUND_EXCEEDED, `session domain bound exceeded (${MAX_SESSIONS_PER_DOMAIN})`);
+        }
+        const sessionId = cleanToken(
+            evidence && typeof evidence === "object" ? evidence.sessionId : null,
+            "sessionId", 64
+        ) || `sess-${principal}-${capturedClock !== null ? capturedClock : sessionCount}-${sessionCount}`;
+        const session = Object.freeze({
+            principal,
+            sessionId,
+            channel,
+            claimedPrincipal: claimed
+        });
+        sessionBrand.add(session);
+        sessionCount++;
+        return session;
+    }
+
+    function authenticateEvidence(evidence) {
+        let authResult;
+        try {
+            authResult = authenticate(evidence);
+        } catch {
+            return null; // fail closed
+        }
+        if (authResult === null || authResult === undefined) {
+            return null; // fail closed
+        }
+        try {
+            return mintAuthenticatedSession(authResult, evidence);
+        } catch {
+            return null; // malformed authentication result => fail closed
+        }
+    }
+
+    function verifySession(sessionObj) {
+        if (sessionObj === null || typeof sessionObj !== "object") return null;
+        if (!sessionBrand.has(sessionObj)) return null;
+        const p = sessionObj.principal;
+        return (typeof p === "string" && p.length > 0) ? p : null;
+    }
+
+    return Object.freeze({
+        authenticate: authenticateEvidence,
+        verifier: Object.freeze({
+            verify: verifySession
+        })
+    });
+}
+
+/** TEST-ONLY action authority runtime composition (private to this harness). */
+function composeTestActionAuthorityRuntime({
+    capabilityRuntime,
+    authorityStore,
+    authVerifier,
+    trustedScopeBindings = {},
+    clock = { nowMs: () => Date.now() }
+} = {}) {
+    if (!capabilityRuntime || !capabilityRuntime.registry || typeof capabilityRuntime.registry.get !== "function") {
+        throw new TypeError("runtime requires a capabilityRuntime with .registry.get()");
+    }
+    if (!authorityStore || typeof authorityStore.getCapability !== "function") {
+        throw new TypeError("runtime requires an authorityStore with getCapability()");
+    }
+    if (!authVerifier || typeof authVerifier !== "object") {
+        throw fail(REASONS.AUTH_VERIFIER_REQUIRED, "runtime requires a pre-bound authVerifier capability");
+    }
+    if (typeof authVerifier.verify !== "function") {
+        throw fail(REASONS.AUTH_VERIFIER_REQUIRED, "authVerifier must expose verify(session)");
+    }
+
+    const registry = capabilityRuntime.registry;
+    const capturedClock = captureClock(clock);
+    const verifySession = authVerifier.verify;
+
+    const scopeLookup = new Map();
+    if (trustedScopeBindings !== null && trustedScopeBindings !== undefined) {
+        if (typeof trustedScopeBindings !== "object" || Array.isArray(trustedScopeBindings)) {
+            throw new TypeError("trustedScopeBindings must be a plain object mapping");
+        }
+        for (const capId of Object.getOwnPropertyNames(trustedScopeBindings)) {
+            const opMap = trustedScopeBindings[capId];
+            if (opMap === null || typeof opMap !== "object" || Array.isArray(opMap)) {
+                throw new TypeError(`trustedScopeBindings['${capId}'] must be an object mapping operations to resolvers`);
+            }
+            const opResolvers = new Map();
+            for (const op of Object.getOwnPropertyNames(opMap)) {
+                const resolver = opMap[op];
+                if (typeof resolver !== "function") {
+                    throw new TypeError(`trustedScopeBindings['${capId}']['${op}'] must be a function`);
+                }
+                opResolvers.set(op, resolver);
+            }
+            scopeLookup.set(capId, opResolvers);
+        }
+    }
+
+    function resolveScopeResolver(capabilityId, operation) {
+        const opResolvers = scopeLookup.get(capabilityId);
+        if (!opResolvers) return null;
+        const resolver = opResolvers.get(operation);
+        return (typeof resolver === "function") ? resolver : null;
+    }
+
+    function admit(serialized, { source = "inline" } = {}) {
+        const parsed = parseActionIntent(serialized, { source, nowMs: capturedClock.nowMs() });
+
+        const capabilityId = parsed.capabilityId;
+        const operation = parsed.operation;
+
+        const descriptor = registry.get(capabilityId);
+        if (!descriptor) {
+            throw fail(REASONS.CAPABILITY_NOT_FOUND, `no such capability '${capabilityId}'`);
+        }
+        if (!Array.isArray(descriptor.operations) || !descriptor.operations.includes(operation)) {
+            throw fail(REASONS.OPERATION_NOT_DECLARED, `operation '${operation}' not declared by '${capabilityId}'`);
+        }
+
+        const incarnationId = descriptor.incarnationId;
+        if (!isValidIncarnationId(incarnationId)) {
+            throw fail(REASONS.INVALID_INTENT, `capability '${capabilityId}' has no valid incarnation`);
+        }
+
+        const resolver = resolveScopeResolver(capabilityId, operation);
+        if (!resolver) {
+            throw fail(REASONS.INVALID_INTENT, `no trusted scope binding for '${capabilityId}.${operation}'`);
+        }
+        let rawScope;
+        try {
+            rawScope = resolver(parsed.arguments);
+        } catch {
+            throw fail(REASONS.INVALID_INTENT, `scope resolution failed for '${capabilityId}.${operation}'`);
+        }
+        const scope = canonicalScope(rawScope);
+
+        const createdAtMs = validateTimestamp(parsed.createdAtMs, "createdAtMs");
+
+        return deepFreeze({
+            ...parsed,
+            capabilityIncarnationId: incarnationId,
+            scope,
+            createdAtMs
+        });
+    }
+
+    const deny = (intent, reasonCode, detail = null, extra = {}, evaluatedAtMs) => deepFreeze({
+        decision: DECISION.DENY,
+        reasonCode,
+        detail,
+        intentId: intent.intentId,
+        capabilityId: intent.capabilityId,
+        operation: intent.operation,
+        evaluatedAtMs,
+        ...extra
+    });
+
+    async function evaluateGate(intent, authSession) {
+        if (!intent || typeof intent !== "object" ||
+            typeof intent.intentId !== "string" ||
+            typeof intent.capabilityId !== "string" ||
+            typeof intent.operation !== "string") {
+            throw fail(REASONS.INVALID_INTENT, "gate requires a canonical ActionIntent");
+        }
+
+        const evaluatedAtMs = capturedClock.nowMs();
+
+        const principal = verifySession(authSession);
+        if (typeof principal !== "string" || principal.length === 0) {
+            return deny(intent, GATE_REASONS.INVALID_IDENTITY, "not a trusted auth session of this runtime's AuthenticationDomain", {}, evaluatedAtMs);
+        }
+
+        const capabilityId = intent.capabilityId;
+        const operation = intent.operation.trim().toLowerCase();
+        const channel = (authSession && typeof authSession === "object" && typeof authSession.channel === "string")
+            ? authSession.channel
+            : "";
+        const sessionId = (authSession && typeof authSession === "object" && typeof authSession.sessionId === "string")
+            ? authSession.sessionId
+            : "";
+
+        const descriptor = registry.get(capabilityId);
+        if (!descriptor) {
+            return deny(intent, GATE_REASONS.CAPABILITY_NOT_FOUND, `no such capability '${capabilityId}'`, {}, evaluatedAtMs);
+        }
+
+        const currentIncarnation = descriptor.incarnationId;
+        const intentIncarnation = intent.capabilityIncarnationId;
+        if (!isValidIncarnationId(intentIncarnation)) {
+            return deny(intent, GATE_REASONS.CAPABILITY_INCARNATION_MISMATCH, "intent is not bound to a valid capability incarnation", {}, evaluatedAtMs);
+        }
+        if (intentIncarnation !== currentIncarnation) {
+            return deny(intent, GATE_REASONS.CAPABILITY_INCARNATION_MISMATCH,
+                `intent incarnation ${intentIncarnation} != current ${currentIncarnation}`,
+                { intentIncarnation, currentIncarnation }, evaluatedAtMs);
+        }
+
+        const declared = descriptor.operations || [];
+        if (!declared.includes(operation)) {
+            return deny(intent, GATE_REASONS.OPERATION_NOT_DECLARED, `operation '${operation}' not declared`, {}, evaluatedAtMs);
+        }
+
+        const availability = descriptor.availability;
+        if (availability === "UNAVAILABLE" || availability === "UNKNOWN") {
+            return deny(intent, GATE_REASONS.CAPABILITY_UNAVAILABLE, `capability '${capabilityId}' is ${availability}`, {}, evaluatedAtMs);
+        }
+        if (availability === "DEGRADED") {
+            return deny(intent, GATE_REASONS.CAPABILITY_DEGRADED, `capability '${capabilityId}' is DEGRADED`, {}, evaluatedAtMs);
+        }
+
+        const scope = Array.isArray(intent.scope) ? intent.scope : [];
+
+        let authResult;
+        try {
+            authResult = await loadAndEvaluateAuthority(authorityStore, {
+                capabilityId,
+                action: operation,
+                scope,
+                purpose: intent.purpose ?? null,
+                identity: { channel, sessionId, principal },
+                nowMs: evaluatedAtMs
+            }, { nowMs: evaluatedAtMs });
+        } catch {
+            return deny(intent, GATE_REASONS.AUTHORITY_INSUFFICIENT, "authority evaluation failed", {}, evaluatedAtMs);
+        }
+
+        if (!authResult || typeof authResult !== "object") {
+            return deny(intent, GATE_REASONS.AUTHORITY_INSUFFICIENT, "authority context returned no result", {}, evaluatedAtMs);
+        }
+
+        if (authResult.allowed !== true) {
+            if (authResult.reasonCode === "OWNER_CONFIRMATION_REQUIRED") {
+                return deepFreeze({
+                    decision: DECISION.OWNER_CONFIRMATION_REQUIRED,
+                    reasonCode: GATE_REASONS.OWNER_CONFIRMATION_REQUIRED,
+                    intentId: intent.intentId,
+                    capabilityId,
+                    capabilityIncarnationId: currentIncarnation,
+                    operation,
+                    evaluatedAtMs
+                });
+            }
+            const reason = mapAuthorityReason(authResult.reasonCode);
+            return deny(intent, reason, `authority denied: ${authResult.reasonCode ?? "unknown"}`, {
+                authorityReasonCode: authResult.reasonCode ?? null
+            }, evaluatedAtMs);
+        }
+
+        if (!isCanonicalAuthorityEvaluation(authResult)) {
+            return deny(intent, GATE_REASONS.MALFORMED_AUTHORITY_EVALUATION, "not a canonical authority evaluation", {}, evaluatedAtMs);
+        }
+
+        const snapshot = authResult.snapshot;
+        const validationError = validateAuthorityEvaluation(authResult, {
+            capabilityId, operation, scope, principal, evaluatedAtMs
+        });
+        if (validationError) {
+            return deny(intent, GATE_REASONS.MALFORMED_AUTHORITY_EVALUATION, validationError, {}, evaluatedAtMs);
+        }
+
+        return deepFreeze({
+            decision: DECISION.ALLOW,
+            reasonCode: ALLOW_REASON,
+            intentId: intent.intentId,
+            capabilityId,
+            capabilityIncarnationId: currentIncarnation,
+            operation,
+            principal,
+            authorityGeneration: snapshot.generation,
+            evaluatedAtMs
+        });
+    }
+
+    return Object.freeze({
+        admit,
+        evaluate: (intent, authSession) => evaluateGate(intent, authSession)
+    });
+}
+
+// ---------------------------------------------------------------------------
+// TEST HARNESS API
+// ---------------------------------------------------------------------------
 
 const CLOCK_START = 1_000_000;
-
-let BOUND = null;
-function hosts() {
-    if (!BOUND) {
-        BOUND = {
-            composition: bindCompositionHost(module),
-            authentication: bindAuthenticationHost(module)
-        };
-    }
-    return BOUND;
-}
 
 function manualClock(startMs = CLOCK_START) {
     let t = startMs;
@@ -72,16 +410,10 @@ function authenticate(evidence) {
 }
 
 /**
- * Build the canonical trusted harness. Mirrors src/action/bootstrap.js:
+ * Build the canonical trusted test harness.
  *   { registry, registrars, store, clock, authDomain, rt, session,
  *     mintAuthSession, registerCapability, grantAuthority, admit, evaluate,
  *     gate }
- *
- * `authDomain` is the trusted AuthenticationDomain created by this harness's
- * bootstrap; it owns authenticate(), the session brand, and the verifier
- * capability handed to the runtime. `rt` is the trusted runtime surface:
- * exactly { admit, evaluate }. `session(principal, extra)` mints through the
- * domain's authenticate() path (trusted infra).
  */
 async function makeHarness({ clock, scopeBindings, authenticate: authenticateFn = authenticate } = {}) {
     const c = clock ?? manualClock();
@@ -96,17 +428,13 @@ async function makeHarness({ clock, scopeBindings, authenticate: authenticateFn 
         "filesystem.write": { write: defaultScopeResolver }
     };
 
-    // ---- trusted bootstrap: AuthenticationDomain established INSIDE this
-    // closure. It owns authenticate(), the session brand, the only mint path,
-    // and the verifier capability. The runtime is composed over the domain's
-    // pre-bound verifier only. ----
-    const { createAuthenticationDomain } = hosts().authentication;
-    const { createActionAuthorityRuntime } = hosts().composition;
-    const authDomain = createAuthenticationDomain({
+    // ---- trusted test bootstrap: AuthenticationDomain established INSIDE
+    // this closure over the controlled test authenticator. ----
+    const authDomain = composeTestAuthenticationDomain({
         authenticate: authenticateFn,
         clock: { nowMs: () => c.nowMs() }
     });
-    const rt = createActionAuthorityRuntime({
+    const rt = composeTestActionAuthorityRuntime({
         capabilityRuntime,
         authorityStore: store,
         authVerifier: authDomain.verifier,
@@ -145,7 +473,7 @@ async function makeHarness({ clock, scopeBindings, authenticate: authenticateFn 
     function session(principal = "alice", extra = {}) {
         const evidence = { claimedPrincipal: principal, ...extra };
         const s = authDomain.authenticate(evidence);
-        if (!s) throw new ActionError(REASONS.AUTH_FAILED, "test authenticate failed closed; no session minted");
+        if (!s) throw new (require("../../src/action/errors").ActionError)(REASONS.AUTH_FAILED, "test authenticate failed closed; no session minted");
         return s;
     }
 
@@ -170,12 +498,8 @@ async function makeHarness({ clock, scopeBindings, authenticate: authenticateFn 
  * Build a SECOND, structurally-identical but brand-distinct trust domain for
  * cross-domain / cross-runtime replay proofs. The returned domain is a
  * SEPARATE trust domain: its session brand is independent, and a session
- * minted here is NEVER valid on the canonical harness's runtime (and vice
- * versa), even when composed over the same canonical registry+store.
- *
- * `capabilityRuntime` / `authorityStore` may be passed to share canonical
- * state (for the "shared canonical state does NOT federate session trust"
- * proof). When omitted, fresh isolated state is constructed.
+ * minted here is NEVER valid on the harness runtime (and vice versa), even
+ * when composed over the same registry+store.
  */
 function composeIsolatedTrustDomain({
     clock = { nowMs: () => 1000 },
@@ -186,10 +510,8 @@ function composeIsolatedTrustDomain({
 } = {}) {
     const capRt = capabilityRuntime ?? createCapabilityRuntime({ registrars: { core: true }, clock });
     const store = authorityStore ?? createMemoryAuthorityStore();
-    const { createAuthenticationDomain } = hosts().authentication;
-    const { createActionAuthorityRuntime } = hosts().composition;
-    const authDomain = createAuthenticationDomain({ authenticate: authenticateFn, clock });
-    const rt = createActionAuthorityRuntime({
+    const authDomain = composeTestAuthenticationDomain({ authenticate: authenticateFn, clock });
+    const rt = composeTestActionAuthorityRuntime({
         capabilityRuntime: capRt,
         authorityStore: store,
         authVerifier: authDomain.verifier,
@@ -202,15 +524,7 @@ function composeIsolatedTrustDomain({
 /**
  * Trusted-bootstrap test facility: compose an internal runtime over an
  * ARBITRARY authority store (hostile/failing stores for the fail-closed
- * matrix). This mirrors the internal composition surface that only the
- * trusted bootstrap layer can reach; it exists under tests/ solely to prove
- * the runtime's fail-closed behavior against hostile stores. It is NOT part
- * of any public/downstream API.
- *
- * `runtimeClock` may be supplied separately from the AuthenticationDomain's
- * `clock`: the B6 clock-hardening tests build a valid authDomain and then
- * pass a hostile clock to the runtime to prove the runtime's own validation
- * rejects.
+ * matrix). Test-only; not part of any public/downstream API.
  */
 function composeRuntimeOverStore({
     authorityStore,
@@ -222,10 +536,8 @@ function composeRuntimeOverStore({
     authDomain = null
 } = {}) {
     const capRt = capabilityRuntime ?? createCapabilityRuntime({ registrars: { core: true }, clock });
-    const { createAuthenticationDomain } = hosts().authentication;
-    const { createActionAuthorityRuntime } = hosts().composition;
-    const domain = authDomain ?? createAuthenticationDomain({ authenticate: authenticateFn, clock });
-    const rt = createActionAuthorityRuntime({
+    const domain = authDomain ?? composeTestAuthenticationDomain({ authenticate: authenticateFn, clock });
+    const rt = composeTestActionAuthorityRuntime({
         capabilityRuntime: capRt,
         authorityStore,
         authVerifier: domain.verifier,
@@ -242,9 +554,5 @@ module.exports = {
     composeRuntimeOverStore,
     defaultScopeResolver,
     authenticate,
-    CLOCK_START,
-    // The trusted test bootstrap's raw composition capability (mirrors what
-    // src/action/bootstrap.js holds). Test files play the trusted-bootstrap
-    // role; downstream code never sees this.
-    trusted: hosts()
+    CLOCK_START
 };
