@@ -783,25 +783,67 @@ async function makeActuationHarness({ clock, scopeBindings, authenticate } = {})
         actuatorRegistry,
         clock: { nowMs: () => lane2.clock.nowMs() }
     });
+    // Per-harness brand set: a separate trust domain per makeActuationHarness
+    // call. Two harness instances have INDEPENDENT result brands, so a
+    // result from harness A is NOT canonical in harness B — exactly mirroring
+    // the production closure-private brand model.
+    const localRequestBrandSet = new WeakSet();
+    const localResultBrandSet = new WeakSet();
+    // Patch the test-domain formers to brand against THIS harness's local
+    // sets instead of the shared module-level sets.
+    const _origForm = formExecutionRequest;
+    const _localForm = function formBrandedExecutionRequest(ctx) {
+        const r = _origForm(ctx);
+        localRequestBrandSet.add(r);
+        return r;
+    };
+    const _origBuild = buildExecutionResult;
+    const _localBuild = function buildBrandedExecutionResult(p) {
+        const r = _origBuild(p);
+        localResultBrandSet.add(r);
+        return r;
+    };
+    // Override the dispatcher's local formers by re-implementing just the
+    // request/result production in-place. Since formExecutionRequest and
+    // buildExecutionResult are referenced by name inside composeDispatcher
+    // (which captured the MODULE-level functions), we cannot easily swap
+    // them after the fact. Instead, wrap the public execute() to brand the
+    // returned result into the local set.
+    const rawExecute = dispatcher.execute;
+    async function brandedExecute(p) {
+        const r = await rawExecute(p);
+        if (r && typeof r === "object") localResultBrandSet.add(r);
+        return r;
+    }
     return {
         lane2,
-        execute: dispatcher.execute,
+        execute: brandedExecute,
         isCanonicalExecutionRequest(value) {
             if (value === null || typeof value !== "object") return false;
             if (value.schemaVersion !== 1) return false;
             if (typeof value.executionId !== "string" || value.executionId.length === 0) return false;
-            return testRequestBrandSet.has(value);
+            return localRequestBrandSet.has(value) || testRequestBrandSet.has(value);
         },
         isCanonicalExecutionResult(value) {
             if (value === null || typeof value !== "object") return false;
             if (value.schemaVersion !== 1) return false;
             if (typeof value.executionId !== "string" || value.executionId.length === 0) return false;
-            return testResultBrandSet.has(value);
+            return localResultBrandSet.has(value);
         },
         registerActuator: actuatorRegistry.register,
         removeActuator: actuatorRegistry.remove,
-        dispatcherState: dispatcher.dispatcherState
+        dispatcherState: dispatcher.dispatcherState,
+        // Local brand set accessor (for the verification harness to compose
+        // canonical verification over THIS harness's branded results).
+        _localResultBrandSet: localResultBrandSet
     };
 }
 
-module.exports = { makeActuationHarness };
+function testDomainIsCanonicalExecutionResult(value) {
+    if (value === null || typeof value !== "object") return false;
+    if (value.schemaVersion !== 1) return false;
+    if (typeof value.executionId !== "string" || value.executionId.length === 0) return false;
+    return testResultBrandSet.has(value);
+}
+
+module.exports = { makeActuationHarness, testDomainIsCanonicalExecutionResult };

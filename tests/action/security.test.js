@@ -61,15 +61,20 @@ test("structural: action module imports no executors, authority mutators, fs/net
     // require the capability registry + authority store composition roots.
     // Lane 3 actuation modules may additionally require the capability id
     // grammar (actuatorRegistry.js canonical binding ids).
+    // Lane 4 verification modules (verification/) are inert vocabulary modules
+    // that may require their sibling action vocabulary modules via ../ —
+    // still intra-action-domain, still no executors/mutators.
     for (const file of files) {
         const text = fs.readFileSync(file, "utf8");
         const isBootstrap = file.endsWith("bootstrap.js");
         const isActuatorRegistry = file.endsWith("actuatorRegistry.js");
         const isActuation = file.includes(`${path.sep}actuation${path.sep}`);
+        const isVerification = file.includes(`${path.sep}verification${path.sep}`);
         for (const m of text.matchAll(/require\(\s*["']([^"']+)["']\s*\)/g)) {
             const target = m[1];
-            // Lane 3 actuation subdomain may reach sibling action modules via
-            // ../ (intent grammar, gate vocabulary, clock, errors) — still
+            // Lane 3 actuation / Lane 4 verification subdomains may reach
+            // sibling action modules via ../ (intent grammar, gate
+            // vocabulary, clock, errors, authDomain, authSession) — still
             // intra-action-domain, still no executors/mutators.
             const ok =
                 target.startsWith("./") ||
@@ -77,7 +82,7 @@ test("structural: action module imports no executors, authority mutators, fs/net
                 target === "../capability/registry/ids" ||
                 target === "../../capability/registry/ids" ||
                 target === "../authority/evaluate" ||
-                (isActuation && /^\/?(\.\.\/)*(intent|gate|clock|errors|authDomain|authSession)$/.test(target.replace(".js", ""))) ||
+                ((isActuation || isVerification) && /^\/?(\.\.\/)*(intent|gate|clock|errors|authDomain|authSession)$/.test(target.replace(".js", ""))) ||
                 (isBootstrap && (target === "../capability/registry" || target === "../authority/store")) ||
                 (isActuatorRegistry && target === "../../capability/registry/ids");
             assert.ok(ok, `${file}: unexpected external require '${target}'`);
