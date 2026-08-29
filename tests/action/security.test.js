@@ -70,6 +70,7 @@ test("structural: action module imports no executors, authority mutators, fs/net
         const isActuatorRegistry = file.endsWith("actuatorRegistry.js");
         const isActuation = file.includes(`${path.sep}actuation${path.sep}`);
         const isVerification = file.includes(`${path.sep}verification${path.sep}`);
+        const isInternal = file.includes(`${path.sep}internal${path.sep}`);
         for (const m of text.matchAll(/require\(\s*["']([^"']+)["']\s*\)/g)) {
             const target = m[1];
             // Lane 3 actuation / Lane 4 verification subdomains may reach
@@ -83,8 +84,9 @@ test("structural: action module imports no executors, authority mutators, fs/net
                 target === "../capability/registry/ids" ||
                 target === "../../capability/registry/ids" ||
                 target === "../authority/evaluate" ||
-                ((isActuation || isVerification) && /^\/?(\.\.\/)*(intent|gate|clock|errors|authDomain|authSession)$/.test(target.replace(".js", ""))) ||
-                (isBootstrap && (target === "../capability/registry" || target === "../authority/store")) ||
+                ((isActuation || isVerification || isInternal) && /^\/?(\.\.\/)*(intent|gate|clock|errors|authDomain|authSession|verification\/errors|verification\/postcondition|verification\/schema|verification\/verifierRegistry|actuation\/errors)$/.test(target.replace(".js", ""))) ||
+                ((isActuation || isInternal) && /^\/?(\.\.\/)*(intent|gate|clock|errors|authDomain|authSession)$/.test(target.replace(".js", ""))) ||
+                (isBootstrap && (target === "../capability/registry" || target === "../authority/store" || target === "./internal/verificationBootstrap")) ||
                 (isActuatorRegistry && target === "../../capability/registry/ids");
             assert.ok(ok, `${file}: unexpected external require '${target}'`);
         }

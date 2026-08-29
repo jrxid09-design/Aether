@@ -630,12 +630,52 @@ Tests that need test verifier/compensation registration use the explicitly
 test-only harnesses under `tests/verification/` and `tests/compensation/`.
 Production `src/**` never imports `tests/**` (a structural test enforces this).
 
-The test harnesses own their OWN private copies of the privileged composition
-(the test-domain analogue of the trusted bootstrap closure) and brand their
-outputs against per-harness closure-private WeakSets — exactly mirroring how
-the production trusted bootstrap brands against its closure-private WeakSets.
-A result produced by one test harness is NOT canonical in another test
-harness (different trust domain).
+### Two test harness tiers
+
+**Mirror harness** (`tests/verification/harness.js`): owns a SEPARATE
+test-domain implementation (separate brands, separate verifier registry,
+separate sanitizer, separate compensation flow). Used for foreign-domain
+tests, isolated adversarial mutation, and differential testing. Its success
+is NOT sufficient as production-path certification proof — the audit requires
+R3 own-then proofs to run against the REAL production code.
+
+**Production harness** (`tests/verification/productionHarness.js`,
+TARGETED REPAIR 4): wiring ONLY — NO Lane 4 logic copies. It imports the SAME
+trusted internal composition function
+(`src/action/internal/verificationBootstrap.js::createCanonicalVerificationComposition`)
+that production uses (`src/action/bootstrap.js` calls it with
+`trustedVerifiers = []`). The production harness supplies test-only Lane 2/3
+facade factories (the composition's deps, injected at trusted composition
+time) and test-supplied verifier definitions, consumed ONLY at composition
+time. R3/R1/R2 certification proofs exercised through this harness exercise
+the production implementation, not a test-domain mirror.
+
+### Trusted internal composition module
+
+`src/action/internal/verificationBootstrap.js` is an INTERNAL trusted module:
+- it is NOT re-exported through `src/action/index.js` (the public surface);
+- ordinary downstream callers CANNOT reach it through the canonical
+  bootstrap facade (the facade still exposes exactly
+  `{ verify, compensate, isCanonical* }`);
+- the production runtime calls it via `src/action/bootstrap.js` with
+  `trustedVerifiers = []` (NO test verifiers);
+- the test-only production harness calls it via the SAME function with
+  test-supplied verifier definitions.
+
+After the facade is constructed, NO caller — production or test — can
+register, inject, or mutate verifiers. There is NO public registrar, NO
+token, NO host capability. **AVAILABLE != AUTHORIZED**: test composition
+privilege does NOT become production-downstream privilege.
+
+### AVAILABLE != AUTHORIZED
+
+Test-only verifier bootstrap privilege is AVAILABLE in the trusted test
+composition (via `trustedVerifiers` consumed at composition time) but NOT
+AVAILABLE TO PRODUCTION DOWNSTREAM (the production facade exposes exactly
+`{ verify, compensate, isCanonical* }`). Structural tests enforce:
+- the production facade exposes no privileged surface;
+- the internal module is not reachable through the public package;
+- `src/**` never imports `tests/**`.
 
 ---
 
