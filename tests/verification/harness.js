@@ -463,88 +463,117 @@ const CALLER_COMPENSATOR_KEYS = Object.freeze([
 const TIMEOUT_SENTINEL = Symbol("damar.action.verification.timeout");
 
 /**
- * ZERO-TRAP observation runner (mirrors the production vRunObservation4).
- * Boxes the observation into a PLAIN frozen wrapper {kind, value?} resolved
- * through promises that NEVER contain an unclassified value. Classification
- * of the raw return AND the resolved value uses ONLY typeof / === /
- * internal-slot isProxy probes — zero attacker-controlled traps.
+ * ZERO-ASSIMILATION observation runner (TARGETED REPAIR 2 — mirrors the
+ * production vRunObservation4).
+ *
+ * NATIVE PROMISE ASSIMILATION IS NEVER USED ON UNTRUSTED EVIDENCE: the
+ * pre-R2 path called `promise.then(...)` on a genuine Promise returned by an
+ * async observer; V8 assimilates the promise's RESOLVED value by probing
+ * `.then` on it (PromiseResolveThenableJob), which executes a hostile
+ * Proxy's `get` trap BEFORE safeClassify ever sees the value. R2 removes
+ * every `then` call on values that can originate from the verifier:
+ *
+ *   SYNC OBSERVERS   observe(ctx) -> raw evidence: classified immediately
+ *                    and boxed; NEVER passed through Promise.resolve /
+ *                    await / .then.
+ *   ASYNC OBSERVERS  observe(ctx, sink): drives a harness-owned trusted
+ *                    sink that classifies the evidence SYNCHRONOUSLY at
+ *                    receipt. A Promise RETURN is UNSUPPORTED (fail closed
+ *                    to ERROR with UNSUPPORTED_ASYNC_RAW_RETURN semantics).
+ *
+ * LATE / DUPLICATE COMPLETION: only the FIRST valid completion (before the
+ * timeout) finalizes the observation; later completions are ignored.
  */
 function runObservation(binding, request, executionResult, timeoutMs) {
     return new Promise((resolve) => {
-        let done = false;
-        const finish = (box) => {
-            if (done) return;
-            done = true;
+        let finalized = false;
+        const finalize = (box) => {
+            if (finalized) return;
+            finalized = true;
+            clearTimeout(timeoutHandle);
             resolve(box);
         };
-        const timeoutHandle = setTimeout(() => finish(Object.freeze({ kind: "timeout" })), timeoutMs);
+        const timeoutHandle = setTimeout(() => finalize(Object.freeze({ kind: "timeout" })), timeoutMs);
         if (typeof timeoutHandle.unref === "function") timeoutHandle.unref();
+
+        const observationCtx = Object.freeze({
+            verificationId: request.verificationId,
+            executionId: request.executionId,
+            intentId: request.intentId,
+            capabilityId: request.capabilityId,
+            operation: request.operation,
+            principal: request.principal,
+            scope: request.scope,
+            parameters: executionResult.parameters ?? null,
+            expectedPostcondition: request.expectedPostcondition
+        });
+
+        const sink = Object.freeze({
+            resolveEvidence(rawEvidence) {
+                if (finalized) return;
+                const cls = safeClassify(rawEvidence);
+                if (cls === "hostile") {
+                    finalize(Object.freeze({ kind: "hostile" }));
+                    return;
+                }
+                if (cls === "inert" || cls === "error" || cls === "promise") {
+                    finalize(Object.freeze({ kind: "throw", name: "Error", message: "invalid observation value delivered to sink" }));
+                    return;
+                }
+                finalize(Object.freeze({ kind: "value", value: rawEvidence }));
+            },
+            rejectObservation(err) {
+                if (finalized) return;
+                const e = (err !== null && typeof err === "object") ? err : null;
+                const name = (e !== null && typeof e.name === "string") ? e.name.slice(0, 64) : "Error";
+                const message = (e !== null && typeof e.message === "string") ? e.message.slice(0, V_EV_STRING_CHARS) : "verifier rejected the observation";
+                finalize(Object.freeze({ kind: "throw", name, message }));
+            }
+        });
 
         let rawReturn;
         try {
-            rawReturn = binding.observe({
-                verificationId: request.verificationId,
-                executionId: request.executionId,
-                intentId: request.intentId,
-                capabilityId: request.capabilityId,
-                operation: request.operation,
-                principal: request.principal,
-                scope: request.scope,
-                parameters: executionResult.parameters ?? null,
-                expectedPostcondition: request.expectedPostcondition
-            });
+            rawReturn = binding.observe(observationCtx, sink);
         } catch (e) {
-            clearTimeout(timeoutHandle);
-            finish(Object.freeze({
-                kind: "throw",
-                name: String((e && e.name) ?? "Error").slice(0, 64),
-                message: String((e && e.message) ?? "").slice(0, V_EV_STRING_CHARS)
-            }));
+            const name = ((e && typeof e.name === "string") ? e.name.slice(0, 64) : "Error");
+            const message = ((e && typeof e.message === "string") ? e.message.slice(0, V_EV_STRING_CHARS) : "");
+            finalize(Object.freeze({ kind: "throw", name, message }));
             return;
         }
 
-        // ZERO-TRAP classify the raw return. NO `.then` read.
+        // ZERO-TRAP classify the raw return. NO `.then` read, NO `.then`
+        // call, NO assimilation. A Promise return is UNSUPPORTED.
         const cls = safeClassify(rawReturn);
         if (cls === "promise") {
-            // Genuine Promise from an async observer: await through the
-            // Promise's OWN then (no trap on the trusted Promise object).
-            rawReturn.then(
-                (resolved) => {
-                    clearTimeout(timeoutHandle);
-                    const rcls = safeClassify(resolved);
-                    if (rcls === "hostile" || rcls === "error" || rcls === "promise") {
-                        finish(Object.freeze({ kind: "hostile" }));
-                        return;
-                    }
-                    finish(Object.freeze({ kind: "value", value: resolved }));
-                },
-                (err) => {
-                    clearTimeout(timeoutHandle);
-                    finish(Object.freeze({
-                        kind: "throw",
-                        name: String((err && err.name) ?? "Error").slice(0, 64),
-                        message: String((err && err.message) ?? "").slice(0, V_EV_STRING_CHARS)
-                    }));
-                }
-            );
+            finalize(Object.freeze({ kind: "unsupported" }));
             return;
         }
-        if (cls === "hostile" || cls === "error") {
-            clearTimeout(timeoutHandle);
-            finish(Object.freeze({ kind: "hostile" }));
+        if (cls === "hostile") {
+            finalize(Object.freeze({ kind: "hostile" }));
             return;
         }
-        if (cls !== "object" && cls !== "array" && cls !== "primitive" && cls !== "null") {
-            clearTimeout(timeoutHandle);
-            finish(Object.freeze({ kind: "hostile" }));
+        if (rawReturn === undefined) {
+            // async-via-sink signal: do NOT finalize from the return value.
+        } else if (cls === "inert" || cls === "error") {
+            const name = ((rawReturn !== null && typeof rawReturn.name === "string") ? rawReturn.name.slice(0, 64) : "Error");
+            const message = ((rawReturn !== null && typeof rawReturn.message === "string") ? rawReturn.message.slice(0, V_EV_STRING_CHARS) : "observer returned an unsupported value; async observers must use the trusted sink");
+            finalize(Object.freeze({ kind: "throw", name, message }));
+            return;
+        }
+        if (cls === "null") {
+            if (!finalized) {
+                finalize(Object.freeze({ kind: "throw", name: "Error", message: "observer returned null without completing the trusted sink" }));
+            }
             return;
         }
 
         // Synchronous plain return: box the value directly (the wrapper has
         // no `then` property, so resolution of the OUTER promise does NOT
-        // probe the contained value).
-        clearTimeout(timeoutHandle);
-        finish(Object.freeze({ kind: "value", value: rawReturn }));
+        // probe the contained value). For the undefined sink-async signal,
+        // the sink/timeout owns completion.
+        if (!finalized && rawReturn !== undefined) {
+            finalize(Object.freeze({ kind: "value", value: rawReturn }));
+        }
     });
 }
 
@@ -679,6 +708,14 @@ async function makeVerificationHarness({ clock, scopeBindings, authenticate } = 
             verificationState = VERIFICATION_STATE.ERROR;
             observedEvidence = null;
             detail = HOSTILE_EVIDENCE_DETAIL;
+        } else if (observation.kind === "unsupported") {
+            // TARGETED REPAIR 2: observer used an UNSUPPORTED async transport
+            // (raw Promise return). Fail closed to ERROR — never
+            // VERIFIED_SUCCESS / VERIFIED_FAILURE / INCONCLUSIVE, never a
+            // compensation trigger.
+            verificationState = VERIFICATION_STATE.ERROR;
+            observedEvidence = null;
+            detail = `unsupported async observation transport (${REASONS.UNSUPPORTED_ASYNC_RAW_RETURN}); async observers must complete through the trusted sink`;
         } else {
             const evidence = sanitizeEvidence(observation.value);
             if (evidence === HOSTILE_SENTINEL) {

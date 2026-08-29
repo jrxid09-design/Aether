@@ -63,7 +63,7 @@ async function makeCompensationWorld({ principal = "ron" } = {}) {
         const binding = h.registerVerifier({
             capabilityId: "device.cap", operations: ["read"], capabilityIncarnationId: capRes.incarnationId,
             verifierId: "ver-device",
-            observe: async (octx) => ({ device: { on: world.deviceOn, observedExecutionId: octx.executionId } })
+            observe: (octx, sink) => sink.resolveEvidence({ device: { on: world.deviceOn, observedExecutionId: octx.executionId } })
         });
         const result = await executeRead(nonce);
         const v = await h.verify({

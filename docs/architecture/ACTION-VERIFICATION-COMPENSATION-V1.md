@@ -264,14 +264,53 @@ target is rejected at the proxy gate and never reaches the Error branch.
 Duck-typed `{name, message}` plain objects are evaluated as ordinary
 evidence, not through the Error path.
 
-**Observation delivery:** the observation runner never reads `.then` off an
-unclassified value (a thenable-check would probe a hostile Proxy's `get`
-trap) and never resolves a Promise with an unclassified value. The raw
-return of `observe()` is classified first; hostile returns are boxed into a
-plain frozen sentinel object (boxing performs no `.then` probe on the
-contained value); genuine Promises (internal-slot `isPromise`) from async
-observers are awaited through the Promise's own `then` with re-classification
-of the resolved value.
+**Observation delivery (TARGETED REPAIR 2 — trusted transport):**
+native Promise thenable assimilation is a hazard: resolving or awaiting a
+Promise whose eventual value is a hostile thenable executes the attacker's
+`then` behavior (V8 `PromiseResolveThenableJob`) BEFORE any classifier can
+see the value — "fixing it after await" is impossible because assimilation
+has already occurred, and `Promise.resolve(raw)`/`raw.then` checks are
+themselves assimilation/`get`-trap gadgets. Lane 4 therefore NEVER uses
+native promise semantics on untrusted evidence:
+
+* **Sync observers** — `observe(context) -> raw evidence`: the raw return is
+  classified immediately (zero-trap classifier) and boxed. It is NEVER passed
+  through `Promise.resolve(observe())`, `await observe()`, or `.then` —
+  automatic assimilation of sync returns is a bug class this contract
+  forbids.
+* **Async observers** — `observe(context, trustedSink)`: the observer
+  performs its async work internally and completes through a
+  bootstrap-owned, frozen, closure-private sink
+  (`trustedSink.resolveEvidence(raw)` / `trustedSink.rejectObservation(err)`).
+  The sink classifies the raw evidence SYNCHRONOUSLY at receipt — before any
+  promise machinery can assimilate it — and stores only the classified box.
+  The verifier cannot replace the sink; raw evidence is never a Promise
+  resolution value.
+* **Raw Promise returns are UNSUPPORTED** (contract deliberately narrowed):
+  `async () => evidence`, `() => Promise.resolve(evidence)`, and any
+  thenable return are rejected at classify time via the internal-slot
+  `isPromise`/`isProxy` probes and fail closed to a typed observation-
+  transport `ERROR` (`UNSUPPORTED_ASYNC_RAW_RETURN` semantics) — never
+  `VERIFIED_SUCCESS`, never `VERIFIED_FAILURE`, never `INCONCLUSIVE`, and
+  never a compensation trigger. The returned Promise object itself is never
+  assimilated by Lane 4 (no `.then` call, no `await`, no `Promise.resolve`).
+
+**Trusted verifier vs untrusted evidence (boundary):** the verifier FUNCTION
+is bootstrap-registered trusted code; the EVIDENCE it returns remains
+untrusted world data. Trusted code does not make a returned arbitrary object
+safe. Lane 4 cannot prevent a malicious verifier's own internal code (e.g.
+its own `Promise.resolve(hostile)`) from executing — that execution belongs
+to the verifier's process. The invariant Lane 4 enforces is that LANE 4
+never invokes attacker-controlled meta-object behavior while transporting or
+classifying observation results.
+
+**Timeout / duplicate / late completion (sink semantics):** only the FIRST
+valid completion before the timeout finalizes the observation. Duplicate
+completions (success-then-success, success-then-error, error-then-success)
+and late completions after timeout are ignored: they can never mutate the
+finalized canonical `VerificationResult` and can never trigger compensation.
+The sink is exactly-once by construction; a verifier holding a sink
+reference cannot rewire it (frozen) or mutate a finalized result through it.
 
 **Classification outcomes** map to contracts, never to world claims:
 `hostile` (Proxy / revoked proxy / non-plain exotic rejected at the gate)

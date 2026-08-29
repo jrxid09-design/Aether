@@ -68,6 +68,11 @@ async function runStorm(seed) {
         forgedExecutionVerified: 0,
         foreignExecutionVerified: 0,
         hostileVerificationTrapExecution: 0,
+        // TARGETED REPAIR 2 — async transport zero-assimilation counters
+        asyncObservationAssimilationTrap: 0,
+        unsafeAsyncRawReturnAccepted: 0,
+        lateObservationMutatedResult: 0,
+        duplicateObservationCompletionAccepted: 0,
         callerVerifierAccepted: 0,
         staleVerifierIncarnationUsed: 0,
         verifierErrorCalledFailure: 0,
@@ -133,7 +138,7 @@ async function runStorm(seed) {
         h.registerVerifier({
             capabilityId: cap.id, operations: ["read"], capabilityIncarnationId: cap.incarnationId,
             verifierId: `ver-${cap.id}`,
-            observe: async (octx) => ({ world: { value: worldValues.get(cap.idx) } , observedExecutionId: octx.executionId })
+            observe: (octx, sink) => sink.resolveEvidence({ world: { value: worldValues.get(cap.idx) } , observedExecutionId: octx.executionId })
         });
     }
 
@@ -156,7 +161,7 @@ async function runStorm(seed) {
     }
 
     for (let round = 0; round < OP_TARGET; round++) {
-        const roll = Math.floor(rng() * 12);
+        const roll = Math.floor(rng() * 13);
         const capIdx = Math.floor(rng() * CAP_POOL);
         const subject = subjects[Math.floor(rng() * subjects.length)];
         const cap = CAPS[capIdx];
@@ -238,7 +243,7 @@ async function runStorm(seed) {
                     h.registerVerifier({
                         capabilityId: obsCap.id, operations: ["read"], capabilityIncarnationId: obsCap.incarnationId,
                         verifierId: `ver-${obsCap.id}`,
-                        observe: async (octx) => { observations++; return { world: { value: worldValues.get(obsCap.idx) }, observedExecutionId: octx.executionId }; }
+                        observe: (octx, sink) => { observations++; sink.resolveEvidence({ world: { value: worldValues.get(obsCap.idx) }, observedExecutionId: octx.executionId }); }
                     });
                     const result = await executeRead(capIdx, subject, "safe.target", round);
                     const pc = { expect: { "world.value": { op: "eq", value: worldValues.get(capIdx) } } };
@@ -306,7 +311,7 @@ async function runStorm(seed) {
                     h.registerVerifier({
                         capabilityId: cap.id, operations: ["read"], capabilityIncarnationId: cap.incarnationId,
                         verifierId: `ver-${cap.id}`,
-                        observe: async () => ({ unrelated: true })
+                        observe: (octx, sink) => sink.resolveEvidence({ unrelated: true })
                     });
                     const result = await executeRead(capIdx, subject, "safe.target", round);
                     const v = await h.verify({ executionResult: result, expectedPostcondition: { expect: { "world.value": { op: "eq", value: 42 } } } });
@@ -327,7 +332,7 @@ async function runStorm(seed) {
                     h.removeVerifier(`ver-${cap.id}`);
                     const b1 = h.registerVerifier({
                         capabilityId: cap.id, operations: ["read"], capabilityIncarnationId: cap.incarnationId,
-                        verifierId: `ver-${cap.id}`, observe: async (octx) => ({ world: { value: worldValues.get(capIdx) }, observedExecutionId: octx.executionId })
+                        verifierId: `ver-${cap.id}`, observe: (octx, sink) => sink.resolveEvidence({ world: { value: worldValues.get(capIdx) }, observedExecutionId: octx.executionId })
                     });
                     const result = await executeRead(capIdx, subject, "safe.target", round);
                     const v = await h.verify({ executionResult: result, expectedPostcondition: { expect: { "world.value": { op: "eq", value: worldValues.get(capIdx) } } } });
@@ -340,10 +345,9 @@ async function runStorm(seed) {
                     h.registerVerifier({
                         capabilityId: cap.id, operations: ["read"], capabilityIncarnationId: cap.incarnationId,
                         verifierId: `ver-${cap.id}`,
-                        // observe the REAL world state, slowly (50ms)
-                        observe: async (octx) => {
-                            await new Promise((r) => setTimeout(r, 50));
-                            return { world: { value: worldValues.get(capIdx) }, observedExecutionId: octx.executionId };
+                        // observe the REAL world state, slowly (50ms) via the trusted sink
+                        observe: (octx, sink) => {
+                            setTimeout(() => sink.resolveEvidence({ world: { value: worldValues.get(capIdx) }, observedExecutionId: octx.executionId }), 50);
                         }
                     });
                     const result = await executeRead(capIdx, subject, "safe.target", round);
@@ -437,11 +441,106 @@ async function runStorm(seed) {
                         h.registerVerifier({
                             capabilityId: hostileCap.id, operations: ["read"], capabilityIncarnationId: hostileCap.incarnationId,
                             verifierId: `ver-${hostileCap.id}`,
-                            observe: async (octx) => ({ world: { value: worldValues.get(hostileCap.idx) }, observedExecutionId: octx.executionId })
+                            observe: (octx, sink) => sink.resolveEvidence({ world: { value: worldValues.get(hostileCap.idx) }, observedExecutionId: octx.executionId })
                         });
                     }
 
                     record("hostile", true, "zero-traps");
+                    break;
+                }
+                case 12: { // TARGETED REPAIR 2: async transport zero-assimilation probes
+                    const hostileCap = CAPS[capIdx];
+                    h.removeVerifier(`ver-${hostileCap.id}`);
+                    // (a) UNSUPPORTED async raw-return (Promise.resolve of a
+                    // hostile thenable): Lane 4 rejects as UNSUPPORTED ->
+                    // ERROR, never assimilated by Lane 4.
+                    const evTraps = { get: 0, has: 0, ownKeys: 0, gopd: 0, gtp: 0, set: 0, def: 0, del: 0, apply: 0, construct: 0 };
+                    const hostileAsyncEvidence = new Proxy({ world: { value: 999 } }, {
+                        get(t, p) { evTraps.get++; return Reflect.get(t, p); },
+                        has(t, p) { evTraps.has++; return Reflect.has(t, p); },
+                        ownKeys(t) { evTraps.ownKeys++; return Reflect.ownKeys(t); },
+                        getOwnPropertyDescriptor(t, p) { evTraps.gopd++; return Reflect.getOwnPropertyDescriptor(t, p); },
+                        getPrototypeOf(t) { evTraps.gtp++; return Reflect.getPrototypeOf(t); },
+                        set(t, p, v) { evTraps.set++; return Reflect.set(t, p, v); },
+                        defineProperty(t, p, d) { evTraps.def++; return Reflect.defineProperty(t, p, d); },
+                        deleteProperty(t, p) { evTraps.del++; return Reflect.deleteProperty(t, p); },
+                        apply(t, thisArg, args) { evTraps.apply++; return Reflect.apply(t, thisArg, args); },
+                        construct(t, args) { evTraps.construct++; return Reflect.construct(t, args); }
+                    });
+                    h.registerVerifier({
+                        capabilityId: hostileCap.id, operations: ["read"], capabilityIncarnationId: hostileCap.incarnationId,
+                        verifierId: `ver-${hostileCap.id}`,
+                        // async raw return: UNSUPPORTED transport
+                        observe: async () => hostileAsyncEvidence
+                    });
+                    const evBefore = Object.values(evTraps).reduce((a, b) => a + b, 0);
+                    const result = await executeRead(capIdx, subject, "safe.target", round);
+                    const v = await h.verify({ executionResult: result, expectedPostcondition: { expect: { "world.value": { op: "eq", value: 42 } } }, timeoutMs: 100 });
+                    const evAfter = Object.values(evTraps).reduce((a, b) => a + b, 0);
+                    // Traps fired here belong to the verifier's own async-return
+                    // assimilation (verifier-owned). Lane 4's classify path is
+                    // zero-trap. The verify result MUST be ERROR (not
+                    // VERIFIED_SUCCESS / VERIFIED_FAILURE), and NEVER a
+                    // compensation trigger.
+                    if (v.verificationState === VERIFICATION_STATE.VERIFIED_SUCCESS ||
+                        v.verificationState === VERIFICATION_STATE.VERIFIED_FAILURE) {
+                        C.unsafeAsyncRawReturnAccepted++;
+                    }
+                    if (v.verificationState !== VERIFICATION_STATE.ERROR) {
+                        C.asyncObservationAssimilationTrap++;
+                    }
+                    try {
+                        await h.compensate({ verification: v, capabilityId: "pool.restore", operation: "write", principal: subject, parameters: {}, reason: "r" });
+                        C.compensationBypassedAuthority++; // unsupported/ERROR must not trigger compensation
+                    } catch { /* rejected */ }
+
+                    // (b) duplicate sink completion: only the first finalizes
+                    h.removeVerifier(`ver-${hostileCap.id}`);
+                    let duplicateCalls = 0;
+                    h.registerVerifier({
+                        capabilityId: hostileCap.id, operations: ["read"], capabilityIncarnationId: hostileCap.incarnationId,
+                        verifierId: `ver-${hostileCap.id}`,
+                        observe: (octx, sink) => {
+                            sink.resolveEvidence({ world: { value: worldValues.get(hostileCap.idx) }, observedExecutionId: octx.executionId });
+                            duplicateCalls++;
+                            sink.resolveEvidence({ world: { value: 999 } }); // duplicate
+                            duplicateCalls++;
+                            sink.rejectObservation(new Error("late reject")); // late
+                            duplicateCalls++;
+                        }
+                    });
+                    const r2 = await executeRead(capIdx, subject, "safe.target", round);
+                    const v2 = await h.verify({ executionResult: r2, expectedPostcondition: { expect: { "world.value": { op: "eq", value: worldValues.get(hostileCap.idx) } } } });
+                    if (duplicateCalls > 1 && v2.observedEvidence && v2.observedEvidence.world.value !== worldValues.get(hostileCap.idx)) {
+                        C.duplicateObservationCompletionAccepted++;
+                    }
+                    if (v2.verificationState === VERIFICATION_STATE.ERROR) {
+                        C.duplicateObservationCompletionAccepted++; // duplicate should not turn success into ERROR
+                    }
+
+                    // (c) late sink completion after timeout: must not mutate
+                    h.removeVerifier(`ver-${hostileCap.id}`);
+                    h.registerVerifier({
+                        capabilityId: hostileCap.id, operations: ["read"], capabilityIncarnationId: hostileCap.incarnationId,
+                        verifierId: `ver-${hostileCap.id}`,
+                        observe: (octx, sink) => {
+                            setTimeout(() => sink.resolveEvidence({ world: { value: 42 } }), 60);
+                        }
+                    });
+                    const r3 = await executeRead(capIdx, subject, "safe.target", round);
+                    const v3 = await h.verify({ executionResult: r3, expectedPostcondition: { expect: { "world.value": { op: "eq", value: 42 } } }, timeoutMs: 15 });
+                    const stateBeforeDrain = v3.verificationState;
+                    await new Promise((rr) => setTimeout(rr, 100));
+                    if (v3.verificationState !== stateBeforeDrain) C.lateObservationMutatedResult++;
+
+                    // restore real verifier for subsequent rounds
+                    h.removeVerifier(`ver-${hostileCap.id}`);
+                    h.registerVerifier({
+                        capabilityId: hostileCap.id, operations: ["read"], capabilityIncarnationId: hostileCap.incarnationId,
+                        verifierId: `ver-${hostileCap.id}`,
+                        observe: (octx, sink) => sink.resolveEvidence({ world: { value: worldValues.get(hostileCap.idx) }, observedExecutionId: octx.executionId })
+                    });
+                    record("async-transport", true, "probed");
                     break;
                 }
             }
