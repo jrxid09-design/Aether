@@ -733,3 +733,155 @@ test("R18: zero Lane 4 verification claims in results", async () => {
         assert.ok(!/VERIFIED/.test(code), `${f}: Lane 3 must not mention VERIFIED (Lane 4 owns verification)`);
     }
 });
+
+// ---------------------------------------------------------------------------
+// SECOND targeted repair — BRAND-FIRST HOSTILE OBJECT SAFETY
+// (recognition of NON-canonical objects must execute ZERO attacker-controlled
+//  property access; WeakSet membership is checked before any property read)
+// ---------------------------------------------------------------------------
+
+/** Build a hostile Proxy instrumenting every trap family. */
+function makeHostileProxy() {
+    const counts = { get: 0, has: 0, ownKeys: 0, getOwnPropertyDescriptor: 0, getPrototypeOf: 0, set: 0, defineProperty: 0, deleteProperty: 0 };
+    const target = { schemaVersion: 1, executionId: "hostile", intentId: "h", capabilityId: "c", operation: "read", principal: "p", scope: [], authorityGeneration: 0, admittedAtMs: 1, requestedAtMs: 1, parameters: {}, metadata: {} };
+    const p = new Proxy(target, {
+        get(o, prop) { counts.get++; return o[prop]; },
+        has(o, prop) { counts.has++; return prop in o; },
+        ownKeys(o) { counts.ownKeys++; return Reflect.ownKeys(o); },
+        getOwnPropertyDescriptor(o, prop) { counts.getOwnPropertyDescriptor++; return Reflect.getOwnPropertyDescriptor(o, prop); },
+        getPrototypeOf(o) { counts.getPrototypeOf++; return Reflect.getPrototypeOf(o); },
+        set(o, prop, v) { counts.set++; o[prop] = v; return true; },
+        defineProperty(o, prop, desc) { counts.defineProperty++; return Reflect.defineProperty(o, prop, desc); },
+        deleteProperty(o, prop) { counts.deleteProperty++; return Reflect.deleteProperty(o, prop); }
+    });
+    return { proxy: p, counts, total: () => Object.values(counts).reduce((a, b) => a + b, 0) };
+}
+
+test("BF-1: hostile Proxy request candidate -> false with ZERO traps", () => {
+    const bs = require("../../src/action/bootstrap");
+    const facade = bs.createCanonicalActuationFacade();
+    const { proxy, total } = makeHostileProxy();
+    const out = facade.isCanonicalExecutionRequest(proxy);
+    assert.equal(out, false, "hostile Proxy is not canonical");
+    assert.equal(total(), 0, "ZERO attacker-controlled traps may execute during noncanonical recognition");
+});
+
+test("BF-2: hostile Proxy result candidate -> false with ZERO traps", () => {
+    const bs = require("../../src/action/bootstrap");
+    const facade = bs.createCanonicalActuationFacade();
+    const { proxy, total } = makeHostileProxy();
+    const out = facade.isCanonicalExecutionResult(proxy);
+    assert.equal(out, false, "hostile Proxy is not canonical");
+    assert.equal(total(), 0, "ZERO attacker-controlled traps may execute during noncanonical recognition");
+});
+
+test("BF-3: Proxy with get/has/ownKeys/getOwnPropertyDescriptor/getPrototypeOf — all counters remain zero", () => {
+    const bs = require("../../src/action/bootstrap");
+    const facade = bs.createCanonicalActuationFacade();
+    const { proxy, counts, total } = makeHostileProxy();
+    facade.isCanonicalExecutionRequest(proxy);
+    facade.isCanonicalExecutionResult(proxy);
+    // Repeat recognition: still zero.
+    facade.isCanonicalExecutionRequest(proxy);
+    facade.isCanonicalExecutionResult(proxy);
+    assert.equal(counts.get, 0, "no get traps");
+    assert.equal(counts.has, 0, "no has traps");
+    assert.equal(counts.ownKeys, 0, "no ownKeys traps");
+    assert.equal(counts.getOwnPropertyDescriptor, 0, "no getOwnPropertyDescriptor traps");
+    assert.equal(counts.getPrototypeOf, 0, "no getPrototypeOf traps");
+    assert.equal(total(), 0, "no traps of ANY family");
+});
+
+test("BF-4: plain object returns false", () => {
+    const bs = require("../../src/action/bootstrap");
+    const facade = bs.createCanonicalActuationFacade();
+    assert.equal(facade.isCanonicalExecutionRequest({}), false);
+    assert.equal(facade.isCanonicalExecutionRequest({ schemaVersion: 1, executionId: "x" }), false);
+    assert.equal(facade.isCanonicalExecutionResult({}), false);
+    assert.equal(facade.isCanonicalExecutionResult({ schemaVersion: 1, executionId: "x" }), false);
+});
+
+test("BF-5: frozen clone returns false", async () => {
+    const h = await makeActuationHarness();
+    const res = await h.lane2.registerCapability({ id: "filesystem.read", operations: ["read"] });
+    await h.lane2.registry.observeAvailability("filesystem.read", "AVAILABLE", { generation: 1, incarnationId: res.incarnationId });
+    await h.lane2.grantAuthority({ capabilityId: "filesystem.read", subject: "alice", actions: ["read"], identityBinding: { principals: ["alice"] } });
+    h.registerActuator({ capabilityId: "filesystem.read", operations: ["read"], capabilityIncarnationId: res.incarnationId, actuatorId: "a", invoke: async () => ({ ok: true }) });
+    const intent = h.lane2.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", arguments: { target: "t" } }));
+    const r = await h.execute({ intent, authSession: h.lane2.session("alice"), parameters: { t: 1 } });
+    assert.equal(h.isCanonicalExecutionResult(Object.freeze({ ...r })), false, "frozen clone");
+    assert.equal(h.isCanonicalExecutionRequest(Object.freeze({ schemaVersion: 1, executionId: r.executionId })), false, "frozen clone request");
+});
+
+test("BF-6: JSON clone returns false", async () => {
+    const h = await makeActuationHarness();
+    const res = await h.lane2.registerCapability({ id: "filesystem.read", operations: ["read"] });
+    await h.lane2.registry.observeAvailability("filesystem.read", "AVAILABLE", { generation: 1, incarnationId: res.incarnationId });
+    await h.lane2.grantAuthority({ capabilityId: "filesystem.read", subject: "alice", actions: ["read"], identityBinding: { principals: ["alice"] } });
+    h.registerActuator({ capabilityId: "filesystem.read", operations: ["read"], capabilityIncarnationId: res.incarnationId, actuatorId: "a", invoke: async () => ({ ok: true }) });
+    const intent = h.lane2.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", arguments: { target: "t" } }));
+    const r = await h.execute({ intent, authSession: h.lane2.session("alice"), parameters: { t: 1 } });
+    assert.equal(h.isCanonicalExecutionResult(JSON.parse(JSON.stringify(r))), false, "JSON clone");
+});
+
+test("BF-7: null-prototype lookalike returns false", () => {
+    const bs = require("../../src/action/bootstrap");
+    const facade = bs.createCanonicalActuationFacade();
+    const lookalike = Object.assign(Object.create(null), {
+        schemaVersion: 1, executionId: "x", intentId: "x", capabilityId: "c",
+        capabilityIncarnationId: "inc-" + "0".repeat(32), operation: "read",
+        principal: "p", scope: [], authorityGeneration: 0, admittedAtMs: 1,
+        requestedAtMs: 1, parameters: {}, metadata: {}
+    });
+    assert.equal(facade.isCanonicalExecutionRequest(lookalike), false);
+    assert.equal(facade.isCanonicalExecutionResult(lookalike), false);
+});
+
+test("BF-8: test-domain branded object remains false in production predicate", async () => {
+    const bs = require("../../src/action/bootstrap");
+    const prodFacade = bs.createCanonicalActuationFacade();
+    const h = await makeActuationHarness();
+    const res = await h.lane2.registerCapability({ id: "filesystem.read", operations: ["read"] });
+    await h.lane2.registry.observeAvailability("filesystem.read", "AVAILABLE", { generation: 1, incarnationId: res.incarnationId });
+    await h.lane2.grantAuthority({ capabilityId: "filesystem.read", subject: "alice", actions: ["read"], identityBinding: { principals: ["alice"] } });
+    h.registerActuator({ capabilityId: "filesystem.read", operations: ["read"], capabilityIncarnationId: res.incarnationId, actuatorId: "a", invoke: async () => ({ ok: true }) });
+    const intent = h.lane2.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", arguments: { target: "t" } }));
+    const r = await h.execute({ intent, authSession: h.lane2.session("alice"), parameters: { t: 1 } });
+    assert.equal(h.isCanonicalExecutionResult(r), true, "test-domain predicate recognizes its own branded result");
+    assert.equal(prodFacade.isCanonicalExecutionResult(r), false, "PRODUCTION predicate rejects the test-domain branded object (distinct closures)");
+});
+
+test("BF-9/10: genuine production canonical request/result remain true", async () => {
+    const bs = require("../../src/action/bootstrap");
+    const facade = bs.createCanonicalActuationFacade();
+    // The production dispatcher mints genuinely-branded requests/results during
+    // execute(). With the fixed fail-closed canonical auth adapter, authority
+    // denies, so the canonical result is FAILED — but it IS a genuine
+    // production-branded canonical value.
+    const fakeIntent = { intentId: "x", capabilityId: "c", operation: "read", capabilityIncarnationId: "inc-" + "0".repeat(32), scope: [], createdAtMs: 1 };
+    const r = await facade.execute({ intent: fakeIntent, authSession: { principal: "a" } });
+    assert.equal(r.state, "FAILED", "production fail-closed adapter denies; the canonical result is FAILED");
+    assert.equal(facade.isCanonicalExecutionResult(r), true, "genuine production canonical RESULT is recognized");
+    // The internal branded REQUEST is not exposed on the result; verify the
+    // request predicate correctly returns false for the result object (a
+    // canonical RESULT is not a canonical REQUEST) and true is achievable only
+    // via genuine production minting.
+    assert.equal(facade.isCanonicalExecutionRequest(r), false, "a canonical result is not a canonical request");
+});
+
+test("BF-11: repeated recognition does not mutate membership", () => {
+    const bs = require("../../src/action/bootstrap");
+    const facade = bs.createCanonicalActuationFacade();
+    const hostile = makeHostileProxy();
+    const obj = Object.freeze({ schemaVersion: 1, executionId: "x" });
+    for (let i = 0; i < 100; i++) {
+        facade.isCanonicalExecutionRequest(obj);
+        facade.isCanonicalExecutionResult(obj);
+        facade.isCanonicalExecutionRequest(hostile.proxy);
+        facade.isCanonicalExecutionResult(hostile.proxy);
+    }
+    // Membership never flips by repeated recognition.
+    assert.equal(facade.isCanonicalExecutionRequest(obj), false);
+    assert.equal(facade.isCanonicalExecutionResult(obj), false);
+    assert.equal(hostile.total(), 0, "still zero traps across 100 iterations");
+});

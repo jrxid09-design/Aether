@@ -81,6 +81,9 @@ async function runStorm(seed) {
         directDispatcherFactoryAcquired: 0,
         exportedRequestBrandMutated: 0,
         exportedResultBrandMutated: 0,
+        // SECOND targeted repair counters (brand-first hostile object safety)
+        hostileRequestPredicateTrapExecution: 0,
+        hostileResultPredicateTrapExecution: 0,
         untypedErrors: 0
     };
 
@@ -175,10 +178,43 @@ async function runStorm(seed) {
                     record("stale-auth", true, "probed");
                     break;
                 }
-                case 6: { // foreign session
+                case 6: { // foreign session + brand-first hostile predicate probe
                     const intent = lane2.admit(JSON.stringify({ schemaVersion: 1, capabilityId: id, operation: "read", arguments: { target } }));
                     const r = await h.execute({ intent, authSession: { principal: "attacker", sessionId: "", channel: "" }, parameters: { target, nonce: round } });
                     if (r.state === RESULT_STATE.EXECUTED) C.foreignSessionExecuted++;
+                    // ---- SECOND targeted repair counters: recognition of a
+                    // NON-canonical object must execute ZERO attacker-controlled
+                    // traps (WeakSet membership is checked before any property
+                    // read). Active detection: instrument every trap family and
+                    // assert zero executions during recognition.
+                    {
+                        const traps = { get: 0, has: 0, ownKeys: 0, getOwnPropertyDescriptor: 0, getPrototypeOf: 0 };
+                        const hostileProxy = new Proxy({}, {
+                            get(o, p) { traps.get++; return o[p]; },
+                            has(o, p) { traps.has++; return p in o; },
+                            ownKeys(o) { traps.ownKeys++; return Reflect.ownKeys(o); },
+                            getOwnPropertyDescriptor(o, p) { traps.getOwnPropertyDescriptor++; return Reflect.getOwnPropertyDescriptor(o, p); },
+                            getPrototypeOf(o) { traps.getPrototypeOf++; return Reflect.getPrototypeOf(o); }
+                        });
+                        // The production facade predicates are BRAND-FIRST.
+                        const bs = require("../../src/action/bootstrap");
+                        const prodFacade = bs.createCanonicalActuationFacade();
+                        const beforeReq = Object.values(traps).reduce((a, b) => a + b, 0);
+                        prodFacade.isCanonicalExecutionRequest(hostileProxy);
+                        const afterReq = Object.values(traps).reduce((a, b) => a + b, 0);
+                        if (afterReq - beforeReq > 0) C.hostileRequestPredicateTrapExecution += (afterReq - beforeReq);
+                        prodFacade.isCanonicalExecutionResult(hostileProxy);
+                        const afterRes = Object.values(traps).reduce((a, b) => a + b, 0);
+                        if (afterRes - afterReq > 0) C.hostileResultPredicateTrapExecution += (afterRes - afterReq);
+                        // Repeated recognition: still zero.
+                        prodFacade.isCanonicalExecutionRequest(hostileProxy);
+                        prodFacade.isCanonicalExecutionResult(hostileProxy);
+                        const finalTotal = Object.values(traps).reduce((a, b) => a + b, 0);
+                        if (finalTotal > 0) {
+                            C.hostileRequestPredicateTrapExecution += finalTotal;
+                            C.hostileResultPredicateTrapExecution += finalTotal;
+                        }
+                    }
                     record("foreign-session", true, r.state);
                     break;
                 }

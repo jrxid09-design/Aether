@@ -203,6 +203,38 @@ functions/symbols/exotics escape).
 
 ## Security regression tests
 
+## SECOND targeted repair — brand-first hostile-object safety
+
+The first-repair brand predicates inspected attacker-controlled properties
+(`schemaVersion`, `executionId`) BEFORE checking closure-private WeakSet
+membership. A hostile Proxy candidate therefore executed its `get` trap even
+though the object was not canonical — a HIGH-severity predicate-ordering
+defect.
+
+Fix: recognition is now BRAND-FIRST. The predicates read ONLY:
+
+    if (value === null || typeof value !== "object") return false;
+    if (!requestBrandSet3.has(value)) return false;   // request
+    if (!resultBrandSet3.has(value)) return false;    // result
+    return true;
+
+`WeakSet.has` performs a reference-identity check (zero attacker-controlled
+property access). Recognition of NON-canonical objects executes ZERO get/has/
+ownKeys/getOwnPropertyDescriptor/getPrototypeOf traps. The private formers
+already establish canonical structure when minting, so the public provenance
+predicate recognizes PROVENANCE, not shape — re-validation is unnecessary and
+unsafe against hostile inputs.
+
+Trap-counting regression tests (BF-1 through BF-11) verify: hostile Proxy
+candidates return false with zero traps; plain/frozen/JSON/null-prototype
+lookalikes return false; test-domain branded objects remain false in the
+production predicate; genuine production canonical results remain true;
+repeated recognition does not mutate membership.
+
+Storm gains two active counters: `hostileRequestPredicateTrapExecution`,
+`hostileResultPredicateTrapExecution` (instrumented Proxy traps during
+recognition of a noncanonical object).
+
 `tests/actuation/security.test.js` (34 tests): all 18 required Lane 3 proofs,
 the brand regression block (10 tests: brand sets/tokens undefined from every
 production import; no exported function can mark an arbitrary object
@@ -213,8 +245,9 @@ and the facade is frozen), and the DIRECT module.exports structural scan
 pure predicates — checked regardless of index re-exports).
 
 `tests/actuation/storm.test.js` (2 tests): ≥12,000 deterministic mixed
-operations ×2 seeds + divergent seed; all 19 violation counters zero with
-ACTIVE detection paths, including the four FIRST-repair counters:
+operations ×2 seeds + divergent seed; all 21 violation counters zero with
+ACTIVE detection paths, including the four FIRST-repair counters
+and the two SECOND-repair hostile-predicate counters:
 `directRegistryFactoryAcquired`, `directDispatcherFactoryAcquired`,
 `exportedRequestBrandMutated`, `exportedResultBrandMutated` (each scans the
 actual module.exports of every production actuation module + bootstrap for
@@ -222,7 +255,7 @@ factory/mint surfaces).
 
 ## Test results
 
-- Lane 3 targeted: 36 tests (34 security + 2 storm), 0 failures
+- Lane 3 targeted: 46 tests (44 security + 2 storm), 0 failures
 - Lane 2 regression: 89 tests, 0 failures
 - Lane 1 capability + canonical Authority: 186 tests, 171 pass, 15 fail —
   the 15 are the documented pre-existing `sqlite3` native-module environment
