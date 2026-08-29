@@ -4,14 +4,14 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-/** Â§N/Â§O â€” ACC INTEGRATION + AetherSelf evolution loop.
+/** Â§N/Â§O â€” ACC INTEGRATION + DamarSelf evolution loop.
  * ACC/model BOLEH mengusulkan; hasil usulan TIDAK memberi otoritas.
  * Owner ratification mengubah request menjadi authority sah.
  */
 
 const acc = require("./evolution-harness");
-const { createAetherSelfService } =
-    require("../../src/services/aetherSelfService");
+const { createDamarSelfService } =
+    require("../../src/services/damarSelfService");
 
 async function accInitiatedExpansion(registry) {
     // Simulasi keluaran ACC (MODEL_HYPOTHESIS) â†’ EvolutionIntent:
@@ -19,13 +19,13 @@ async function accInitiatedExpansion(registry) {
         proposalId: "prop-acc-evolve",
         createdBy: "acc",
         kind: "authority_expansion",
-        problem: "Aether butuh kemampuan deploy untuk evolusi material",
+        problem: "Damar butuh kemampuan deploy untuk evolusi material",
         hypothesis: "dengan akses deploy, perbaikan mandiri bisa tervalidasi",
         proposedChange: "minta ROOT grant infra.deploy",
         requiredCapabilities: ["self.patch.production"],
         requestedAuthority: {
             capabilityId: "infra.deploy",
-            subject: "aether-core",
+            subject: "damar-core",
             actions: ["use","patch.production"]
         },
         evidenceRefs: ["experience-1","prediction-2"]
@@ -86,10 +86,10 @@ test("#35 owner-ratified escalation -> root grant sah & bisa dipakai", async () 
     assert.equal(d.allowed, true);
 });
 
-test("Â§O: EvolutionProposal terdokumentasi ke AetherSelf/proposals", () => {
+test("Â§O: EvolutionProposal terdokumentasi ke DamarSelf/proposals", () => {
 
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aself-doc-"));
-    const svc = createAetherSelfService({ canonicalDir: dir });
+    const svc = createDamarSelfService({ canonicalDir: dir });
     svc.ensureStructure();
 
     const proposal = {

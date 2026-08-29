@@ -1,4 +1,4 @@
-# Aether OS — Roadmap
+# Damar OS — Roadmap
 
 Setiap milestone harus **dapat dijalankan** saat selesai. Tidak ada fitur palsu, tidak ada `success` untuk operasi yang tak terjadi (§222).
 
@@ -20,13 +20,13 @@ Definition of Done (§221): `diimplementasi · bertipe · teruji · terintegrasi
 
 ---
 
-## Milestone 0.1 — AETHER FOUNDATION
+## Milestone 0.1 — DAMAR FOUNDATION
 
 Membuktikan kernel berdiri, bukan membuat tampilan mengesankan.
 
 | Komponen | Status |
 |---|---|
-| Aether Core (kernel deterministik) | ⬜ |
+| Damar Core (kernel deterministik) | ⬜ |
 | Event Bus (event bertipe, correlation/causation) | ⬜ |
 | Config (bertipe, per-lingkungan) | ⬜ |
 | Logging terstruktur | ⬜ |
@@ -39,59 +39,59 @@ Membuktikan kernel berdiri, bukan membuat tampilan mengesankan.
 | Basic API (FastAPI, berversi) | ⬜ |
 | UI web dasar (browser; Tauri ditunda — ADR-005) | ⬜ |
 
-**Kriteria selesai (§219):** pengguna bertanya → Aether paham → ambil memori → pakai model lokal → buat tugas bila perlu → pakai tool aman → **verifikasi hasil** → simpan memori → jawab.
+**Kriteria selesai (§219):** pengguna bertanya → Damar paham → ambil memori → pakai model lokal → buat tugas bila perlu → pakai tool aman → **verifikasi hasil** → simpan memori → jawab.
 
 ---
 
-## Milestone 0.2 — AETHER COGNITION
+## Milestone 0.2 — DAMAR COGNITION
 
 Intent Engine · Context Engine (+ anggaran konteks) · Planner (DAG) · Executor · **Verification Engine** · Memory Router · Graph Memory (Neo4j + Graphiti) · Vector Memory (Qdrant)
 
 ---
 
-## Milestone 0.3 — AETHER ENGINEER
+## Milestone 0.3 — DAMAR ENGINEER
 
 Serena · Git · Coding Agent · Debugger · Tester · Reviewer · **Sandbox**
 
 ---
 
-## Milestone 0.4 — AETHER ANALYST
+## Milestone 0.4 — DAMAR ANALYST
 
 Ingestion · Profiler · Statistik · Visualisasi · Analyst Agent · Research Agent (dengan provenance)
 
 ---
 
-## Milestone 0.5 — AETHER EMBODIED
+## Milestone 0.5 — DAMAR EMBODIED
 
 Tauri shell · Three.js avatar · Voice (STT/TTS) · Persepsi layar · Mood · Interaksi kursor
 
 ---
 
-## Milestone 0.6 — AETHER AUTONOMY
+## Milestone 0.6 — DAMAR AUTONOMY
 
 Scheduler · Goals · Proactive · Background tasks · Dream mode · **Attention engine**
 
 ---
 
-## Milestone 0.7 — AETHER WORLD
+## Milestone 0.7 — DAMAR WORLD
 
 World Model · PC · NAS · Jaringan · Devices · CCTV · Home automation
 
 ---
 
-## Milestone 0.8 — AETHER LAB
+## Milestone 0.8 — DAMAR LAB
 
 Benchmarks · Experiments · Perbandingan model · Skill compiler · Belajar dari kegagalan · Self-diagnostics
 
 ---
 
-## Milestone 0.9 — AETHER OS
+## Milestone 0.9 — DAMAR OS
 
 Stabilitas · Keamanan · Performa · Recovery · UX · Observability · Offline mode
 
 ---
 
-## Milestone 1.0 — AETHER OS 1.0
+## Milestone 1.0 — DAMAR OS 1.0
 
 Lulus seluruh pertanyaan verifikasi §276.
 
@@ -154,8 +154,8 @@ sudah dipilih secara sadar — bukan ditemukan saat sesuatu gagal.
 
 ## Catatan koeksistensi — **digantikan ADR-006**
 
-ADR-001 dulu merencanakan Aether OS sebagai repositori terpisah di
-`C:\Workspace\AetherOS`, dengan legacy berjalan berdampingan sampai
+ADR-001 dulu merencanakan Damar OS sebagai repositori terpisah di
+`C:\Workspace\DamarOS`, dengan legacy berjalan berdampingan sampai
 digantikan.
 
 **Itu tidak lagi berlaku.** ADR-006 menggantinya dengan evolusi di tempat

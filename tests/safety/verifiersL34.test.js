@@ -16,7 +16,7 @@ const engine = require("../../src/core/verify/VerificationEngine");
 test("perangkat tak terjangkau → belum terverifikasi, bukan gagal", async () => {
 
     const r = await engine.verify(
-        "aetherSkills.device_on",
+        "damarSkills.device_on",
         { entity_id: "light.tidak_ada" },
         { success: true }
     );
@@ -29,7 +29,7 @@ test("perangkat tak terjangkau → belum terverifikasi, bukan gagal", async () =
 
 test("entitas tidak disebut → ditandai gagal dibaca", async () => {
 
-    const r = await engine.verify("aetherSkills.device_on", {}, { success: true });
+    const r = await engine.verify("damarSkills.device_on", {}, { success: true });
 
     assert.equal(r.state, "failed");
     assert.ok(r.checks.some(c => c.name === "entitas terbaca" && !c.passed));
@@ -39,7 +39,7 @@ test("entitas tidak disebut → ditandai gagal dibaca", async () => {
 test("pesan tanpa id tidak diklaim terkirim", async () => {
 
     const r = await engine.verify(
-        "aetherSkills.wa_send",
+        "damarSkills.wa_send",
         { to: "628xxx", text: "halo" },
         { success: true }                    // ← tool mengaku berhasil
     );
@@ -51,7 +51,7 @@ test("pesan tanpa id tidak diklaim terkirim", async () => {
 test("pesan dengan id terverifikasi", async () => {
 
     const r = await engine.verify(
-        "aetherSkills.wa_send",
+        "damarSkills.wa_send",
         { to: "628xxx" },
         { messageIds: ["3EB0A1B2C3"], errors: [] }
     );
@@ -64,7 +64,7 @@ test("pesan dengan id terverifikasi", async () => {
 test("pesan dengan error terdeteksi gagal", async () => {
 
     const r = await engine.verify(
-        "aetherSkills.wa_send",
+        "damarSkills.wa_send",
         { to: "628xxx" },
         { messageIds: [], errors: ["connection closed"] }
     );
@@ -78,12 +78,12 @@ test("tool destruktif kini punya verifier — tidak lagi diam-diam unverified", 
     const { verifierFor } = require("../../src/core/verify/verifiers");
 
     for (const t of [
-        "aetherSkills.device_on",
-        "aetherSkills.device_off",
-        "aetherSkills.device_toggle",
-        "aetherSkills.set_temperature",
-        "aetherSkills.home_control",
-        "aetherSkills.wa_send"
+        "damarSkills.device_on",
+        "damarSkills.device_off",
+        "damarSkills.device_toggle",
+        "damarSkills.set_temperature",
+        "damarSkills.home_control",
+        "damarSkills.wa_send"
     ]) {
         assert.ok(verifierFor(t), `verifier untuk ${t} harus ada`);
     }

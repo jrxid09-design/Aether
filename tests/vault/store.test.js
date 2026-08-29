@@ -10,7 +10,7 @@ const vaultMod = require("../../src/runtime/vault");
 const ids = require("../../src/runtime/vault/ids");
 
 function tmpDir() {
-    return fs.mkdtempSync(path.join(os.tmpdir(), "aether-vault-store-"));
+    return fs.mkdtempSync(path.join(os.tmpdir(), "damar-vault-store-"));
 }
 
 test("file store refuses insecure cipher without explicit acknowledgment", () => {

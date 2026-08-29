@@ -24,8 +24,8 @@ test("discovery: reads only configured roots, returns descriptors sorted", () =>
     const good = JSON.stringify(manifest({ extensionId: "z.ext" }));
     const early = JSON.stringify(manifest({ extensionId: "a.ext" }));
     const root = makeRoot({
-        "zeta": { "aether-extension.json": good },
-        "alpha": { "aether-extension.json": early }
+        "zeta": { "damar-extension.json": good },
+        "alpha": { "damar-extension.json": early }
     });
     const res = discoverExtensions({ roots: [root] });
     assert.deepEqual(res.extensions.map((d) => d.id.value), ["a.ext", "z.ext"],
@@ -37,17 +37,17 @@ test("discovery: reads only configured roots, returns descriptors sorted", () =>
 
 test("discovery: malformed extension isolated; others unaffected", () => {
     const root = makeRoot({
-        "broken-json": { "aether-extension.json": "{ this is not json" },
+        "broken-json": { "damar-extension.json": "{ this is not json" },
         "bad-schema": {
-            "aether-extension.json": JSON.stringify({
+            "damar-extension.json": JSON.stringify({
                 schemaVersion: 9, extensionId: "bad.schema", name: "B", version: "1.0.0"
             })
         },
         "proto-attack": {
-            "aether-extension.json": '{"schemaVersion":1,"extensionId":"evil.ext","name":"E","version":"1.0.0","__proto__":{"x":1}}'
+            "damar-extension.json": '{"schemaVersion":1,"extensionId":"evil.ext","name":"E","version":"1.0.0","__proto__":{"x":1}}'
         },
         "good-one": {
-            "aether-extension.json": JSON.stringify(manifest({ extensionId: "good.ext" }))
+            "damar-extension.json": JSON.stringify(manifest({ extensionId: "good.ext" }))
         },
         "no-manifest-at-all": { "README.txt": "nothing here" }
     });
@@ -67,8 +67,8 @@ test("discovery: missing root reported, not fatal", () => {
 });
 
 test("discovery: duplicate canonical ids keep first occurrence deterministically", () => {
-    const r1 = makeRoot({ "x": { "aether-extension.json": JSON.stringify(manifest({ extensionId: "dup.ext", version: "1.0.0" })) } });
-    const r2 = makeRoot({ "x": { "aether-extension.json": JSON.stringify(manifest({ extensionId: "dup.ext", version: "9.9.9" })) } });
+    const r1 = makeRoot({ "x": { "damar-extension.json": JSON.stringify(manifest({ extensionId: "dup.ext", version: "1.0.0" })) } });
+    const r2 = makeRoot({ "x": { "damar-extension.json": JSON.stringify(manifest({ extensionId: "dup.ext", version: "9.9.9" })) } });
     const res = discoverExtensions({ roots: [r1, r2] });
     assert.equal(res.extensions.length, 1);
     assert.equal(res.extensions[0].version.raw, "1.0.0");
@@ -79,7 +79,7 @@ test("discovery: bounded result count (storm safety)", () => {
     const structure = {};
     for (let i = 0; i < 40; i++) {
         structure[`e${String(i).padStart(3, "0")}`] =
-            { "aether-extension.json": JSON.stringify(manifest({ extensionId: `bound.${i}` })) };
+            { "damar-extension.json": JSON.stringify(manifest({ extensionId: `bound.${i}` })) };
     }
     const root = makeRoot(structure);
     const res = discoverExtensions({ roots: [root], maxResults: 10 });
@@ -88,7 +88,7 @@ test("discovery: bounded result count (storm safety)", () => {
 
 test("discovery: oversized manifest file rejected with bound reason", () => {
     const root = makeRoot({
-        "huge": { "aether-extension.json": JSON.stringify({
+        "huge": { "damar-extension.json": JSON.stringify({
             schemaVersion: 1, extensionId: "big.ext", name: "B", version: "1.0.0",
             description: "x".repeat(70 * 1024)
         }) }

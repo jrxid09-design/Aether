@@ -64,18 +64,18 @@ test("state machine: elapsed melacak waktu masuk state", async () => {
 // ---- WakeWordProvider ----
 
 test("wake word: mendeteksi kata panggil utuh", () => {
-    const w = new WakeWordProvider({ wakeWord: "aether" });
-    assert.equal(w.detect("Aether").detected, true);
-    assert.equal(w.detect("hej aether buka cctv").detected, true);
+    const w = new WakeWordProvider({ wakeWord: "damar" });
+    assert.equal(w.detect("Damar").detected, true);
+    assert.equal(w.detect("hej damar buka cctv").detected, true);
 });
 
 test("wake word: TIDAK mendeteksi substring (ethereum)", () => {
-    const w = new WakeWordProvider({ wakeWord: "aether" });
+    const w = new WakeWordProvider({ wakeWord: "damar" });
     assert.equal(w.detect("ethereum").detected, false, "jangan salah deteksi substring");
 });
 
 test("wake word: kosong → tidak terdeteksi", () => {
-    const w = new WakeWordProvider({ wakeWord: "aether" });
+    const w = new WakeWordProvider({ wakeWord: "damar" });
     assert.equal(w.detect("").detected, false);
 });
 
@@ -291,7 +291,7 @@ function makeRuntime(overrides = {}) {
     return new VoiceRuntime({
         config: () => ({
             enabled: true,
-            wakeWord: "aether",
+            wakeWord: "damar",
             wakeProvider: "local",
             sttProvider: "local",
             ttsProvider: "local",
@@ -315,7 +315,7 @@ test("VoiceRuntime: wakeDetect memicu WAKE_DETECTED + ack (tanpa LLM)", async ()
     let acked = null;
     rt.on("ack", a => { acked = a; });
 
-    const r = rt.wakeDetect("Aether");
+    const r = rt.wakeDetect("Damar");
     assert.equal(r.detected, true);
     assert.equal(rt.machine.current, STATES.WAKE_DETECTED);
     assert.equal(acked, "Ya?");
@@ -383,7 +383,7 @@ test("VoiceRuntime._startStandbyStream: alirkan RMS mic → clapDetect (wiring)"
 
 test("VoiceRuntime: nonaktif default — start tidak mengaktifkan loop", async () => {
     const rt = new VoiceRuntime({
-        config: () => ({ enabled: false, wakeWord: "aether", acknowledgement: "Ya?" })
+        config: () => ({ enabled: false, wakeWord: "damar", acknowledgement: "Ya?" })
     });
     await rt.start();
     assert.equal(rt.enabled, false);

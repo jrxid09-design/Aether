@@ -12,7 +12,7 @@ const desktop = require("../../src/desktop");
 const reintel = require("../../src/reintel");
 const authority = require("../../src/authority");
 const cognition = require("../../src/cognition");
-const { createAetherSelfService } = require("../../src/services/aetherSelfService");
+const { createDamarSelfService } = require("../../src/services/damarSelfService");
 
 /**
  * KOMPOSISI WAVE 1 — kepemilikan state kanonik, injeksi eksplisit,
@@ -20,7 +20,7 @@ const { createAetherSelfService } = require("../../src/services/aetherSelfServic
  */
 
 function makeTmpDir() {
-    return fs.mkdtempSync(path.join(os.tmpdir(), "aether-w1comp-"));
+    return fs.mkdtempSync(path.join(os.tmpdir(), "damar-w1comp-"));
 }
 
 // =====================================================================
@@ -38,7 +38,7 @@ test("komposisi memakai instance kanonik yang di-inject, bukan salinan", async (
     const re = await reintel.createReIntel();
     const acc = await cognition.createAccCore({ overrides: { mode: "shadow" } });
     const selfDir = makeTmpDir();
-    const selfSvc = createAetherSelfService({ canonicalDir: selfDir });
+    const selfSvc = createDamarSelfService({ canonicalDir: selfDir });
 
     const core = await createEmbodiedCore({
         authorityRegistry: registry,
@@ -46,7 +46,7 @@ test("komposisi memakai instance kanonik yang di-inject, bukan salinan", async (
         desktopCore: context,
         reintelInstance: re,
         accCore: acc,
-        aetherSelfService: selfSvc
+        damarSelfService: selfSvc
     });
 
     assert.equal(core.authority.registry, registry,
@@ -55,12 +55,12 @@ test("komposisi memakai instance kanonik yang di-inject, bukan salinan", async (
     assert.equal(core.desktop, context, "Desktop context tetap satu pemilik");
     assert.equal(core.reintel, re, "RE findings tetap satu pemilik");
     assert.equal(core.acc, acc, "Kontinuitas kognitif tetap satu pemilik");
-    assert.equal(core.aetherSelf, selfSvc,
+    assert.equal(core.damarSelf, selfSvc,
         "Identitas autobiografis tetap satu pemilik");
 });
 
 test("facade beku — komposisi tidak bisa ditukar saat runtime", async () => {
-    const core = await createEmbodiedCore({ aetherSelfDir: makeTmpDir() });
+    const core = await createEmbodiedCore({ damarSelfDir: makeTmpDir() });
     assert.equal(Object.isFrozen(core), true);
     assert.equal(Object.isFrozen(core.authority), true);
 });
@@ -93,7 +93,7 @@ test("port observasi tidak pernah menyentuh registry otoritas", async () => {
 
     const core = await createEmbodiedCore({
         authorityRegistry: registry,
-        aetherSelfDir: makeTmpDir()
+        damarSelfDir: makeTmpDir()
     });
 
     core.body.registerProducer("fake.discovery");
@@ -156,7 +156,7 @@ test("ACC di luar shadow ditolak oleh komposisi (Wave 1)", async () => {
     await assert.rejects(
         () => createEmbodiedCore({
             accCore: { mode: "active" },
-            aetherSelfDir: makeTmpDir()
+            damarSelfDir: makeTmpDir()
         }),
         /INTEGRATION LAW/,
         "komposisi menolak ACC non-shadow"

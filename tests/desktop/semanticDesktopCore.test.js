@@ -124,13 +124,13 @@ test("konteks visual berbasis referensi: captureRequired tanpa byte gambar", () 
 test("workspace aktif dengan terminal tak berlingkup jendela tetap terlihat", () => {
     const { core, adapter } = makeHarness();
     adapter.changeWorkspace({
-        workspaceId: "ws-aether",
-        label: "Aether",
+        workspaceId: "ws-damar",
+        label: "Damar",
         projectRoot: "C:/workspace/aether"
     });
-    adapter.addTerminal({ terminalId: "term-1", cwd: "C:/workspace/aether", workspaceId: "ws-aether" });
+    adapter.addTerminal({ terminalId: "term-1", cwd: "C:/workspace/aether", workspaceId: "ws-damar" });
 
-    assert.equal(core.getCurrentWorkspace()?.label, "Aether");
+    assert.equal(core.getCurrentWorkspace()?.label, "Damar");
     // Tanpa jendela aktif, dokumen aktif jatuh ke kolom tak berlingkup.
     assert.equal(core.getActiveDocument()?.type, ENTITY_TYPE.TERMINAL);
 });

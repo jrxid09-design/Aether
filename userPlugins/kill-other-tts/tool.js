@@ -38,13 +38,22 @@ class KillOtherTtsTool {
 
           // ── 1. Docker stop kokoro ──────────────────────────────────
           try {
-            const psOut = cmd('docker ps --filter name=aether_kokoro --format "{{.Names}}"');
-            if (psOut && psOut.includes('aether_kokoro')) {
+            // Nama kontainer kanonik kini `damar_kokoro`; ejaan lama
+            // `aether_kokoro` tetap dicocokkan supaya kontainer yang
+            // dibuat sebelum rename tetap bisa dihentikan.
+            const psOut = cmd('docker ps --filter name=kokoro --format "{{.Names}}"');
+            const nama = String(psOut || '')
+              .split(/\r?\n/)
+              .map(s => s.trim())
+              .filter(s => s === 'damar_kokoro' || s === 'aether_kokoro');
+            if (nama.length) {
               if (!dry) {
-                cmd('docker stop aether_kokoro', 12000);
-                cmd('docker update --restart=no aether_kokoro');
+                for (const n of nama) {
+                  cmd(`docker stop ${n}`, 12000);
+                  cmd(`docker update --restart=no ${n}`);
+                }
               }
-              results.push({ target: 'docker_kokoro', action: dry ? 'would_stop' : 'stopped' });
+              results.push({ target: 'docker_kokoro', action: dry ? 'would_stop' : 'stopped', names: nama });
             } else {
               results.push({ target: 'docker_kokoro', action: 'not_running' });
             }

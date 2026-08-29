@@ -1,4 +1,4 @@
-# Aether OS — Status
+# Damar OS — Status
 
 **Terakhir diperbarui:** 2026-08-12
 **Keadaan:** Berjalan di produksi — batas keselamatan terpasang & teruji
@@ -9,7 +9,7 @@
 ## Sistem mana yang otoritatif sekarang
 
 **Satu sistem, bukan dua.** ADR-001 dulu merencanakan repositori terpisah;
-ADR-006 menggantinya dengan evolusi di tempat. Tidak ada Aether OS kedua yang
+ADR-006 menggantinya dengan evolusi di tempat. Tidak ada Damar OS kedua yang
 menunggu — yang ada satu sistem yang tumbuh.
 
 | Fungsi | Keadaan | Lokasi |
@@ -44,7 +44,7 @@ Strategi diubah ke evolusi di tempat (ADR-006). Yang berikut sudah berjalan di d
 | Item | § | Berkas | Bukti uji |
 |---|---|---|---|
 | **Kill switch** | 37 | `src/core/safety/killSwitch.js` | Memblokir tool di jalur Console **dan** model; bertahan lintas restart; allowlist baca-saja lolos |
-| **Error terstruktur** | 110 | `src/core/safety/AetherError.js` | `code`, `severity`, `retryable`, `recovery` |
+| **Error terstruktur** | 110 | `src/core/safety/DamarError.js` | `code`, `severity`, `retryable`, `recovery` |
 | **Katalog risiko (biner)** | 34 | `src/core/safety/riskCatalog.js` | Disederhanakan dari L0–L5 menjadi satu keputusan: destruktif atau tidak. Klasifikasi tetap dihitung untuk audit dan verifikasi |
 | **Kebijakan otorisasi** | 33 | `src/core/safety/riskPolicy.js` | Guard selalu mengizinkan semua eksekusi; klasifikasi destruktif tetap dilaporkan untuk audit |
 | **Audit eksekusi tool** | 96 | `ToolRegistry.execute` | Event `tool:execute` untuk tool destruktif |
@@ -55,7 +55,7 @@ Strategi diubah ke evolusi di tempat (ADR-006). Yang berikut sudah berjalan di d
 | **Tes otomatis** | 221, 229 | `tests/safety/*.test.js` | **182 tes** (179 + 3 uji offline baru). Catatan kejujuran: satu tes pemilih tool sedang **merah** terhadap penulisan ulang `ToolSelector.js` yang belum ter-commit — tes menuntut urutan pendaftaran, pemilih baru sengaja memakai urutan inti-dulu demi cache prefix prompt. Keduanya milik pekerjaan yang sedang berjalan, bukan bagian dari uji offline — keselamatan, jalur model, planner, verifier git, jejak audit, pemilih tool, memori-diri, batas waktu, saklar gerbang. `npm test` (tes menulis ke direktori sementara, tidak mencemari jejak sungguhan) |
 | **Saklar gerbang destruktif** | 33, 123 | `safety/riskPolicy.js`, `views/safety.js` | Gerbang tool destruktif dapat dimatikan pemilik, dengan opsi durasi. Saklar eksplisit, bukan ambang palsu, supaya keadaannya terbaca jujur. STOP, sandbox, rem kebuntuan, dan verifikasi **tidak** ikut mati; bahaya tetap dihitung dan dicatat |
 | **Anggaran prompt: batas atas, bukan target** | 28 | `ai/tools/ToolSelector.js` | Sapaan "halo" mengirim 32 definisi tool = **1.910 token** berisi tool WhatsApp/kamera — semuanya berskor **nol**, terpilih hanya karena urutan pendaftaran. Kini yang berskor nol tidak ikut |
-| **Obrolan biasa tanpa tool sama sekali** | 28 | `ai/tools/ToolSelector.js` | Melampirkan tool berharga **tetap 777 token** (template llama3.1) sebelum tool pertama dihitung: tanpa tool 12 tok/1,8 dtk, 6 tool 789 tok/15,5 dtk, 32 tool 1.577 tok/34,2 dtk. **Sapaan: ~43 dtk → ~13,5 dtk** (3× ukur). `AETHER_TOOLS_WHEN_IDLE=backbone` mengembalikan perilaku lama |
+| **Obrolan biasa tanpa tool sama sekali** | 28 | `ai/tools/ToolSelector.js` | Melampirkan tool berharga **tetap 777 token** (template llama3.1) sebelum tool pertama dihitung: tanpa tool 12 tok/1,8 dtk, 6 tool 789 tok/15,5 dtk, 32 tool 1.577 tok/34,2 dtk. **Sapaan: ~43 dtk → ~13,5 dtk** (3× ukur). `DAMAR_TOOLS_WHEN_IDLE=backbone` mengembalikan perilaku lama |
 | **Jurnal rekayasa tidak menyusup ke obrolan** | 20 | `memory/services/MemoryService.js` | Sapaan "Halo" menarik catatan build ke system prompt — panjang, teknis, tak berguna bagi pengguna. Ini juga penyebab ragam prompt 1.356–2.365 yang tadinya misterius. Prompt kini stabil **1.214–1.224** |
 | **Tombol STOP di Console** | 123, 272 | header `index.html`, `app.js` | Selalu terlihat; berubah jadi LANJUTKAN + berdenyut saat berhenti; ikut tersegarkan tiap poll bila STOP ditarik dari kanal lain |
 | **Panel Keamanan** | 123, 272 | `views/safety.js` | Keadaan rem, gerbang destruktif, jejak tindakan, izin aktif — semuanya dapat diubah tanpa terminal, tanpa memahami tingkatan apa pun |
@@ -65,13 +65,13 @@ Strategi diubah ke evolusi di tempat (ADR-006). Yang berikut sudah berjalan di d
 | **Katalog risiko dibetulkan** | 34 | `safety/riskCatalog.js` | Pola substring membaca `memory_forget` sebagai bacaan murni karena "get" ada di dalam "forget" — kini berbasis batas kata |
 | **Daftar tool asli disatukan** | — | `aiRuntimeService.nativeTools()` | Perakitan awal dan penyegaran menulis daftarnya masing-masing dan sudah menyimpang: 33 tool (coding + keluarga) hanya terdaftar bila forge berubah. Model tak melihat graphify/Serena/test/commit pada daemon yang baru menyala. **105 → 138 tool**, diverifikasi lewat `code_lsp_status` yang kini dapat dipanggil |
 | **Verifier git** | 46 | `verify/verifiers.js`, `gitPatcher.restore` | `restore()` menelan kegagalan git lalu tetap melapor berhasil — **rollback gagal terbaca sukses, tepat saat test merah**. Kini git ditanyai langsung: HEAD, pesan commit, sisa ter-stage, selisih terhadap HEAD, branch aktif. Sumbernya juga diperbaiki agar berhenti mengklaim |
-| **Jejak audit yang bertahan** | 96 | `safety/auditTrail.js`, `views/safety.js` | `telemetry.publish()` hanya memancarkan, **tidak menyimpan**: tanpa Console terbuka, tidak ada catatan Aether menulis berkas atau mengirim pesan. Kini JSONL harian, 14 hari, terlihat di panel. Mencatat **penolakan** juga — percobaan melewati batas kini meninggalkan bekas |
+| **Jejak audit yang bertahan** | 96 | `safety/auditTrail.js`, `views/safety.js` | `telemetry.publish()` hanya memancarkan, **tidak menyimpan**: tanpa Console terbuka, tidak ada catatan Damar menulis berkas atau mengirim pesan. Kini JSONL harian, 14 hari, terlihat di panel. Mencatat **penolakan** juga — percobaan melewati batas kini meninggalkan bekas |
 | **Jaminan tool inti diperbaiki** | 28 | `ai/tools/ToolSelector.js` | Anggaran prompt 32 dari 138 tool — 106 dibuang tiap permintaan. Daftar "selalu ikut" menuliskan `readFile` padahal model melihat `filesystem__readFile`: **tidak pernah cocok**, jadi justru tool berkas kehilangan jaminannya diam-diam. Kini dicocokkan pada ruas terakhir nama. `terminal_run` dikeluarkan dari jaminan — destruktif, ditahan, dan terbukti menuntun model memilihnya untuk menanyakan jam |
-| **Waktu lokal, bukan UTC** | — | `plugins/system.time/tool.js` | Tool hanya mengembalikan `toISOString()` — selalu UTC tanpa penanda zona. Aether menjawab **"18:22"** saat di sini pukul **01:22**, kadang dilabeli "WIB". Salah tujuh jam dan disampaikan dengan yakin. Kini waktu lokal disajikan lebih dulu beserta zonanya; `time` tetap ISO untuk pemakai lama |
-| **Aether tahu dirinya sendiri** | 13, 20 | `memory/buildMemory.js`, `tools/buildTools.js`, `scripts/learn.js` | Jurnal rekayasa masuk ke memori Aether: keputusan, **alasannya**, berkas, pembuktian, risiko tersisa. Ditanya "kenapa terminal_run diblokir", Aether memanggil `build_recall` dan menjawab dari catatan — bukan menebak. 14 catatan tersemai. Batasnya tegas: **peristiwa → jejak audit, pengetahuan → memori** |
+| **Waktu lokal, bukan UTC** | — | `plugins/system.time/tool.js` | Tool hanya mengembalikan `toISOString()` — selalu UTC tanpa penanda zona. Damar menjawab **"18:22"** saat di sini pukul **01:22**, kadang dilabeli "WIB". Salah tujuh jam dan disampaikan dengan yakin. Kini waktu lokal disajikan lebih dulu beserta zonanya; `time` tetap ISO untuk pemakai lama |
+| **Damar tahu dirinya sendiri** | 13, 20 | `memory/buildMemory.js`, `tools/buildTools.js`, `scripts/learn.js` | Jurnal rekayasa masuk ke memori Damar: keputusan, **alasannya**, berkas, pembuktian, risiko tersisa. Ditanya "kenapa terminal_run diblokir", Damar memanggil `build_recall` dan menjawab dari catatan — bukan menebak. 14 catatan tersemai. Batasnya tegas: **peristiwa → jejak audit, pengetahuan → memori** |
 | **Batas waktu per panggilan model** | — | `ai/runtime/AIRuntime.js`, `ai/executors/RuntimeExecutor.js` | Batas 120 dtk membungkus **seluruh** loop tool. Di CPU satu panggilan 40–60 dtk, jadi permintaan yang memakai dua tool hampir pasti gagal — batas itu menghukum tepat perilaku yang diinginkan. Kini per panggilan; langit-langit 4× untuk yang benar-benar menggantung. Permintaan yang tadi gagal kini tuntas **139 dtk** |
 | **Planner DAG + checkpoint** | 28, 29, 30 | `agent/models/*`, `agent/planStore.js` | Dependensi, deteksi siklus, kemajuan; checkpoint atomik per langkah pada loop tool yang **benar-benar berjalan**; langkah "running" dikembalikan ke antrean saat dilanjutkan; rencana tuntas dibersihkan, yang tertinggal dilaporkan saat boot |
-| **Uji offline yang benar-benar menguji offline** | 276#10 | `tests/safety/offline.test.js`, `tests/helpers/offlineChild.js`, `scripts/audit-276.js` | Pemeriksaan lama melaporkan **LULUS karena alasan yang salah**: menambal `fetch` di dalam proses audit sendiri lalu memanggil `/api/tags` — daftar model, bukan inferensi — sementara daemon yang diuji berjalan di proses lain dan jaringannya tak pernah disentuh. Buktinya berbunyi "jalur inferensi tetap terjawab" padahal **tidak ada inferensi yang berjalan**: persis klaim sukses palsu yang dibangun VerificationEngine untuk menangkapnya. Kini jalur keluar diputus pada lapisan **socket** (fetch/undici, http, https ikut) di proses anak, sebelum satu pun modul Aether dimuat, lalu **inferensi sungguhan** dijalankan — menjawab 71 karakter dalam 6 dtk. Alat ukurnya dibuktikan lebih dulu: koneksi non-lokal harus benar-benar gagal, kalau tidak uji ini gugur. Jaringan pemilik tidak disentuh (memutusnya dapat memutus Tailscale) |
+| **Uji offline yang benar-benar menguji offline** | 276#10 | `tests/safety/offline.test.js`, `tests/helpers/offlineChild.js`, `scripts/audit-276.js` | Pemeriksaan lama melaporkan **LULUS karena alasan yang salah**: menambal `fetch` di dalam proses audit sendiri lalu memanggil `/api/tags` — daftar model, bukan inferensi — sementara daemon yang diuji berjalan di proses lain dan jaringannya tak pernah disentuh. Buktinya berbunyi "jalur inferensi tetap terjawab" padahal **tidak ada inferensi yang berjalan**: persis klaim sukses palsu yang dibangun VerificationEngine untuk menangkapnya. Kini jalur keluar diputus pada lapisan **socket** (fetch/undici, http, https ikut) di proses anak, sebelum satu pun modul Damar dimuat, lalu **inferensi sungguhan** dijalankan — menjawab 71 karakter dalam 6 dtk. Alat ukurnya dibuktikan lebih dulu: koneksi non-lokal harus benar-benar gagal, kalau tidak uji ini gugur. Jaringan pemilik tidak disentuh (memutusnya dapat memutus Tailscale) |
 
 ### Perkakas rekayasa
 
@@ -139,7 +139,7 @@ Semua P0–P2 di daftar lama sudah terpasang dan teruji. Yang tersisa:
 |---|---|---|
 | 1 | **Tanpa GPU diskrit.** Inferensi lokal CPU-only: cold load 10,2 s, prompt eval ± 43 tok/s | Audit §2 |
 | 1b | **Ukuran prompt = waktu.** Laju mesin ini: prompt eval **48,8 tok/dtk**, generasi **5,1 tok/dtk**. Setiap token yang tidak perlu dibayar dengan detik | Ukur 2026-08-12 |
-| 1c | **Prompt sistem 812 token** dibayar pada setiap permintaan (± 17 dtk). Memangkasnya berarti mengubah kepribadian Aether — keputusan pemilik | Ukur 2026-08-12 |
+| 1c | **Prompt sistem 812 token** dibayar pada setiap permintaan (± 17 dtk). Memangkasnya berarti mengubah kepribadian Damar — keputusan pemilik | Ukur 2026-08-12 |
 | 2 | **C: tersisa 86 GB.** Data infrastruktur wajib ke D: | Audit §2 |
 | 3 | **Router mengisolasi klien LAN.** Akses lintas-perangkat lewat Tailscale | Audit §6 |
 | 4 | **IP LAN dari DHCP**, bisa berubah | Audit §6 |
@@ -152,4 +152,4 @@ Semua P0–P2 di daftar lama sudah terpasang dan teruji. Yang tersisa:
 
 Dokumen ini mencatat apa yang **benar-benar ada**, bukan yang direncanakan.
 
-Saat ini Aether OS terdiri dari dokumen arsitektur saja. Belum ada kernel, belum ada API, belum ada memori, belum ada UI. Setiap baris di tabel "sudah selesai" merujuk berkas yang nyata dan dapat dibaca.
+Saat ini Damar OS terdiri dari dokumen arsitektur saja. Belum ada kernel, belum ada API, belum ada memori, belum ada UI. Setiap baris di tabel "sudah selesai" merujuk berkas yang nyata dan dapat dibaca.

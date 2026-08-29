@@ -14,7 +14,7 @@ const { buildRegistry } = require("../benchmark/tool-fixture");
  *
  * Produksi: aiRuntimeService.chat/stream → exec.contextTokens =
  * activeContextTokens() (dari konfigurasi model lokal / provider) →
- * AIRuntime.resolveTools + ContextBudget. Env AETHER_MODEL_CONTEXT_TOKENS
+ * AIRuntime.resolveTools + ContextBudget. Env DAMAR_MODEL_CONTEXT_TOKENS
  * hanya fallback — test ini TIDAK meng-set env apa pun.
  */
 
@@ -78,7 +78,7 @@ test("H6: Pipeline.select(contextTokens=4096) menjaga system+history+dinamik di 
 
     const bigCorpus = Array.from({ length: 30 }, (_, i) => ({
         role: "user",
-        content: `catatan panjang nomor ${i}: ` + "proyek aether ".repeat(400)
+        content: `catatan panjang nomor ${i}: ` + "proyek damar ".repeat(400)
     }));
 
     const { diagnostics } = await ContextPipeline.select({
@@ -110,7 +110,7 @@ test("H6: tanpa env dan tanpa exec.contextTokens, fallback konservatif tetap ama
         messages: [{ role: "user", content: "baca file server.js dong" }]
     };
 
-    delete process.env.AETHER_MODEL_CONTEXT_TOKENS;
+    delete process.env.DAMAR_MODEL_CONTEXT_TOKENS;
 
     try {
         rt.resolveTools(request);
@@ -119,7 +119,7 @@ test("H6: tanpa env dan tanpa exec.contextTokens, fallback konservatif tetap ama
         assert.equal(diag.budget.contextTokens, 32768);
     }
     finally {
-        delete process.env.AETHER_MODEL_CONTEXT_TOKENS;
+        delete process.env.DAMAR_MODEL_CONTEXT_TOKENS;
     }
 
 });
@@ -136,72 +136,72 @@ test("H6 R3: activeContextTokens — env fallback tidak pernah melampaui window 
     // hanya membangun string prompt — aman dimuat).
     const inst = Object.create(Object.getPrototypeOf(svc));
 
-    const savedEnv = process.env.AETHER_MODEL_CONTEXT_TOKENS;
+    const savedEnv = process.env.DAMAR_MODEL_CONTEXT_TOKENS;
 
     try {
         // real=4096, env=32768 → efektif <= 4096
         inst._localContextTokens = 4096;
         inst.activePlatform = { id: "llamacpp" };
-        process.env.AETHER_MODEL_CONTEXT_TOKENS = "32768";
+        process.env.DAMAR_MODEL_CONTEXT_TOKENS = "32768";
         assert.equal(inst.activeContextTokens(), 4096,
             "env TIDAK boleh memperbesar window model yang diketahui");
 
         // real=8192, env=4096 → 4096 (mengecilkan boleh)
         inst._localContextTokens = 8192;
-        process.env.AETHER_MODEL_CONTEXT_TOKENS = "4096";
+        process.env.DAMAR_MODEL_CONTEXT_TOKENS = "4096";
         assert.equal(inst.activeContextTokens(), 4096);
 
         // real=4096, tanpa env → 4096
         inst._localContextTokens = 4096;
-        delete process.env.AETHER_MODEL_CONTEXT_TOKENS;
+        delete process.env.DAMAR_MODEL_CONTEXT_TOKENS;
         assert.equal(inst.activeContextTokens(), 4096);
 
         // real tidak diketahui (cloud), env=8192 → fallback bekerja
         inst._localContextTokens = null;
         inst.activePlatform = { id: "openai" };
-        process.env.AETHER_MODEL_CONTEXT_TOKENS = "8192";
+        process.env.DAMAR_MODEL_CONTEXT_TOKENS = "8192";
         assert.equal(inst.activeContextTokens(), 8192);
 
         // real tidak diketahui, tanpa env → null (default konservatif)
-        delete process.env.AETHER_MODEL_CONTEXT_TOKENS;
+        delete process.env.DAMAR_MODEL_CONTEXT_TOKENS;
         assert.equal(inst.activeContextTokens(), null);
     }
     finally {
-        if (savedEnv === undefined) delete process.env.AETHER_MODEL_CONTEXT_TOKENS;
-        else process.env.AETHER_MODEL_CONTEXT_TOKENS = savedEnv;
+        if (savedEnv === undefined) delete process.env.DAMAR_MODEL_CONTEXT_TOKENS;
+        else process.env.DAMAR_MODEL_CONTEXT_TOKENS = savedEnv;
     }
 
 });
 
 test("H6 R3: ContextBudget.compute — empat probe preseden wajib", () => {
 
-    const savedEnv = process.env.AETHER_MODEL_CONTEXT_TOKENS;
+    const savedEnv = process.env.DAMAR_MODEL_CONTEXT_TOKENS;
 
     try {
         // real=4096, env=32768 → efektif <= 4096
-        process.env.AETHER_MODEL_CONTEXT_TOKENS = "32768";
+        process.env.DAMAR_MODEL_CONTEXT_TOKENS = "32768";
         let p = ContextBudget.compute({ contextTokens: 4096 }).profile;
         assert.ok(p.contextTokens <= 4096,
             `compute memakai ${p.contextTokens}; env memperbesar window nyata`);
 
         // real=8192, env=4096 → nilai lebih kecil sah
-        process.env.AETHER_MODEL_CONTEXT_TOKENS = "4096";
+        process.env.DAMAR_MODEL_CONTEXT_TOKENS = "4096";
         p = ContextBudget.compute({ contextTokens: 8192 }).profile;
         assert.equal(p.contextTokens, 4096);
 
         // real tidak diketahui, env=8192 → fallback bekerja
-        process.env.AETHER_MODEL_CONTEXT_TOKENS = "8192";
+        process.env.DAMAR_MODEL_CONTEXT_TOKENS = "8192";
         p = ContextBudget.compute({ contextTokens: null }).profile;
         assert.equal(p.contextTokens, 8192);
 
         // real=4096, tanpa env → 4096
-        delete process.env.AETHER_MODEL_CONTEXT_TOKENS;
+        delete process.env.DAMAR_MODEL_CONTEXT_TOKENS;
         p = ContextBudget.compute({ contextTokens: 4096 }).profile;
         assert.equal(p.contextTokens, 4096);
     }
     finally {
-        if (savedEnv === undefined) delete process.env.AETHER_MODEL_CONTEXT_TOKENS;
-        else process.env.AETHER_MODEL_CONTEXT_TOKENS = savedEnv;
+        if (savedEnv === undefined) delete process.env.DAMAR_MODEL_CONTEXT_TOKENS;
+        else process.env.DAMAR_MODEL_CONTEXT_TOKENS = savedEnv;
     }
 
 });
@@ -209,9 +209,9 @@ test("H6 R3: ContextBudget.compute — empat probe preseden wajib", () => {
 test("H6 R3: Tool Pipeline mematuhi window efektif walau env lebih besar", async () => {
 
     const PipelineTools = require("../../src/ai/tools/Pipeline");
-    const savedEnv = process.env.AETHER_MODEL_CONTEXT_TOKENS;
+    const savedEnv = process.env.DAMAR_MODEL_CONTEXT_TOKENS;
 
-    process.env.AETHER_MODEL_CONTEXT_TOKENS = "32768";
+    process.env.DAMAR_MODEL_CONTEXT_TOKENS = "32768";
 
     try {
         const r = await PipelineTools.select({
@@ -226,8 +226,8 @@ test("H6 R3: Tool Pipeline mematuhi window efektif walau env lebih besar", async
             "Tool Intelligence harus memakai window efektif, bukan env yang lebih besar");
     }
     finally {
-        if (savedEnv === undefined) delete process.env.AETHER_MODEL_CONTEXT_TOKENS;
-        else process.env.AETHER_MODEL_CONTEXT_TOKENS = savedEnv;
+        if (savedEnv === undefined) delete process.env.DAMAR_MODEL_CONTEXT_TOKENS;
+        else process.env.DAMAR_MODEL_CONTEXT_TOKENS = savedEnv;
     }
 
 });

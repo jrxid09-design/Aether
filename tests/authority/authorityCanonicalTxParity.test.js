@@ -22,7 +22,7 @@ async function seedGrant(registry, {
         proposalId: "prop-" + capabilityId, createdBy: "owner",
         kind: "authority_expansion",
         problem: "p", proposedChange: "c",
-        requestedAuthority: { capabilityId, subject: "aether-core",
+        requestedAuthority: { capabilityId, subject: "damar-core",
                               actions, maxExecutions }
     }, "owner");
     await registry.ratify({ ratificationId: "rat-" + capabilityId,
@@ -101,7 +101,7 @@ test("B6: transition/suspend/resume/revoke/delegate menerima varian " +
 
     // delegate dari parent varian format:
     const del = await registry.delegate("VAR::CAP", {
-        capabilityId: "var.child", subject: "aether-core",
+        capabilityId: "var.child", subject: "damar-core",
         actions: ["use"], scope: [], allowedPurposes: [],
         maxExecutions: 1 });
     assert.equal(del.allowed, true,
@@ -146,7 +146,7 @@ test("B7 sqlite: event-gagal saat ROOT issuance -> tidak ada capability, " +
         kind: "authority_expansion",
         problem: "p", proposedChange: "c",
         requestedAuthority: { capabilityId: "tx.root",
-            subject: "aether-core", actions: ["use"] }
+            subject: "damar-core", actions: ["use"] }
     }, "owner");
     await reg.ratify({ ratificationId: "rat-txroot",
         proposalId: "prop-txroot", ownerIdentity: "o",
@@ -196,7 +196,7 @@ test("B7 sqlite: event-gagal saat DELEGATION -> tidak ada child, " +
     let threw = false;
     try {
         await reg.delegate("deleg.parent", {
-            capabilityId: "deleg.child", subject: "aether-core",
+            capabilityId: "deleg.child", subject: "damar-core",
             actions: ["use"], maxExecutions: 2 });
     } catch { threw = true; }
 
@@ -212,7 +212,7 @@ test("B7 sqlite: event-gagal saat DELEGATION -> tidak ada child, " +
 
     await database.exec("DROP TRIGGER fail_ev");
     const ok = await reg.delegate("deleg.parent", {
-        capabilityId: "deleg.child", subject: "aether-core",
+        capabilityId: "deleg.child", subject: "damar-core",
         actions: ["use"], maxExecutions: 2 });
     assert.equal(ok.allowed, true);
     assert.equal(
@@ -239,7 +239,7 @@ test("B7 memory: appendEvent gagal -> rollback snapshot identik",
         kind: "authority_expansion",
         problem: "p", proposedChange: "c",
         requestedAuthority: { capabilityId: "mem.tx",
-            subject: "aether-core", actions: ["use"] }
+            subject: "damar-core", actions: ["use"] }
     }, "owner");
     await reg.ratify({ ratificationId: "rat-memtx",
         proposalId: "prop-memtx", ownerIdentity: "o",
@@ -266,7 +266,7 @@ test("B7 memory: appendEvent gagal -> rollback snapshot identik",
     let delThrew = false;
     try {
         await reg.delegate("mem.tx", {
-            capabilityId: "mem.tx.child", subject: "aether-core",
+            capabilityId: "mem.tx.child", subject: "damar-core",
             actions: ["use"], maxExecutions: 1 });
     } catch { delThrew = true; }
     assert.equal(delThrew, true);
@@ -323,7 +323,7 @@ async function runConsumptionMatrix(makeRegistry) {
     {
         const { registry } = makeRegistry();
         await seedGrant(registry, { capabilityId: "m.gen" });
-        await registry.revokeSubjectGeneration("aether-core");
+        await registry.revokeSubjectGeneration("damar-core");
         outcomes.stale = await registry.consumeExecution("m.gen");
     }
 

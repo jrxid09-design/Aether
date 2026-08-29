@@ -7,7 +7,7 @@ const PostTool = require("../plugins/http/tools/post");
     const result = await tool.execute({}, {
         url: "https://jsonplaceholder.typicode.com/posts",
         body: {
-            title: "Aether",
+            title: "Damar",
             body: "Hello World",
             userId: 1
         }

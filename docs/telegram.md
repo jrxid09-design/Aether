@@ -1,6 +1,6 @@
-# Aether di Telegram
+# Damar di Telegram
 
-Remote control Aether dari mana saja lewat Telegram. Memakai
+Remote control Damar dari mana saja lewat Telegram. Memakai
 long-polling — **tidak perlu port publik, domain, atau webhook**, jadi
 jalan mulus dari balik NAT rumah.
 
@@ -10,14 +10,14 @@ jalan mulus dari balik NAT rumah.
 2. Di `.env` daemon:
 
    ```
-   AETHER_TELEGRAM_TOKEN=123456:ABC-DEF...
+   DAMAR_TELEGRAM_TOKEN=123456:ABC-DEF...
    ```
 
 3. Jalankan daemon, lalu kirim `/id` ke bot-mu. Ia membalas chat id-mu.
 4. Tambahkan chat id itu ke `.env` dan jalankan ulang:
 
    ```
-   AETHER_TELEGRAM_ALLOWED=123456789
+   DAMAR_TELEGRAM_ALLOWED=123456789
    ```
 
 Beberapa id dipisah koma untuk mengizinkan anggota keluarga.
@@ -25,14 +25,14 @@ Beberapa id dipisah koma untuk mengizinkan anggota keluarga.
 ## Keamanan
 
 Bot **hanya membalas chat id yang terdaftar** di
-`AETHER_TELEGRAM_ALLOWED`. Tanpa allowlist, bot hanya mau menjawab
+`DAMAR_TELEGRAM_ALLOWED`. Tanpa allowlist, bot hanya mau menjawab
 `/id` dan menolak yang lain — supaya rumahmu tidak bisa dikendalikan
 orang asing yang kebetulan menemukan bot. Daftarkan id-mu dulu sebelum
 bot benar-benar berguna.
 
 ## Pemakaian
 
-Ketik apa saja untuk ngobrol — jawaban datang dari otak Aether yang
+Ketik apa saja untuk ngobrol — jawaban datang dari otak Damar yang
 sama (lengkap dengan memori jangka panjang dan tool). Perintah:
 
 | Perintah | Guna |
@@ -54,5 +54,5 @@ mendeteksi seseorang, backup NAS selesai, atau container mati.
 - Konteks percakapan disimpan per-chat selama daemon berjalan;
   `/reset` mengosongkannya.
 - Status bisa dicek di `GET /api/v1/console/telegram/status`.
-- Bila `AETHER_TELEGRAM_TOKEN` belum diset, bot nonaktif diam-diam —
+- Bila `DAMAR_TELEGRAM_TOKEN` belum diset, bot nonaktif diam-diam —
   daemon tetap jalan normal.

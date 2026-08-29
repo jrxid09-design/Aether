@@ -16,7 +16,7 @@ function makeCore() {
     return new acc.ContinuityCore({
         store: createMemoryAccStore(),
         clock: acc.manualClock(T0),
-        config: acc.createACCConfig({ AETHER_ACC: "shadow" })
+        config: acc.createACCConfig({ DAMAR_ACC: "shadow" })
     });
 }
 
@@ -87,7 +87,7 @@ test("C0.6: prediksi terbuka → resolusi → kalibrasi Brier eksak", async () =
     const clock = acc.manualClock(T0);
     const core = new acc.ContinuityCore({
         store: createMemoryAccStore(), clock,
-        config: acc.createACCConfig({ AETHER_ACC: "shadow" })
+        config: acc.createACCConfig({ DAMAR_ACC: "shadow" })
     });
     await core.initialize();
 

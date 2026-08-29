@@ -73,7 +73,7 @@ function sources_history(messages, recentCount) {
         ContextItem.create({
             source: "history",
             kind: ContextItem.KIND.RELEVANT_HISTORY,
-            content: `${m.role === "assistant" ? "Aether" : "Pengguna"}: ${m.content}`,
+            content: `${m.role === "assistant" ? "Damar" : "Pengguna"}: ${m.content}`,
             metadata: { role: m.role }
         })
     );
@@ -116,9 +116,9 @@ test("context mandatory tidak pernah dibuang anggaran/relevansi", async () => {
 
 test("model 8K mendapat dynamic budget lebih ketat daripada model besar", () => {
 
-    process.env.AETHER_MODEL_CONTEXT_TOKENS = "8192";
+    process.env.DAMAR_MODEL_CONTEXT_TOKENS = "8192";
     const small = ContextBudget.compute({ stableTokens: 2000 });
-    delete process.env.AETHER_MODEL_CONTEXT_TOKENS;
+    delete process.env.DAMAR_MODEL_CONTEXT_TOKENS;
 
     const big = ContextBudget.compute({ contextTokens: 131072, stableTokens: 2000 });
 
@@ -197,7 +197,7 @@ test("blok dinamis tersusun dalam URUTAN KONTRAK (recap → memory → mind)", (
     const items = [
         ContextItem.create({ source: "mind", kind: "mind", content: "BATIN: fokus tinggi." }),
         ContextItem.create({ source: "mem", kind: "memory", content: "- ingatan: X" }),
-        ContextItem.create({ source: "hist", kind: "relevant_history", content: "Aether: sesi lama Y" })
+        ContextItem.create({ source: "hist", kind: "relevant_history", content: "Damar: sesi lama Y" })
     ];
 
     const blocks = Assembler.buildDynamicBlocks(items);
@@ -334,10 +334,10 @@ test("contextRefs tanpa resolver diabaikan dengan catatan (bukan error)", async 
         channel: "cli",
         includeMind: false,
         aiRuntime: null,
-        contextRefs: ["project:aether"]
+        contextRefs: ["project:damar"]
     });
 
-    assert.ok(r.diagnostics.unresolvedRefs.includes("project:aether"));
+    assert.ok(r.diagnostics.unresolvedRefs.includes("project:damar"));
 
 });
 

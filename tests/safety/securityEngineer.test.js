@@ -8,7 +8,7 @@ const auditor = require("../../src/security/auditor");
 const { securityTools } = require("../../src/security/tools");
 
 /**
- * Insinyur keamanan (Aether 2.0).
+ * Insinyur keamanan (Damar 2.0).
  *
  * Yang dijaga di sini: temuan harus BERBUKTI (berkas:baris benar),
  * aturan tidak boleh menuduh kode yang wajar, dan audit yang gagal
@@ -16,7 +16,7 @@ const { securityTools } = require("../../src/security/tools");
  */
 
 function proyekUji(berkas) {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aether-sec-"));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "damar-sec-"));
     for (const [nama, isi] of Object.entries(berkas)) {
         const abs = path.join(dir, nama);
         fs.mkdirSync(path.dirname(abs), { recursive: true });

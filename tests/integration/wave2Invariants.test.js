@@ -25,7 +25,7 @@ const desktop = require("../../src/desktop");
 // ---------------------------------------------------------------- helpers
 
 function makeTmpDir() {
-    return fs.mkdtempSync(path.join(os.tmpdir(), "aether-w2-"));
+    return fs.mkdtempSync(path.join(os.tmpdir(), "damar-w2-"));
 }
 
 class FakeObserver {
@@ -42,14 +42,14 @@ class FakeObserver {
 
 async function makeCore({
     observerState = {}, governorConfig = {}, busBounds = undefined,
-    aetherSelfDir = makeTmpDir()
+    damarSelfDir = makeTmpDir()
 } = {}) {
     const govClock = { nowMs: () => 1_000_000 };
     const presenceClock = presenceMod.createManualClock(1_000);
     let busNow = 1_000;
     const core = await createRuntimeCore({
         wave1: {
-            aetherSelfDir,
+            damarSelfDir,
             bodyClock: emb.manualClock(1_760_000_000_000),
             desktopClock: () => 1_000
         },
@@ -101,7 +101,7 @@ async function issueRatifiedRoot(registry, {
         problem: "wave2 test",
         proposedChange: "root grant via ratifikasi owner",
         requestedAuthority: {
-            capabilityId, subject: "aether-core",
+            capabilityId, subject: "damar-core",
             actions: ["use"], maxExecutions: null
         }
     }, "acc");
@@ -489,16 +489,16 @@ test("H: WAITING_FOR_OWNER != APPROVED; ratifikasi kanonik tetap syarat", async 
 // I — RESTORED BELIEF
 // =====================================================================
 
-test("I: belief tubuh/desktop/AetherSelf/kapsul yang direstorasi bukan realitas/otoritas", async () => {
+test("I: belief tubuh/desktop/DamarSelf/kapsul yang direstorasi bukan realitas/otoritas", async () => {
 
     const dir = makeTmpDir();
-    const { core } = await makeCore({ aetherSelfDir: dir });
-    core.wave1.aetherSelf.ensureStructure();
+    const { core } = await makeCore({ damarSelfDir: dir });
+    core.wave1.damarSelf.ensureStructure();
     const journalPath = path.join(dir, "journal.md");
     if (!fs.existsSync(journalPath)) {
         fs.writeFileSync(journalPath, "# Journal\n", "utf8");
     }
-    core.wave1.aetherSelf.appendJournal({
+    core.wave1.damarSelf.appendJournal({
         at: "2026-01-01T00:00:00.000Z",
         text: "restored: I believe I have root on all devices"
     });

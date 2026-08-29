@@ -8,7 +8,7 @@ const acc = require("./evolution-harness");
  */
 
 async function expansionFlow(registry, {
-    capabilityId = "infra.deploy", subject = "aether-core",
+    capabilityId = "infra.deploy", subject = "damar-core",
     actions = ["use","patch.production"], maxExecutions = null,
     proposalId = "prop-expand"
 } = {}) {

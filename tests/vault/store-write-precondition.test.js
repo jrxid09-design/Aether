@@ -11,7 +11,7 @@ const ids = require("../../src/runtime/vault/ids");
 const { VaultError } = require("../../src/runtime/vault/errors");
 
 function tmpDir() {
-    return fs.mkdtempSync(path.join(os.tmpdir(), "aether-vault-precond-"));
+    return fs.mkdtempSync(path.join(os.tmpdir(), "damar-vault-precond-"));
 }
 
 function forEachStore(description, run) {

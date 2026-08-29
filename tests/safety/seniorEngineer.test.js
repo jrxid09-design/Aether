@@ -8,11 +8,11 @@ const { execFileSync } = require("node:child_process");
 const { codingTools } = require("../../src/coding/tools");
 
 /**
- * Disiplin insinyur senior (Aether 2.0).
+ * Disiplin insinyur senior (Damar 2.0).
  *
  * Dua hal yang harus tetap ada: tool peninjau diff sendiri sebelum
  * commit, dan urutan kerjanya di system prompt. Tanpa diff review,
- * Aether commit tanpa pernah membaca perubahannya sendiri.
+ * Damar commit tanpa pernah membaca perubahannya sendiri.
  */
 
 function tool(name) {
@@ -34,7 +34,7 @@ test("code_diff terdaftar dan terpilih pada giliran koding", () => {
 
 test("code_diff menolak folder yang bukan repo git", async () => {
 
-    const kosong = fs.mkdtempSync(path.join(os.tmpdir(), "aether-nonrepo-"));
+    const kosong = fs.mkdtempSync(path.join(os.tmpdir(), "damar-nonrepo-"));
 
     const hasil = await tool("code_diff").execute({ project: kosong });
 
@@ -44,12 +44,12 @@ test("code_diff menolak folder yang bukan repo git", async () => {
 
 test("code_diff melaporkan status + diff dan memangkas keluaran panjang", async () => {
 
-    const repo = fs.mkdtempSync(path.join(os.tmpdir(), "aether-repo-"));
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), "damar-repo-"));
     const git = args => execFileSync("git", args, { cwd: repo, windowsHide: true });
 
     git(["init", "-q"]);
-    git(["config", "user.email", "test@aether.local"]);
-    git(["config", "user.name", "Aether Test"]);
+    git(["config", "user.email", "test@damar.local"]);
+    git(["config", "user.name", "Damar Test"]);
 
     fs.writeFileSync(path.join(repo, "a.txt"), "baris awal\n");
     git(["add", "-A"]);

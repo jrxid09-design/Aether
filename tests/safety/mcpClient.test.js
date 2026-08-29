@@ -6,7 +6,7 @@ const fs = require("node:fs");
 const { McpClient } = require("../../src/mcp/mcpClient");
 
 /**
- * Aether sebagai KLIEN MCP.
+ * Damar sebagai KLIEN MCP.
  *
  * Yang dijaga: handshake initialize → tools/list, korelasi id
  * JSON-RPC, pemanggilan tools/call dengan argumen, allowlist
@@ -96,8 +96,8 @@ test("start: handshake initialize + tools/list", async t => {
 
 test("tools/call mengirim argumen dan mengembalikan teks hasil", async t => {
     const client = await withClient(t);
-    const out = await client.callTool("echo", { text: "halo aether" });
-    assert.equal(out, "echo: halo aether");
+    const out = await client.callTool("echo", { text: "halo damar" });
+    assert.equal(out, "echo: halo damar");
 });
 
 test("tools/call multi-argumen dan angka", async t => {

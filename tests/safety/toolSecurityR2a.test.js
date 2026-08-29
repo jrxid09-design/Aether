@@ -96,7 +96,7 @@ test("C1d. internal system eksplisit tetap sah (GoalEngine path)", async () => {
 
 test("C2. console guard: unset/empty→503, wrong→401, valid→provenance superadmin", () => {
 
-    delete process.env.AETHER_TOKEN;
+    delete process.env.DAMAR_TOKEN;
     const { tokenGuard } = require("../../src/core/auth/tokenCompare");
 
     const resLike = () => {
@@ -109,20 +109,20 @@ test("C2. console guard: unset/empty→503, wrong→401, valid→provenance supe
     const guard = tokenGuard({ roleWhenAuthenticated: "superadmin", surface: "console" });
 
     // unset
-    delete process.env.AETHER_TOKEN;
+    delete process.env.DAMAR_TOKEN;
     let res = resLike(), next = false;
     guard({ method: "POST", headers: { host: "10.0.0.5:3000" }, ip: "10.0.0.5" }, res, () => { next = true; });
     assert.equal(next, false);
     assert.equal(res.statusCode, 503);
 
     // empty string
-    process.env.AETHER_TOKEN = "";
+    process.env.DAMAR_TOKEN = "";
     res = resLike(); next = false;
     guard({ method: "POST", headers: { host: "x" } }, res, () => { next = true; });
     assert.equal(res.statusCode, 503);
 
     // wrong
-    process.env.AETHER_TOKEN = "rahasia";
+    process.env.DAMAR_TOKEN = "rahasia";
     res = resLike(); next = false;
     guard({ method: "POST", headers: { authorization: "Bearer salah" } }, res, () => { next = true; });
     assert.equal(res.statusCode, 401);
@@ -135,7 +135,7 @@ test("C2. console guard: unset/empty→503, wrong→401, valid→provenance supe
     assert.equal(req.authIdentity.role, "superadmin");
     assert.match(req.authIdentity.source, /token:console/);
 
-    delete process.env.AETHER_TOKEN;
+    delete process.env.DAMAR_TOKEN;
 
 });
 
@@ -143,9 +143,9 @@ test("C2. console guard: unset/empty→503, wrong→401, valid→provenance supe
 
 test("N1. dev-open: Host: localhost dari remote TIDAK mendapat superadmin", () => {
 
-    delete process.env.AETHER_TOKEN;
-    process.env.AETHER_UNSAFE_DEV_OPEN_API = "1";
-    process.env.AETHER_UNSAFE_DEV_ROLE = "superadmin";
+    delete process.env.DAMAR_TOKEN;
+    process.env.DAMAR_UNSAFE_DEV_OPEN_API = "1";
+    process.env.DAMAR_UNSAFE_DEV_ROLE = "superadmin";
 
     try {
         const { tokenGuard } = require("../../src/core/auth/tokenCompare");
@@ -170,7 +170,7 @@ test("N1. dev-open: Host: localhost dari remote TIDAK mendapat superadmin", () =
         const local = { method: "POST", headers: { host: "evil.example" }, ip: "127.0.0.1" };
         guard(local, resLike(), () => {});
         assert.equal(local.authIdentity.role, "superadmin",
-            "loopback asli tetap dapat AETHER_UNSAFE_DEV_ROLE");
+            "loopback asli tetap dapat DAMAR_UNSAFE_DEV_ROLE");
 
         const v6 = { method: "POST", headers: {}, ip: "::1" };
         guard(v6, resLike(), () => {});
@@ -186,8 +186,8 @@ test("N1. dev-open: Host: localhost dari remote TIDAK mendapat superadmin", () =
         assert.equal(unknown.authIdentity.role, "user");
     }
     finally {
-        delete process.env.AETHER_UNSAFE_DEV_OPEN_API;
-        delete process.env.AETHER_UNSAFE_DEV_ROLE;
+        delete process.env.DAMAR_UNSAFE_DEV_OPEN_API;
+        delete process.env.DAMAR_UNSAFE_DEV_ROLE;
     }
 
 });

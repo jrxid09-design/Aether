@@ -59,14 +59,14 @@ require.cache[devPath] = {
 const ToolExecutor = require("../../src/ai/tools/ToolExecutor");
 const { AIToolRegistry } = require("../../src/ai/tools");
 
-const skills = require("../../src/plugins/aetherSkills/tools.js");
+const skills = require("../../src/plugins/damarSkills/tools.js");
 
 // FIXTURE HERMETIK (packaging): model vision tidak boleh bergantung pada
 // configs/vision.json ambient milik pemilik. Tes hanya butuh SEBUAH model
 // vision terkonfigurasi - bukan model tertentu - agar jalur see_camera/
 // describe_image dapat menguji SSRF + pewarisan otoritas deterministik.
-process.env.AETHER_VISION_MODEL =
-    process.env.AETHER_VISION_MODEL ?? "vision-fixture-model";
+process.env.DAMAR_VISION_MODEL =
+    process.env.DAMAR_VISION_MODEL ?? "vision-fixture-model";
 
 function buildExecutor() {
     const reg = new AIToolRegistry();

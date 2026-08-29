@@ -1,7 +1,7 @@
 const Result = require("../core/models/Result");
 
 console.log(Result.ok({
-    name: "Aether"
+    name: "Damar"
 }));
 
 console.log(Result.fail("Something went wrong"));

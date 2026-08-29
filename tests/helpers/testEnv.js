@@ -15,27 +15,27 @@ const path = require("node:path");
  * kejadian nyata — dan itu menghapus seluruh gunanya.
  */
 
-if (!process.env.AETHER_AUDIT_DIR) {
-    process.env.AETHER_AUDIT_DIR =
-        fs.mkdtempSync(path.join(os.tmpdir(), "aether-audit-test-"));
+if (!process.env.DAMAR_AUDIT_DIR) {
+    process.env.DAMAR_AUDIT_DIR =
+        fs.mkdtempSync(path.join(os.tmpdir(), "damar-audit-test-"));
 }
 
 // Basis memori juga. Tes buildMemory sempat menitipkan 9 catatan
 // palsu ke memori sungguhan, dan karena memori disuntikkan ke
 // system prompt, catatan "Area: uji" itu benar-benar muncul sebagai
-// konteks saat pengguna menyapa Aether.
-if (!process.env.AETHER_MEMORY_DB) {
-    process.env.AETHER_MEMORY_DB = path.join(
-        fs.mkdtempSync(path.join(os.tmpdir(), "aether-memdb-test-")),
+// konteks saat pengguna menyapa Damar.
+if (!process.env.DAMAR_MEMORY_DB) {
+    process.env.DAMAR_MEMORY_DB = path.join(
+        fs.mkdtempSync(path.join(os.tmpdir(), "damar-memdb-test-")),
         "memory.db"
     );
 }
 
 // Basis sesi percakapan kanal (src/channels) juga diisolasi — tes
 // kanal tidak boleh menulis ke data/channels.db sungguhan.
-if (!process.env.AETHER_CHANNEL_DB) {
-    process.env.AETHER_CHANNEL_DB = path.join(
-        fs.mkdtempSync(path.join(os.tmpdir(), "aether-chandb-test-")),
+if (!process.env.DAMAR_CHANNEL_DB) {
+    process.env.DAMAR_CHANNEL_DB = path.join(
+        fs.mkdtempSync(path.join(os.tmpdir(), "damar-chandb-test-")),
         "channels.db"
     );
 }
@@ -43,12 +43,12 @@ if (!process.env.AETHER_CHANNEL_DB) {
 process.on("exit", () => {
 
     for (const jalur of [
-        process.env.AETHER_AUDIT_DIR,
-        process.env.AETHER_MEMORY_DB && path.dirname(process.env.AETHER_MEMORY_DB),
-        process.env.AETHER_CHANNEL_DB && path.dirname(process.env.AETHER_CHANNEL_DB)
+        process.env.DAMAR_AUDIT_DIR,
+        process.env.DAMAR_MEMORY_DB && path.dirname(process.env.DAMAR_MEMORY_DB),
+        process.env.DAMAR_CHANNEL_DB && path.dirname(process.env.DAMAR_CHANNEL_DB)
     ]) {
         try {
-            if (jalur && /aether-(audit|memdb|chandb)-test-/.test(jalur)) {
+            if (jalur && /damar-(audit|memdb|chandb)-test-/.test(jalur)) {
                 fs.rmSync(jalur, { recursive: true, force: true });
             }
         }

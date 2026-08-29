@@ -17,7 +17,7 @@ const { makeFakeProvider } = require("../recovery/helpers/fakes");
  */
 
 function makeTmpDir() {
-    return fs.mkdtempSync(path.join(os.tmpdir(), "aether-w2storm-"));
+    return fs.mkdtempSync(path.join(os.tmpdir(), "damar-w2storm-"));
 }
 
 class MutableObserver {
@@ -43,7 +43,7 @@ async function makeStormCore() {
     const observer = new MutableObserver();
     let busNow = 1_000;
     const core = await createRuntimeCore({
-        wave1: { aetherSelfDir: makeTmpDir(),
+        wave1: { damarSelfDir: makeTmpDir(),
                  bodyClock: embClock(), desktopClock: () => 1_000 },
         governorObserver: observer,
         governorConfig: {
@@ -387,7 +387,7 @@ test("SANITY: instantiasi tanpa Console/Electron/transport/aktuator + shutdown b
 
     const { createRuntimeCore } = require("../../src/integration/runtimeCore");
     const core = await createRuntimeCore({
-        wave1: { aetherSelfDir: makeTmpDir() },
+        wave1: { damarSelfDir: makeTmpDir() },
         governorObserver: new MutableObserver()
     });
 

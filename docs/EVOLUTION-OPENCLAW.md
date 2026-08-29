@@ -1,7 +1,7 @@
-# Evolusi Aether — Adopsi Pola OpenClaw
+# Evolusi Damar — Adopsi Pola OpenClaw
 
 Dokumen ini mencatat hasil bedah [OpenClaw](https://github.com/openclaw/openclaw)
-dan pola apa saja yang sudah diadopsi ke Aether sebagai **evolusi arsitektural**.
+dan pola apa saja yang sudah diadopsi ke Damar sebagai **evolusi arsitektural**.
 Ditulis untuk jadi peta "dari mana → ke mana", bukan sekadar changelog.
 
 ---
@@ -43,7 +43,7 @@ Pola kunci yang membuatnya tangguh:
 
 ---
 
-## 2. Kelemahan Aether yang ditutup (peta dampak)
+## 2. Kelemahan Damar yang ditutup (peta dampak)
 
 Sebelum evolusi, bedah menemukan 18 kelemahan arsitektural. Evolusi ini menutup
 **6 di antaranya**, dipilih karena beririsan langsung dengan pola OpenClaw dan
@@ -82,29 +82,29 @@ aman diterapkan tanpa merombak core (prinsip *strangler-fig* di CLAUDE.md):
 - `src/services/whatsappTools.js` — `ensureChat()` konteks-dulu.
 - `src/middleware/auth.js` — delegasi ke `tokenGuard` (constant-time).
 - `src/mcp/index.js` — `/mcp` & `/mcp/health` dijaga token.
-- `scripts/mcp-stdio.js` — meneruskan `AETHER_TOKEN` sebagai Bearer.
+- `scripts/mcp-stdio.js` — meneruskan `DAMAR_TOKEN` sebagai Bearer.
 - `src/server.js` — registrasi kanal + `start/stop` subsistem kanal.
 - `src/routes/api/v1/console.js` — rute `/channels`, `/channels/sessions`.
-- `tests/helpers/testEnv.js` — isolasi `AETHER_CHANNEL_DB` (pola memori/audit).
+- `tests/helpers/testEnv.js` — isolasi `DAMAR_CHANNEL_DB` (pola memori/audit).
 
 ---
 
 ## 4. Peta adopsi selanjutnya (belum dikerjakan)
 
 Pola OpenClaw lain yang sudah terpetakan tapi **sengaja belum** diadopsi,
-karena butuh perubahan lebih dalam atau sudah tercakup subsistem Aether:
+karena butuh perubahan lebih dalam atau sudah tercakup subsistem Damar:
 
 - **Ingress queue durable + tombstone** (#3) — WhatsApp/Telegram saat ini
   langsung proses di event handler; redelivery platform belum di-dedupe.
-- **Pairing (#4)** — Aether masih allowlist statis; kode 8-char + approval
+- **Pairing (#4)** — Damar masih allowlist statis; kode 8-char + approval
   bisa menyusul di atas `ChannelManager`.
-- **Sandboxing tool (#8)** — Aether sudah punya `toolGuard` (killSwitch/
+- **Sandboxing tool (#8)** — Damar sudah punya `toolGuard` (killSwitch/
   riskPolicy/pathPolicy); isolasi proses (docker) belum.
-- **Compaction (#9)** — Aether masih jendela 20 giliran tetap; ringkasan
+- **Compaction (#9)** — Damar masih jendela 20 giliran tetap; ringkasan
   iterative bisa dibangun di atas `SessionStore`.
 - **SessionKey lintas-kanal (#5)** — grammar sudah ada; penyatuan sesi
   WhatsApp↔Telegram↔Console (kontinuitas lintas kanal) belum.
-- **SKILL.md + command-dispatch** — Aether pakai `aetherSkills` data-driven;
+- **SKILL.md + command-dispatch** — Damar pakai `damarSkills` data-driven;
   format frontmatter OpenClaw bisa jadi evolusi berikutnya.
 
 ---

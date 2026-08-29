@@ -2,7 +2,7 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 
 /**
- * Bukti bahwa tulang punggung otonomi Aether BENAR-BENAR terpasang,
+ * Bukti bahwa tulang punggung otonomi Damar BENAR-BENAR terpasang,
  * bukan sekadar ada sebagai berkas (§53, §55, §56).
  *
  * Yang diuji di sini hanya bagian DETERMINISTIK — yang tidak menuntut
@@ -38,7 +38,7 @@ test("§8 computer control benar-benar terekspos", () => {
 test("§36 capability discovery mengembalikan kandidat dari kueri alami", async () => {
     const A = require("../../src/autonomy");
     // Registry menamainya discover(query) — inilah gerbang §36 sebelum
-    // Aether memutuskan membuat kapabilitas baru.
+    // Damar memutuskan membuat kapabilitas baru.
     // Kueri berisi → { capabilities, packages }: kandidat terdaftar
     // plus paket yang bisa dipasang (§36 lapis 3, §11).
     const hasil = await A.capabilities.discover("kirim pesan", { limit: 5 });

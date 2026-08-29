@@ -40,7 +40,7 @@ test("N2: user/director mendelegasikan → worker TIDAK mendapat 'system'", asyn
 
     seen.length = 0;
 
-    await agentHub.run("vanta", "riset topik X", {
+    await agentHub.run("janaka", "riset topik X", {
         exec: { role: "user", sessionId: "sess-A" }
     });
 
@@ -49,7 +49,7 @@ test("N2: user/director mendelegasikan → worker TIDAK mendapat 'system'", asyn
         `eksekusi worker harus mewarisi 'user', dapat '${seen[0].role}'`);
     assert.ok(rankOf(seen[0].role) >= rankOf("user"),
         "worker authority harus <= delegator (user)");
-    assert.match(seen[0].sessionId, /sess-A>worker:vanta/,
+    assert.match(seen[0].sessionId, /sess-A>worker:janaka/,
         "provenance delegasi harus tercatat di sessionId");
 
 });
@@ -58,7 +58,7 @@ test("N2: admin mendelegasikan → worker 'admin', bukan 'system'", async () => 
 
     seen.length = 0;
 
-    await agentHub.run("forge", "perbaiki bug", {
+    await agentHub.run("nakula", "perbaiki bug", {
         exec: { role: "admin", sessionId: "sess-B" }
     });
 
@@ -74,7 +74,7 @@ test("N2 Round-2: identitas HILANG dari jalur tak-tepercaya = 'user', BUKAN syst
 
     // Jalur model/eksternal tanpa identitas — dulu ini diam-diam
     // menjadi 'system' (lubang eskalasi yang ditutup).
-    await agentHub.run("nexus", "cek disk", {});
+    await agentHub.run("nakula", "cek disk", {});
 
     assert.equal(seen[0].role, "user",
         `tanpa identitas harus least-privilege 'user', dapat '${seen[0].role}'`);
@@ -120,7 +120,7 @@ test("N2 Round-2: skill wrapper meneruskan exec ke delegasi", async () => {
     // skill orchestrate wajib meneruskan ctx.exec ke orchestrator.
     seen.length = 0;
 
-    const skills = require("../../src/plugins/aetherSkills/tools.js");
+    const skills = require("../../src/plugins/damarSkills/tools.js");
 
     const orch = skills.find(t => t.name === "orchestrate");
 
@@ -128,7 +128,7 @@ test("N2 Round-2: skill wrapper meneruskan exec ke delegasi", async () => {
         { request: "tugas dari model" },
         { exec: { role: "user", sessionId: "model-sess" } });
 
-    // orchestrator.run → agentHub.run('aether') → runAether harus
+    // orchestrator.run → agentHub.run('damar') → runDamar harus
     // membawa peran 'user', bukan 'system'.
     assert.ok(seen.length >= 1, "delegasi harus sampai ke chat");
     for (const s of seen) {
@@ -144,16 +144,16 @@ test("N2-FINAL: grant kanonik boleh system; palsuan tidak", async () => {
 
     // Sah: grant lahir dari titik kanonik dengan provenance otonom.
     seen.length = 0;
-    await agentHub.run("nexus", "cek disk", {
+    await agentHub.run("nakula", "cek disk", {
         exec: resolveDelegator(null, true, "goal:t1")
     });
     assert.equal(seen[0].role, "system",
         "grant internal eksplisit dengan provenance otonom boleh 'system'");
-    assert.match(seen[0].sessionId, /goal:t1>worker:nexus/);
+    assert.match(seen[0].sessionId, /goal:t1>worker:nakula/);
 
     // Palsuan: internalGrant tanpa provenance kanonik → 'user'.
     seen.length = 0;
-    await agentHub.run("nexus", "cek disk", {
+    await agentHub.run("nakula", "cek disk", {
         exec: { internalGrant: true, source: "goal-engine", sessionId: "palsu" }
     });
     assert.equal(seen[0].role, "user",
@@ -161,11 +161,11 @@ test("N2-FINAL: grant kanonik boleh system; palsuan tidak", async () => {
 
 });
 
-test("N2: direktor 'aether' mewarisi peran delegator", async () => {
+test("N2: direktor 'damar' mewarisi peran delegator", async () => {
 
     seen.length = 0;
 
-    await agentHub.run("aether", "pikirkan arsitektur", {
+    await agentHub.run("damar", "pikirkan arsitektur", {
         exec: { role: "user", sessionId: "sess-C" }
     });
 

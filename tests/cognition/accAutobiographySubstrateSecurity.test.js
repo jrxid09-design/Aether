@@ -22,7 +22,7 @@ test("C0.6: pengalaman signifikan terenkode & tersimpan; sepele tidak", async ()
 
     const core = new acc.ContinuityCore({
         store: createMemoryAccStore(), clock: acc.manualClock(T0),
-        config: acc.createACCConfig({ AETHER_ACC: "shadow" })
+        config: acc.createACCConfig({ DAMAR_ACC: "shadow" })
     });
     await core.initialize();
 
@@ -56,7 +56,7 @@ test("C0.7: MODEL SWAP — identitas/komitmen/prediksi kekal, epoch berganti (§
     const clock = acc.manualClock(T0);
     const core = new acc.ContinuityCore({
         store: createMemoryAccStore(), clock,
-        config: acc.createACCConfig({ AETHER_ACC: "shadow" })
+        config: acc.createACCConfig({ DAMAR_ACC: "shadow" })
     });
     await core.initialize();
 
@@ -102,7 +102,7 @@ test("C0.7: CognitiveRequest — capabilitySet=[] frozen; nol disclosure; ekseku
     // Behavioral — INVARIANT M-1 dijalankan ulang pada request kognitif:
     const anyTools = [
         { name: "terminal_run" }, { name: "memory_recall" },
-        { name: "aetherSkills__wa_send" }
+        { name: "damarSkills__wa_send" }
     ];
     const disclosed = Authorization.disclosureFilter(anyTools, request.exec);
     assert.equal(disclosed.length, 0,
@@ -186,7 +186,7 @@ test("DEP-DIR: foundation TIDAK boleh me-require cognition (§4)", () => {
 
 /* ------------------------------- OFF MODE -------------------------------- */
 
-test("OFF-MODE: AETHER_ACC=off → nol perilaku, nol jejak store (§109)", async () => {
+test("OFF-MODE: DAMAR_ACC=off → nol perilaku, nol jejak store (§109)", async () => {
 
     let calls = 0;
     const countingStore = new Proxy(createMemoryAccStore(), {
@@ -203,7 +203,7 @@ test("OFF-MODE: AETHER_ACC=off → nol perilaku, nol jejak store (§109)", async
     });
 
     const core = await acc.createAccCore({
-        env: { AETHER_ACC: "off" },
+        env: { DAMAR_ACC: "off" },
         store: countingStore
     });
 
@@ -219,7 +219,7 @@ test("OFF-MODE: AETHER_ACC=off → nol perilaku, nol jejak store (§109)", async
 test("SHADOW-PARITY: akumulasi state ACC tidak mengubah keputusan security (§110)", async () => {
 
     const core = await acc.createAccCore({
-        env: { AETHER_ACC: "shadow" },
+        env: { DAMAR_ACC: "shadow" },
         overrides: {}
     });
 
@@ -259,7 +259,7 @@ test("C0.6: autobiography persisted DAN canonical state survive restart", async 
     const store = createMemoryAccStore();
 
     const c1 = await acc.createAccCore({
-        env: { AETHER_ACC: "shadow" },
+        env: { DAMAR_ACC: "shadow" },
         store,
         overrides: {}
     });
@@ -312,7 +312,7 @@ test("C0.6: autobiography persisted DAN canonical state survive restart", async 
 
     // B. Simulasikan restart di atas store yang SAMA.
     const c2 = await acc.createAccCore({
-        env: { AETHER_ACC: "shadow" },
+        env: { DAMAR_ACC: "shadow" },
         store,
         overrides: {}
     });

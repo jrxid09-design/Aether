@@ -8,7 +8,7 @@ const engine = require("../../src/core/verify/VerificationEngine");
 
 /** Tes Verification Engine (§46, Konstitusi Pasal 5). */
 
-const TMP = path.join(os.tmpdir(), `aether-verify-${Date.now()}`);
+const TMP = path.join(os.tmpdir(), `damar-verify-${Date.now()}`);
 
 test.before(() => fs.mkdirSync(TMP, { recursive: true }));
 test.after(() => fs.rmSync(TMP, { recursive: true, force: true }));
@@ -29,7 +29,7 @@ test("tool tanpa verifier ditandai belum terverifikasi", async () => {
     // (Dulu tes ini memakai device_on — lalu device_on DAPAT
     // verifier, dan tes ini gagal. Kegagalan yang benar: dunia
     // berubah, tesnya yang harus menyesuaikan.)
-    const r = await engine.verify("aetherSkills.scene_activate", {}, { ok: true });
+    const r = await engine.verify("damarSkills.scene_activate", {}, { ok: true });
 
     assert.equal(r.state, "unverified");
     assert.ok(r.note, "harus menjelaskan kenapa belum terverifikasi");

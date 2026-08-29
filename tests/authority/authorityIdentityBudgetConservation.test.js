@@ -38,7 +38,7 @@ async function seedRoot(registry, {
         kind: "authority_expansion",
         problem: "p", proposedChange: "c",
         requestedAuthority: {
-            capabilityId, subject: "aether-core", actions,
+            capabilityId, subject: "damar-core", actions,
             scope: ["scope=home-lan"],
             allowedPurposes: ["ops.maintenance"],
             restrictions: ["tool:fs.read"],
@@ -57,7 +57,7 @@ function delegationRequest(capabilityId, { actions = ["use"],
                                             maxExecutions = 1,
                                             identityBinding } = {}) {
     const req = {
-        capabilityId, subject: "aether-core", actions,
+        capabilityId, subject: "damar-core", actions,
         scope: ["scope=home-lan"],
         allowedPurposes: ["ops.maintenance"],
         restrictions: ["tool:fs.read"], maxExecutions

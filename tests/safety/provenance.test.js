@@ -9,7 +9,7 @@ const { asalUsul } = MemoryService;
  *
  * `source`, `confidence`, dan `lastVerified` sudah lama tersimpan di
  * basis data, tetapi tak satu pun sampai ke model. Akibatnya sesuatu
- * yang DISIMPULKAN Aether terbaca sama meyakinkannya dengan sesuatu
+ * yang DISIMPULKAN Damar terbaca sama meyakinkannya dengan sesuatu
  * yang DIKATAKAN pengguna.
  */
 
@@ -26,11 +26,11 @@ test("yang berasal dari pengguna tidak diberi penanda", () => {
 
 });
 
-test("catatan buatan Aether sendiri ditandai", () => {
+test("catatan buatan Damar sendiri ditandai", () => {
 
     const p = asalUsul({ source: "coding-brain", confidence: 1 });
 
-    assert.match(p, /catatan Aether/);
+    assert.match(p, /catatan Damar/);
 
 });
 
@@ -75,7 +75,7 @@ test("asal-usul benar-benar sampai ke konteks yang disuntikkan", async () => {
     const tanda = `PROV${Date.now()}`;
 
     await engine.remember(
-        `Kesimpulan Aether tentang ${tanda} yang belum dipastikan.`,
+        `Kesimpulan Damar tentang ${tanda} yang belum dipastikan.`,
         { type: "skills", metadata: { kind: "observation" } },
         engine.context({ writer: "coding-brain" })
     );
@@ -85,7 +85,7 @@ test("asal-usul benar-benar sampai ke konteks yang disuntikkan", async () => {
     assert.ok(String(ctx.text ?? "").includes(tanda), "catatan uji harus ikut terpanggil");
     assert.match(
         String(ctx.text),
-        /catatan Aether/,
+        /catatan Damar/,
         "penanda asal-usul harus sampai ke konteks, bukan berhenti di basis data"
     );
 

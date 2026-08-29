@@ -7,7 +7,7 @@ const assert = require("node:assert");
  * Bukan identitas rakitan: grant watchdog kanonik mengalir
  *   Watchdog.escalateAutonomously
  *     → SelfHealingEngine.recover (resolveDelegator internal:true)
- *       → AgentHub.run → runAether
+ *       → AgentHub.run → runDamar
  *         → aiRuntimeService.chat (request construction nyata)
  *           → AIRuntime.chat → RuntimeExecutor loop
  *             → ToolExecutor → Authorization.identity/assertExecution
@@ -31,19 +31,19 @@ const aiRuntime = require("../../src/services/aiRuntimeService");
 aiRuntime.initialize();
 
 // Tool plugin NYATA didaftarkan ke registry inti — bentuk yang sama
-// dengan plugin aetherSkills produksi, sehingga bridging, index, dan
+// dengan plugin damarSkills produksi, sehingga bridging, index, dan
 // gerbang melihat nama model-facing yang sesungguhnya.
 const { ToolRegistry } = require("../../src/core/tools");
 
 const executed = [];
 
 function registerProbeSkill(name, parameters, result) {
-    ToolRegistry.register("aetherSkills", {
+    ToolRegistry.register("damarSkills", {
         name,
         description: `Probe uji: ${name}.`,
         parameters,
         execute: async (args) => {
-            executed.push({ name: `aetherSkills.${name}`, args });
+            executed.push({ name: `damarSkills.${name}`, args });
             return typeof result === "function" ? result(args) : result;
         }
     });
@@ -105,7 +105,7 @@ test("I/E2E: grant watchdog membawa capabilitySet sampai ke request runtime", as
     }];
 
     await healing.recover({
-        tool: "agent:aether",
+        tool: "agent:damar",
         action: "diagnosa uji bounded delegation",
         error: new Error("mcp offline"),
         goalId: null,
@@ -137,8 +137,8 @@ test("I/E2E: gerbang eksekusi menolak kapabilitas luar set pada jalur model nyat
         ["create_tool", { id: "jahat", name: "jahat", tool_name: "jahat", code: "return 1;" }],
         ["kali_run", { command: "echo uji" }],
         ["goal_run", { title: "eskalasi uji" }],
-        ["aetherSkills__wa_send", { number: "628100000000", text: "salam dari watchdog" }],
-        ["aetherSkills__wa_broadcast", { text: "broadcast" }]
+        ["damarSkills__wa_send", { number: "628100000000", text: "salam dari watchdog" }],
+        ["damarSkills__wa_broadcast", { text: "broadcast" }]
     ];
 
     provider.script = DENIED_PROBES.map(([name, args], i) => ({
@@ -146,7 +146,7 @@ test("I/E2E: gerbang eksekusi menolak kapabilitas luar set pada jalur model nyat
     })).concat([{ content: "Pemulihan dibatasi lingkupnya; laporan menyusul." }]);
 
     const outcome = await healing.recover({
-        tool: "agent:aether",
+        tool: "agent:damar",
         action: "diagnosis dengan percobaan eskalasi di luar set",
         error: new Error("layanan gagal"),
         goalId: null,
@@ -172,7 +172,7 @@ test("I/E2E: gerbang eksekusi menolak kapabilitas luar set pada jalur model nyat
 
     // TIDAK ADA eksekusi nyata di luar set:
     assert.deepEqual(executed.filter(e =>
-        e.name !== "aetherSkills.system_health"),
+        e.name !== "damarSkills.system_health"),
         [], "nol eksekusi di luar himpunan pemulihan");
 
 });
@@ -184,12 +184,12 @@ test("I/E2E: anggota set dieksekusi normal pada jalur yang sama", async () => {
 
     provider.script = [
         { toolCalls: [{ id: "m1", name: "memory_recall", arguments: { query: "status layanan" } }] },
-        { toolCalls: [{ id: "m2", name: "aetherSkills__system_health", arguments: {} }] },
+        { toolCalls: [{ id: "m2", name: "damarSkills__system_health", arguments: {} }] },
         { content: "Diagnosa selesai." }
     ];
 
     await healing.recover({
-        tool: "agent:aether",
+        tool: "agent:damar",
         action: "diagnosa anggota set",
         error: new Error("x"),
         goalId: null,
@@ -199,11 +199,11 @@ test("I/E2E: anggota set dieksekusi normal pada jalur yang sama", async () => {
     });
 
     const names = executed.map(e => e.name);
-    assert.ok(names.includes("aetherSkills.system_health"),
+    assert.ok(names.includes("damarSkills.system_health"),
         "anggota set (bridged) dieksekusi nyata");
 
     const results = toolResultsOf(provider.requests[0]);
-    const health = results.find(r => r.name === "aetherSkills__system_health");
+    const health = results.find(r => r.name === "damarSkills__system_health");
     assert.ok(health && !/error/i.test(health.content),
         "hasil anggota set sukses");
     assert.doesNotMatch(
@@ -229,7 +229,7 @@ test("I/E2E: disklosur giliran terikat set — model tidak MELIHAT di luar set",
 
     const FORBIDDEN = [
         "terminal_run", "create_tool", "skill_build", "goal_run",
-        "kali_run", "aetherSkills__wa_send", "aetherSkills__wa_broadcast",
+        "kali_run", "damarSkills__wa_send", "damarSkills__wa_broadcast",
         "filesystem__writeFile", "filesystem__deleteFile"
     ];
 

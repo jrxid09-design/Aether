@@ -4,7 +4,7 @@ Status: **V0 (substrat lifecycle deterministik)** · Branch: `feat/presence-runt
 
 Presence Runtime menjawab satu pertanyaan kanon:
 
-> "Aether sedang dalam state apa sebagai entitas yang berjalan, mengapa demikian,
+> "Damar sedang dalam state apa sebagai entitas yang berjalan, mengapa demikian,
 > dan transisi apa saja yang secara legal dimungkinkan?"
 
 ## 0. Batas Konstitusional (P0)
@@ -189,7 +189,7 @@ RuntimeHostPort`. Tanpa import cabang kandidat. Port menormalkan fakta →
   Mikrofon/ASR/TTS/audio berada di luar presence.
 - Host (P25): `STARTED SESSION_LOCKED SESSION_UNLOCKED SUSPENDING RESUMED
   SHUTDOWN_REQUESTED`. V0 tidak mendaftarkan service Windows dan tidak memanggil
-  API Windows. Alur masa depan yang dimaksudkan: login Windows → Aether Runtime
+  API Windows. Alur masa depan yang dimaksudkan: login Windows → Damar Runtime
   launch → BOOTING → INITIALIZING → DORMANT.
 
 ## 12. Produsen Tepercaya (P18)

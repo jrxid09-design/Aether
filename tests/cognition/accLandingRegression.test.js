@@ -22,7 +22,7 @@ const T0 = 1_000_000;
 function makeContinuity({ store, overrides = {}, startMs = T0 } = {}) {
     const clock = acc.manualClock(startMs);
     const config = acc.createACCConfig(
-        { AETHER_ACC: "shadow" }, overrides);
+        { DAMAR_ACC: "shadow" }, overrides);
     const core = new ContinuityCore({
         store: store ?? createMemoryAccStore(),
         clock, config
@@ -97,7 +97,7 @@ function makeSubstrateCore(store) {
     const core = new ContinuityCore({
         store: store ?? createMemoryAccStore(),
         clock,
-        config: acc.createACCConfig({ AETHER_ACC: "shadow" })
+        config: acc.createACCConfig({ DAMAR_ACC: "shadow" })
     });
     return { core, clock };
 }

@@ -6,7 +6,7 @@
  */
 
 // Stub driver native opsional (host tanpa binary sqlite yang cocok).
-if (process.env.AETHER_BENCH_STUB_NATIVE === "1") {
+if (process.env.DAMAR_BENCH_STUB_NATIVE === "1") {
 
     const Module = require("module");
     const originalLoad = Module._load;

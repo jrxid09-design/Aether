@@ -15,7 +15,7 @@ async function seededGrant(registry, { maxExecutions = 2 } = {}) {
         problem: "b", proposedChange: "c",
         requestedAuthority: {
             capabilityId: "tool.heavy",
-            subject: "aether-core",
+            subject: "damar-core",
             actions: ["use"],
             maxExecutions
         }
@@ -51,7 +51,7 @@ test("#27 purpose mismatch DENY; yang cocok ALLOW", async () => {
         kind: "authority_expansion",
         problem: "butuh email", proposedChange: "grant email.send",
         requestedAuthority: {
-            capabilityId: "email.send", subject: "aether-core",
+            capabilityId: "email.send", subject: "damar-core",
             actions: ["use"],
             allowedPurposes: ["reply_to_user_request"]
         }
@@ -80,7 +80,7 @@ test("#28 identity/channel binding mismatch DENY", async () => {
         kind: "authority_expansion",
         problem: "i", proposedChange: "c",
         requestedAuthority: {
-            capabilityId: "session.write", subject: "aether-core",
+            capabilityId: "session.write", subject: "damar-core",
             actions: ["use"], identityBinding: { channels: ["console"] }
         }
     }, "owner");
@@ -127,7 +127,7 @@ test("#29/#31 MALFORMED -> DENY ; issuance event-gagal -> rollback atomik", asyn
         proposalId: "p-tx", createdBy: "owner",
         kind: "authority_expansion",
         problem: "tx", proposedChange: "tx",
-        requestedAuthority: { capabilityId: "tx.cap", subject: "aether-core",
+        requestedAuthority: { capabilityId: "tx.cap", subject: "damar-core",
                               actions: ["use"] }
     }, "owner");
     await reg.ratify({ ratificationId: "r-tx",

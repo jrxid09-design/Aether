@@ -27,7 +27,7 @@ const emb = require("../../src/embodiment");
 const { createMemoryAuthorityStore } = require("../../src/authority/store");
 
 function makeTmpDir() {
-    return fs.mkdtempSync(path.join(os.tmpdir(), "aether-w3-"));
+    return fs.mkdtempSync(path.join(os.tmpdir(), "damar-w3-"));
 }
 
 /** Authority mutation fingerprint: byte-identical before/after == no mutation. */

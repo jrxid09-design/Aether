@@ -25,7 +25,7 @@ async function seedApprovedExpansion(registry, { capabilityId, maxExecutions }) 
         proposalId: "p-" + capabilityId, createdBy: "owner",
         kind: "authority_expansion",
         problem: "uji", proposedChange: "uji",
-        requestedAuthority: { capabilityId, subject: "aether-core",
+        requestedAuthority: { capabilityId, subject: "damar-core",
                               actions: ["use"], maxExecutions }
     }, "owner");
     await registry.ratify({ ratificationId: "r-" + capabilityId,
@@ -60,7 +60,7 @@ test("#30 RESTART sqlite: grant/konsumsi/status selamat persis", async () => {
 
     const cap = await reg2.store.getCapability("restart.cap");
     assert.equal(cap.status, "ACTIVE");
-    assert.equal(cap.payload.subject, "aether-core");
+    assert.equal(cap.payload.subject, "damar-core");
 
     const d = await reg2.authorize({ capabilityId: "restart.cap",
                                      action: "use" });

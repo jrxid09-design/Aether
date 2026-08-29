@@ -1,4 +1,4 @@
-// Dibuat oleh Aether ToolForge.
+// Dibuat oleh Damar ToolForge.
 // Aman diedit tangan; ubah lalu muat ulang dari Console.
 
 class RunCommandTool {
@@ -20,7 +20,7 @@ class RunCommandTool {
         const { exec } = require('child_process');
 
         // Tanpa opsi ini proses anak mewarisi SELURUH environment
-        // Aether — termasuk AETHER_TOKEN dan kunci API. Satu perintah
+        // Damar — termasuk DAMAR_TOKEN dan kunci API. Satu perintah
         // seperti `set` atau `env` sudah cukup untuk membacanya (§38).
         const sandbox = require('../../src/core/safety/codeSandbox');
 

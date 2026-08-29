@@ -8,7 +8,7 @@ Code: `src/capability/registry/**`, `tests/capability/**`
 
 ## Purpose
 
-Aether needs a canonical, descriptive answer to four questions:
+Damar needs a canonical, descriptive answer to four questions:
 
 ```
 What capabilities exist or may exist in this runtime?
@@ -25,7 +25,7 @@ It deliberately does NOT answer:
 
 ```
 Is the caller authorized?   (Authority's job)
-Should Aether execute it?    (later Wave-4 lanes)
+Should Damar execute it?    (later Wave-4 lanes)
 How is it executed?          (later Wave-4 lanes)
 Did execution succeed?       (later Wave-4 lanes)
 ```
@@ -141,7 +141,7 @@ forge the token by constructing an object, guessing a string, importing an
 exported symbol, or cloning a context, because the token and the mint function
 are never placed on any `module.exports`.
 
-**HONEST BOUNDARY (CommonJS):** Aether currently has **no JS module-isolation /
+**HONEST BOUNDARY (CommonJS):** Damar currently has **no JS module-isolation /
 loader-allowlisting** for extension/provider/device code. Module-path privacy
 is therefore NOT treated as a security boundary. The mint capability exists only
 inside the trusted bootstrap module closure and is handed out only as

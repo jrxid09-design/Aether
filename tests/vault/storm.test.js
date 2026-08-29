@@ -59,7 +59,7 @@ test("vault storm: 12000 deterministic operations incl. forged scopes, stale wri
     const now = () => (t += 1);
 
     // Half memory store, half file store — parity under storm load.
-    const fileDir = fs.mkdtempSync(path.join(os.tmpdir(), "aether-vault-storm-"));
+    const fileDir = fs.mkdtempSync(path.join(os.tmpdir(), "damar-vault-storm-"));
     const stores = {
         memory: (() => { const s = vaultMod.store.createMemorySecretStore(); return { store: s, vault: vaultMod.createSecretVault({ now, store: s, config: { maxSecrets: 64 } }) }; })(),
         file: (() => { const s = makeFileStore(fileDir); return { store: s, vault: vaultMod.createSecretVault({ now, store: s, config: { maxSecrets: 64 } }) }; })()

@@ -1,4 +1,4 @@
-# CONTEXT INTELLIGENCE — Pipeline Context Aether
+# CONTEXT INTELLIGENCE — Pipeline Context Damar
 
 Dokumen ini menjelaskan lapisan **Context Intelligence**: sistem yang
 menjawab *"informasi apa yang benar-benar perlu diketahui model pada
@@ -34,7 +34,7 @@ messages dari kanal (apa pun sumbernya)
         ↓ SPLIT             recent window (8 pesan) vs older
         ↓ SOURCES           adapter existing: persona/device, doctrine,
         │                   channelPrompt, MemoryService, consciousness,
-        │                   contextRefs (port Colony)
+        │                   contextRefs (port Pandawa)
         ↓ RELEVANCE         skoring deterministik; ambang untuk history,
         │                   memory/refs/mind dikecualikan (sudah lolos
         │                   alasan pemilihan di sumbernya)
@@ -50,7 +50,7 @@ messages dari kanal (apa pun sumbernya)
 
 Lokasi: `src/ai/context/`. Titik masuk tunggal:
 `aiRuntimeService.assemble()` — dipakai `chat()` dan `stream()`.
-Escape hatch: `AETHER_CONTEXT_PIPELINE=legacy` menjalankan rantai lama
+Escape hatch: `DAMAR_CONTEXT_PIPELINE=legacy` menjalankan rantai lama
 (`withSystemPrompt → withMemory → withMind`) utuh untuk rollback.
 
 ### Modul
@@ -64,7 +64,7 @@ Escape hatch: `AETHER_CONTEXT_PIPELINE=legacy` menjalankan rantai lama
 | `ContextBudget.js` | dynamicBudget = window − 1024(out) − 512(margin) − stableTokens − toolAllowance; caps per kategori |
 | `Compressor.js` | Seleksi baris tak relevan → head+tail dengan penanda jumlah yang dipangkas |
 | `Assembler.js` | Urutan kontrak: stabil di depan, dinamis (recap→memori→batin) di belakang |
-| `refs.js` | Registry resolver `kind:id` — port bersih untuk Colony/Lab tanpa membangunnya |
+| `refs.js` | Registry resolver `kind:id` — port bersih untuk Pandawa/Lab tanpa membangunnya |
 | `Pipeline.js` | Orkestrasi + sanitasi + telemetri `context:selection` |
 
 ### Keputusan desain penting
@@ -102,12 +102,12 @@ Tanpa nilai rahasia, tanpa raw memori sensitif.
 
 | Variabel | Default | Arti |
 |---|---|---|
-| `AETHER_CONTEXT_PIPELINE` | pipeline | `legacy` = jalur lama |
-| `AETHER_CONTEXT_MAX_MESSAGES` | 40 | Batas keras pesan masuk |
-| `AETHER_CONTEXT_MAX_MSG_CHARS` | 6000 | Batas char per pesan |
-| `AETHER_CONTEXT_RECENT` | 8 | Ukuran jendela recent |
-| `AETHER_OBSERVATION_MAX_CHARS` | 4000 | Batas satu observasi tool |
-| `AETHER_MODEL_CONTEXT_TOKENS` | 32768 | Window model aktif |
+| `DAMAR_CONTEXT_PIPELINE` | pipeline | `legacy` = jalur lama |
+| `DAMAR_CONTEXT_MAX_MESSAGES` | 40 | Batas keras pesan masuk |
+| `DAMAR_CONTEXT_MAX_MSG_CHARS` | 6000 | Batas char per pesan |
+| `DAMAR_CONTEXT_RECENT` | 8 | Ukuran jendela recent |
+| `DAMAR_OBSERVATION_MAX_CHARS` | 4000 | Batas satu observasi tool |
+| `DAMAR_MODEL_CONTEXT_TOKENS` | 32768 | Window model aktif |
 
 ### Benchmark
 
@@ -149,6 +149,6 @@ refs (tanpa resolver → catatan; dengan resolver → item berbatas).
 
 Worker AgentHub sudah lewat pipeline yang sama; `agentHub.run(agentId,
 task, { contextRefs })` dan `aiRuntime.chat({ contextRefs })`
-menerima referensi. Colony kelak cukup mendaftarkan resolver
+menerima referensi. Pandawa kelak cukup mendaftarkan resolver
 (`refs.registerResolver("project", ...)`) — director mengirim
 `contextRefs`, bukan salinan context penuh.

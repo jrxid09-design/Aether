@@ -50,13 +50,13 @@ test("ADAPTER: external event → normalize → bus; provenance tercatat sebagai
         assert.equal(att.ok, true);
 
         const r = att.adapter.ingestExternalEvent({
-            text: "halo aether", userId: "user-77"
+            text: "halo damar", userId: "user-77"
         });
         assert.equal(r.accepted, true);
         assert.ok(r.interactionId.startsWith("ix_"));
 
         assert.equal(conversation.seen.length, 1);
-        assert.equal(conversation.seen[0].text, "halo aether");
+        assert.equal(conversation.seen[0].text, "halo damar");
         assert.deepEqual(conversation.seen[0].claimed, { id: "user-77" },
             "identitas eksternal hanya klaim di provenance, bukan fakta");
     } finally {
@@ -116,7 +116,7 @@ test("BRIDGE: peristiwa telemetry Telegram nyata dinormalkan ke InteractionBus",
         bridge.attachEmitter(emitter);
         assert.equal(bridge.attached, true);
 
-        emitter.emit("telegram:message", { chatId: 4242, preview: "status aether?" });
+        emitter.emit("telegram:message", { chatId: 4242, preview: "status damar?" });
 
         assert.equal(conversation.seen.length, 1);
         assert.equal(conversation.seen[0].origin, "TELEGRAM",

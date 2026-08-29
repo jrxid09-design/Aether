@@ -33,12 +33,12 @@ const { ToolRegistry } = require("../../src/core/tools");
 const executed = [];
 
 function registerProbeSkill(name, parameters, result) {
-    ToolRegistry.register("aetherSkills", {
+    ToolRegistry.register("damarSkills", {
         name,
         description: `Probe closure: ${name}.`,
         parameters,
         execute: async (args) => {
-            executed.push({ name: `aetherSkills.${name}`, args });
+            executed.push({ name: `damarSkills.${name}`, args });
             return typeof result === "function" ? result(args) : result;
         }
     });
@@ -121,11 +121,11 @@ test("H1-2: AIRuntime direct chat → execution ⊆ set (di luar set DENY)", asy
     executed.length = 0;
     provider.requests.length = 0;
 
-    const SET = ["aetherSkills.closure_health"];
+    const SET = ["damarSkills.closure_health"];
 
     provider.script = [
         { toolCalls: [{ id: "b1", name: "terminal_run", arguments: { purpose: "x", command: "whoami" } }] },
-        { toolCalls: [{ id: "b2", name: "aetherSkills__closure_health", arguments: {} }] },
+        { toolCalls: [{ id: "b2", name: "damarSkills__closure_health", arguments: {} }] },
         { content: "selesai" }
     ];
 
@@ -142,9 +142,9 @@ test("H1-2: AIRuntime direct chat → execution ⊆ set (di luar set DENY)", asy
         "tool di luar set wajib ditolak gerbang eksekusi");
     assert.match(byName["terminal_run"] ?? "", /capability-set/,
         "penolakan karena capability set, bukan alasan lain");
-    assert.doesNotMatch(byName["aetherSkills__closure_health"] ?? "", /error/i,
+    assert.doesNotMatch(byName["damarSkills__closure_health"] ?? "", /error/i,
         "anggota set dieksekusi normal pada jalur yang sama");
-    assert.ok(executed.some(e => e.name === "aetherSkills.closure_health"),
+    assert.ok(executed.some(e => e.name === "damarSkills.closure_health"),
         "eksekusi anggota set benar-benar terjadi");
 });
 
@@ -176,7 +176,7 @@ test("H1-2b: AIRuntime direct stream paritas dengan chat", async () => {
 
 test("H1-3: visionService meneruskan SATU exec kanonik (bukan role+set terpisah)", async () => {
 
-    process.env.AETHER_VISION_MODEL = "vision-test-model";
+    process.env.DAMAR_VISION_MODEL = "vision-test-model";
 
     try {
         const vision = require("../../src/services/visionService");
@@ -203,7 +203,7 @@ test("H1-3: visionService meneruskan SATU exec kanonik (bukan role+set terpisah)
             "vision tidak lagi mengirim role terpisah — satu exec kanonik");
     }
     finally {
-        delete process.env.AETHER_VISION_MODEL;
+        delete process.env.DAMAR_VISION_MODEL;
     }
 
 });
@@ -289,17 +289,17 @@ test("M3-6a: pemulihan transient menyalakan identitas sampai ke ToolBus", async 
     const healing = require("../../src/autonomy/SelfHealingEngine");
 
     const outcome = await healing.recover({
-        tool: "aetherSkills__closure_health",
+        tool: "damarSkills__closure_health",
         args: {},
         error: new Error("ETIMEDOUT timeout sementara"),
         goalId: "g-closure",
         internal: true,
-        capabilitySet: ["aetherSkills.closure_health"]
+        capabilitySet: ["damarSkills.closure_health"]
     });
 
     assert.equal(outcome.klass, "transient");
     assert.equal(outcome.outcome.ok, true, "anggota set dipulihkan lewat ToolBus");
-    assert.ok(executed.some(e => e.name === "aetherSkills.closure_health"),
+    assert.ok(executed.some(e => e.name === "damarSkills.closure_health"),
         "eksekusi nyata lewat bus dengan identitas delegasi");
 });
 
@@ -310,7 +310,7 @@ test("M3-6b: ToolBus nested MENOLAK kapabilitas luar set warisan pemulihan", asy
     const healing = require("../../src/autonomy/SelfHealingEngine");
 
     const outcome = await healing.recover({
-        tool: "aetherSkills__closure_health",
+        tool: "damarSkills__closure_health",
         args: {},
         error: new Error("ETIMEDOUT timeout sementara"),
         goalId: "g-closure-deny",

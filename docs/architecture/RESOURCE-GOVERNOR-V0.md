@@ -7,7 +7,7 @@ Code: `src/runtime/resourceGovernor/**`, `tests/resourceGovernor/**`
 
 ## Purpose
 
-Aether runs agents, tools, background services, tests, RE workloads and a
+Damar runs agents, tools, background services, tests, RE workloads and a
 future Presence runtime on one shared host. Nothing today prevents these
 subsystems from collectively overloading the machine. The Resource Governor
 is the substrate that answers:

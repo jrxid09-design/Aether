@@ -103,7 +103,7 @@ NLU.
 - Seleksi: panjang + cuplikan ≤120 char dari adapter, bukan dump
   dokumen.
 - Visual: **reference-first** — `captureRequired:true`, tanpa byte
-  gambar; "Aether, lihat ini" kelak menembak capture satu sumber
+  gambar; "Damar, lihat ini" kelak menembak capture satu sumber
   relevan, bukan layar penuh berkala.
 - Clipboard: representasi item terakhir metadata-only; TIDAK ada
   history clipboard.
@@ -114,8 +114,8 @@ NLU.
 | Sistem | Pertanyaan yang dijawab | Relasi |
 |---|---|---|
 | **Context Intelligence** (`src/ai/context/`) | "Informasi apa yang masuk prompt giliran ini?" | Pipeline prompt. Semantic Desktop adalah calon SUMBER baru bagi pipeline itu kelak; V0 tidak menyentuhnya sama sekali |
-| **Sensorium / Body Schema** (Ox #2) | "Perangkat/indra apa yang dimiliki Aether?" | Batas bersih: Sensorium = tubuh, Semantic Desktop = lingkungan digital pemilik. Presence kelak mengonsumsi keduanya. Tidak ada import |
-| **Authority** (masa depan) | "Bolehkah Aether bertindak?" | Observasi memberi NOL otoritas. Tahu paragraf terpilih ≠ boleh menimpanya. Logika otoritas tidak diduplikasi di sini |
+| **Sensorium / Body Schema** (Ox #2) | "Perangkat/indra apa yang dimiliki Damar?" | Batas bersih: Sensorium = tubuh, Semantic Desktop = lingkungan digital pemilik. Presence kelak mengonsumsi keduanya. Tidak ada import |
+| **Authority** (masa depan) | "Bolehkah Damar bertindak?" | Observasi memberi NOL otoritas. Tahu paragraf terpilih ≠ boleh menimpanya. Logika otoritas tidak diduplikasi di sini |
 
 Proyeksi kognisi (`createCognitionProjection`) beku: hanya metode query
 + `interpret()` yang murni anotasi lokal — keadaan kanonik terjamin

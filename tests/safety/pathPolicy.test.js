@@ -59,10 +59,10 @@ test("path traversal tidak dapat keluar dari batas", () => {
 
 });
 
-test("Aether kini BOLEH menulis kebijakan/konstitusi/inti-nya sendiri (§37)", () => {
+test("Damar kini BOLEH menulis kebijakan/konstitusi/inti-nya sendiri (§37)", () => {
 
     // Larangan hanya-baca dihapus atas keputusan pemilik: self-extending
-    // menuntut Aether dapat mengubah runtime & kebijakannya sendiri.
+    // menuntut Damar dapat mengubah runtime & kebijakannya sendiri.
     // Rollback dijamin git + CheckpointSystem, bukan larangan tulis.
     const cfg = path.join(__dirname, "..", "..", "configs", "safety.json");
     const konstitusi = path.join(__dirname, "..", "..", "docs", "constitution.md");
@@ -90,10 +90,10 @@ test("kredensial mentah TETAP ditolak — kebocorannya tak menambah kemampuan", 
 test("jalur kerja nyata tetap boleh — sandbox tidak mematikan gunanya", () => {
 
     // §277: sistem harus tetap dapat dipakai. Mengunci semuanya
-    // sama saja mematikan Aether.
+    // sama saja mematikan Damar.
     for (const p of [
-        "D:\\AetherNAS\\media\\foto.jpg",
-        "E:\\AetherNAS\\backup\\arsip.zip",
+        "D:\\DamarNAS\\media\\foto.jpg",
+        "E:\\DamarNAS\\backup\\arsip.zip",
         "C:\\Workspace\\Aether\\data\\catatan.txt",
         path.join(os.tmpdir(), "kerja.txt")
     ]) {

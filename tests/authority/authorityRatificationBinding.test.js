@@ -16,7 +16,7 @@ const acc = require("./evolution-harness");
 
 const BASE_AUTHORITY = Object.freeze({
     capabilityId: "infra.deploy",
-    subject: "aether-core",
+    subject: "damar-core",
     actions: ["use", "patch.production"]
 });
 
@@ -50,7 +50,7 @@ test("B1: ratifikasi mengikat proposalId + revisi + digest + " +
               ratification.proposalDigest.length === 64);
     assert.deepEqual(ratification.approvedAuthority, {
         capabilityId: "infra.deploy",
-        subject: "aether-core",
+        subject: "damar-core",
         actions: ["use", "patch.production"] });
 
     const { sha256, canonicalJson } = acc;
@@ -68,7 +68,7 @@ test("B1: issuance read-only membangun grant PERSIS dari " +
         proposalId: "prop-bind", ratificationId: "rat-bind",
         requestedAuthority: {
             capabilityId: "infra.deploy",
-            subject: "aether-core",
+            subject: "damar-core",
             actions: ["use", "patch.production", "administer"],
             maxExecutions: null
         } });
@@ -114,7 +114,7 @@ test("B1: exact ratified authority berhasil — tepat SATU kali; " +
         proposalId: "prop-bind", ratificationId: "rat-bind",
         requestedAuthority: {
             capabilityId: "infra.deploy",
-            subject: "aether-core",
+            subject: "damar-core",
             actions: ["use", "patch.production"]
         } });
     assert.equal(first.allowed, true);
@@ -192,7 +192,7 @@ test("B5: REVOKED capability_id tidak bisa dihidupkan ulang via reissue; " +
         kind: "authority_expansion",
         problem: "p", proposedChange: "c",
         requestedAuthority: {
-            capabilityId: "infra.deploy", subject: "aether-core",
+            capabilityId: "infra.deploy", subject: "damar-core",
             actions: ["use"] }
     }, "owner");
     await registry.ratify({ ratificationId: "rat-reissue",
@@ -218,7 +218,7 @@ test("B5: EXHAUSTED capability_id tidak bisa di-upsert ACTIVE lagi",
         kind: "authority_expansion",
         problem: "p", proposedChange: "c",
         requestedAuthority: { capabilityId: "tool.heavy",
-            subject: "aether-core", actions: ["use"], maxExecutions: 1 }
+            subject: "damar-core", actions: ["use"], maxExecutions: 1 }
     }, "owner");
     await registry.ratify({ ratificationId: "r-exh",
         proposalId: "prop-exh", ownerIdentity: "o",
@@ -234,7 +234,7 @@ test("B5: EXHAUSTED capability_id tidak bisa di-upsert ACTIVE lagi",
         kind: "authority_expansion",
         problem: "p", proposedChange: "c",
         requestedAuthority: { capabilityId: "tool.heavy",
-            subject: "aether-core", actions: ["use"] }
+            subject: "damar-core", actions: ["use"] }
     }, "owner");
     await registry.ratify({ ratificationId: "r-exh2",
         proposalId: "prop-exh2", ownerIdentity: "o",

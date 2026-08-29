@@ -10,7 +10,7 @@ const dns = require("node:dns");
  * globalThis.fetch DI DALAM PROSES AUDIT SENDIRI, lalu memanggil
  * /api/tags — daftar model, bukan inferensi. Daemon yang seharusnya
  * diuji berjalan di proses lain dan jaringannya tidak pernah
- * disentuh. "LULUS" di sana tidak membuktikan Aether dapat menjawab
+ * disentuh. "LULUS" di sana tidak membuktikan Damar dapat menjawab
  * tanpa internet; buktinya bahkan berbunyi "jalur inferensi tetap
  * terjawab" padahal tak ada satu pun inferensi yang dijalankan.
  * Persis kelas klaim sukses palsu yang dibangun VerificationEngine
@@ -157,17 +157,17 @@ test("blokir jalur keluar TIDAK ikut memutus localhost", async (t) => {
 });
 
 // ---------------------------------------------------------------------
-// 2. Pertanyaan yang sesungguhnya: Aether tetap MENJAWAB tanpa internet.
+// 2. Pertanyaan yang sesungguhnya: Damar tetap MENJAWAB tanpa internet.
 //
 // Dijalankan di proses ANAK (tests/helpers/offlineChild.js): jalur
-// keluar di sana mati sebelum satu pun modul Aether dimuat, sehingga
+// keluar di sana mati sebelum satu pun modul Damar dimuat, sehingga
 // tidak ada koneksi yang sempat dibuka lebih dulu lalu dipakai ulang.
 // Dengan jalur keluar mati, runtime juga belum melepas seluruh
 // pegangannya — tak berakibat pada daemon yang hidup terus, tetapi di
 // test runner ia menggantung suite bila dijalankan sedang-proses.
 // ---------------------------------------------------------------------
 
-test("Aether tetap menjawab dengan seluruh jalur keluar mati", async (t) => {
+test("Damar tetap menjawab dengan seluruh jalur keluar mati", async (t) => {
 
     if (!modelLokalAda()) {
         return t.skip("Tidak ada model GGUF di models/ — otak lokal tak bisa diuji");

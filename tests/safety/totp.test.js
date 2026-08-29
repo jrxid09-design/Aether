@@ -76,10 +76,10 @@ test("base32 round-trip dan format otpauth URL", () => {
     const buf = crypto.randomBytes(20);
     const enc = totp.base32Encode(buf);
     assert.equal(totp.base32Decode(enc).toString("hex"), buf.toString("hex"));
-    const { secret, otpauthUrl } = totp.generateSecret({ account: "ronny", issuer: "Aether" });
-    assert.match(otpauthUrl, /^otpauth:\/\/totp\/Aether%3Aronny\?/);
+    const { secret, otpauthUrl } = totp.generateSecret({ account: "ronny", issuer: "Damar" });
+    assert.match(otpauthUrl, /^otpauth:\/\/totp\/Damar%3Aronny\?/);
     assert.match(otpauthUrl, new RegExp(`secret=${secret}`));
-    assert.match(otpauthUrl, new RegExp(`issuer=Aether`));
+    assert.match(otpauthUrl, new RegExp(`issuer=Damar`));
     assert.match(otpauthUrl, new RegExp(`digits=6`));
     assert.match(otpauthUrl, new RegExp(`period=30`));
 });

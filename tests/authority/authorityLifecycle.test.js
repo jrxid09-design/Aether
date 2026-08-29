@@ -17,7 +17,7 @@ async function seeded() {
 
 // Seed helper: proposal + ratifikasi APPROVED lalu root grant.
 async function seedGrant(registry, {
-    capabilityId="cap.use", subject="aether-core",
+    capabilityId="cap.use", subject="damar-core",
     actions=["use"], maxExecutions=3,
     expiresAt="2030-01-01T00:00:00.000Z", extraProposal={}
 } = {}) {
@@ -138,7 +138,7 @@ test("#23 terminal TIDAK boleh resurrect dalam bentuk apa pun", async () => {
     // Re-issue dengan capability id SAMA juga ditolak bila mencoba
     // lewat jalur delegasi dari parent EXHAUSTED:
     const del = await registry.delegate(grant.capabilityId,
-        { capabilityId: "cap.use.child", subject: "aether-core",
+        { capabilityId: "cap.use.child", subject: "damar-core",
           actions: ["use"] });
     assert.equal(del.allowed, false);
 });
@@ -152,7 +152,7 @@ test("#36 parent SUSPENDED -> delegate DENY CAP_INACTIVE", async () => {
 
     const d = await registry.delegate(grant.capabilityId, {
         capabilityId: "cap.child.suspended",
-        subject: "aether-core",
+        subject: "damar-core",
         actions: ["use"],
         maxExecutions: 1
     });
@@ -169,7 +169,7 @@ test("#37 parent REVOKED -> delegate DENY CAP_REVOKED", async () => {
 
     const d = await registry.delegate(grant.capabilityId, {
         capabilityId: "cap.child.revoked",
-        subject: "aether-core",
+        subject: "damar-core",
         actions: ["use"],
         maxExecutions: 1
     });
@@ -182,11 +182,11 @@ test("#38 generation stale parent -> delegate DENY CAP_GENERATION_STALE", async 
     const { registry } = acc.makeRegistry();
     const grant = await seedGrant(registry);
 
-    await registry.revokeSubjectGeneration("aether-core");
+    await registry.revokeSubjectGeneration("damar-core");
 
     const d = await registry.delegate(grant.capabilityId, {
         capabilityId: "cap.child.stale",
-        subject: "aether-core",
+        subject: "damar-core",
         actions: ["use"],
         maxExecutions: 1
     });
@@ -206,7 +206,7 @@ test("#39 expired parent -> delegate DENY CAP_EXPIRED", async () => {
 
     const d = await registry.delegate(grant.capabilityId, {
         capabilityId: "cap.child.expired",
-        subject: "aether-core",
+        subject: "damar-core",
         actions: ["use"],
         maxExecutions: 1
     });
@@ -225,7 +225,7 @@ test("#40 malformed persisted parent -> delegate fail-closed CAP_MALFORMED", asy
         {
             capabilityId: "cap.bad.parent",
             kind: "root",
-            subject: "aether-core",
+            subject: "damar-core",
             issuer: "test",
             actions: [],
             scope: [],
@@ -239,7 +239,7 @@ test("#40 malformed persisted parent -> delegate fail-closed CAP_MALFORMED", asy
 
     const d = await registry.delegate("cap.bad.parent", {
         capabilityId: "cap.child.bad",
-        subject: "aether-core",
+        subject: "damar-core",
         actions: ["use"],
         maxExecutions: 1
     });

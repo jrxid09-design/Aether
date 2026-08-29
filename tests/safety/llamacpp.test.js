@@ -20,7 +20,7 @@ const mapper = new LlamaCppMapper();
 test("toHistory memasangkan panggilan tool dengan hasilnya jadi satu item model", () => {
 
     const messages = [
-        { role: "system", content: "Kamu Aether." },
+        { role: "system", content: "Kamu Damar." },
         { role: "user", content: "cuaca Bandung?" },
         {
             role: "assistant", content: "",
@@ -32,7 +32,7 @@ test("toHistory memasangkan panggilan tool dengan hasilnya jadi satu item model"
 
     const h = mapper.toHistory(messages);
 
-    assert.deepEqual(h[0], { type: "system", text: "Kamu Aether." });
+    assert.deepEqual(h[0], { type: "system", text: "Kamu Damar." });
     assert.deepEqual(h[1], { type: "user", text: "cuaca Bandung?" });
 
     // Item model memuat functionCall + result-nya (bukan pesan tool terpisah).
@@ -48,7 +48,7 @@ test("toHistory memasangkan panggilan tool dengan hasilnya jadi satu item model"
 
 });
 
-test("toFunctions memetakan tool Aether ke ChatModelFunctions", () => {
+test("toFunctions memetakan tool Damar ke ChatModelFunctions", () => {
 
     const fns = mapper.toFunctions([
         { name: "a", description: "tool a", parameters: { type: "object", properties: { x: { type: "string" } } } },
@@ -90,14 +90,14 @@ test("provider llamacpp terdaftar di factory", () => {
     assert.equal(p.id, "llamacpp");
 });
 
-// Inferensi NYATA — OPT-IN (set AETHER_TEST_LOCAL_MODEL=1 usai unduh
+// Inferensi NYATA — OPT-IN (set DAMAR_TEST_LOCAL_MODEL=1 usai unduh
 // selesai). Dijaga opt-in agar suite default tetap hijau meski bobot
 // 4,7 GB belum ada / masih setengah terunduh.
 test("otak lokal menjawab dan memilih tool (bila model tersedia)", async (t) => {
 
-    if (!process.env.AETHER_TEST_LOCAL_MODEL) return t.skip("Set AETHER_TEST_LOCAL_MODEL=1 untuk menguji inferensi nyata");
+    if (!process.env.DAMAR_TEST_LOCAL_MODEL) return t.skip("Set DAMAR_TEST_LOCAL_MODEL=1 untuk menguji inferensi nyata");
 
-    const modelDir = process.env.AETHER_MODEL_DIR || "models";
+    const modelDir = process.env.DAMAR_MODEL_DIR || "models";
     const gguf = fs.existsSync(modelDir)
         ? fs.readdirSync(modelDir).find(f => f.toLowerCase().endsWith(".gguf"))
         : null;

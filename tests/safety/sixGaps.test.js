@@ -22,10 +22,10 @@ const sandbox = require("../../src/core/safety/codeSandbox");
 test("RAHASIA tidak diwariskan ke proses anak", () => {
 
     // Inti celahnya: `exec` mewarisi seluruh environment, sehingga
-    // satu perintah `set` sudah cukup membaca AETHER_TOKEN.
+    // satu perintah `set` sudah cukup membaca DAMAR_TOKEN.
     const semula = { ...process.env };
 
-    process.env.AETHER_TOKEN = "rahasia-token-uji";
+    process.env.DAMAR_TOKEN = "rahasia-token-uji";
     process.env.OPENROUTER_API_KEY = "sk-rahasia-uji";
     process.env.MY_SECRET_PASSWORD = "jangan-bocor";
 
@@ -33,7 +33,7 @@ test("RAHASIA tidak diwariskan ke proses anak", () => {
 
         const env = sandbox.env();
 
-        assert.equal(env.AETHER_TOKEN, undefined, "token Aether tidak boleh ikut");
+        assert.equal(env.DAMAR_TOKEN, undefined, "token Damar tidak boleh ikut");
         assert.equal(env.OPENROUTER_API_KEY, undefined, "kunci API tidak boleh ikut");
         assert.equal(env.MY_SECRET_PASSWORD, undefined, "apa pun bernama secret tidak boleh ikut");
 
@@ -97,14 +97,14 @@ test("batas waktu dan keluaran ikut terpasang", () => {
 test("perintah NYATA tidak dapat melihat rahasia", () => {
 
     // Bukti ujung-ke-ujung, bukan sekadar bentuk objek opsinya.
-    const semula = process.env.AETHER_TOKEN;
-    process.env.AETHER_TOKEN = "rahasia-token-uji";
+    const semula = process.env.DAMAR_TOKEN;
+    process.env.DAMAR_TOKEN = "rahasia-token-uji";
 
     try {
 
         const keluaran = execFileSync(
             process.execPath,
-            ["-e", "console.log(process.env.AETHER_TOKEN ?? 'TIDAK-ADA')"],
+            ["-e", "console.log(process.env.DAMAR_TOKEN ?? 'TIDAK-ADA')"],
             { ...sandbox.options({ timeout: 15000 }), encoding: "utf8" }
         ).trim();
 
@@ -112,8 +112,8 @@ test("perintah NYATA tidak dapat melihat rahasia", () => {
 
     }
     finally {
-        if (semula === undefined) delete process.env.AETHER_TOKEN;
-        else process.env.AETHER_TOKEN = semula;
+        if (semula === undefined) delete process.env.DAMAR_TOKEN;
+        else process.env.DAMAR_TOKEN = semula;
     }
 
 });
@@ -138,7 +138,7 @@ const WorldModel = require("../../src/world/WorldModel");
 test("dunia dilaporkan beserta KAPAN diperiksa", async () => {
 
     // Yang membuatnya model, bukan sekadar pembacaan: fakta tentang
-    // dunia menjadi basi, dan tanpa waktu pemeriksaan Aether
+    // dunia menjadi basi, dan tanpa waktu pemeriksaan Damar
     // berbicara tentang keadaan lama dengan nada sama percayanya.
     const w = await WorldModel.snapshot({ fresh: true });
 
@@ -354,7 +354,7 @@ test("OFFLINE: model lokal menjawab tanpa jalur keluar", async () => {
 
         assert.ok(
             gguf.length > 0,
-            "harus ada model GGUF di models/ agar Aether dapat bekerja offline"
+            "harus ada model GGUF di models/ agar Damar dapat bekerja offline"
         );
 
         await assert.rejects(
@@ -452,7 +452,7 @@ test("tindakan berefek samping TETAP berurutan", async () => {
     let berjalan = 0;
     let puncak = 0;
 
-    for (const nama of ["filesystem__writeFile", "aetherSkills__device_on"]) {
+    for (const nama of ["filesystem__writeFile", "damarSkills__device_on"]) {
         registry.register(new AITool({
             name: nama,
             description: "probe",
@@ -476,7 +476,7 @@ test("tindakan berefek samping TETAP berurutan", async () => {
                     content: "",
                     toolCalls: [
                         { id: "a", name: "filesystem__writeFile", arguments: { path: "x" } },
-                        { id: "b", name: "aetherSkills__device_on", arguments: { entity_id: "light.u" } }
+                        { id: "b", name: "damarSkills__device_on", arguments: { entity_id: "light.u" } }
                     ]
                 }
                 : { content: "selesai", toolCalls: [] };

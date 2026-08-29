@@ -38,7 +38,7 @@ test("keadaan kebijakan selalu tanpa gerbang", () => {
 
 test("STOP tetap menghentikan segalanya walau gerbang sudah dihapus", () => {
 
-    // Pasal 2.1: pemilik harus selalu dapat menghentikan Aether.
+    // Pasal 2.1: pemilik harus selalu dapat menghentikan Damar.
     loopGuard.resetAll();
 
     killSwitch.engage({ reason: "uji", actor: "uji" });

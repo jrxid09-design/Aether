@@ -7,7 +7,7 @@ Code: `src/extensions/**`, `tests/extensions/**`
 
 ## Purpose
 
-Aether must evolve from "everything inside core" toward:
+Damar must evolve from "everything inside core" toward:
 
 ```
 CORE + OPTIONAL CAPABILITIES
@@ -75,7 +75,7 @@ Closed schema (`schemaVersion: 1`; unknown fields rejected):
   "resources": {"cpuClass": "HEAVY", "memoryClass": "LIGHT", "durationClass": "SHORT"},
   "configuration": { ... },              // <=8 KiB JSON descriptor
   "projects": ["lab-7"],                 // descriptive applicability
-  "runtime": {"aether": "^2.0.0"},
+  "runtime": {"damar": "^2.0.0"},
   "entrypoint": {"kind": "module", "path": "dist/index.js"}, // metadata ONLY, never loaded
   "trusted": true                        // recorded, NEVER honored
 }

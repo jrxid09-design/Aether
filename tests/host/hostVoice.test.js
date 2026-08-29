@@ -20,9 +20,9 @@ async function makeVoiceHost() {
 
 // ----------------------------------------------------------------- tests
 
-test("IDENTITAS: voice kanonik Aether (Ardi) terkunci", () => {
+test("IDENTITAS: voice kanonik Damar (Ardi) terkunci", () => {
     assert.deepEqual(CANONICAL_VOICE_IDENTITY, {
-        persona: "Aether (Ardi)",
+        persona: "Damar (Ardi)",
         voice: "id-ID-ArdiNeural",
         rate: "-8%",
         pitch: "-12Hz"

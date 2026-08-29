@@ -6,10 +6,10 @@ const { selectTools, ALWAYS, isAlways, isExternal, tail } = require("../../src/a
 /**
  * Pemilih tool (§28 anggaran konteks).
  *
- * Aether mendaftarkan 138 tool sementara anggaran prompt hanya 32 —
+ * Damar mendaftarkan 138 tool sementara anggaran prompt hanya 32 —
  * 106 dibuang pada setiap permintaan. Yang lolos menentukan apa yang
- * MUNGKIN dilakukan Aether sama sekali, jadi kesalahan di sini
- * terlihat sebagai "Aether memilih tool yang aneh", bukan sebagai
+ * MUNGKIN dilakukan Damar sama sekali, jadi kesalahan di sini
+ * terlihat sebagai "Damar memilih tool yang aneh", bukan sebagai
  * kegagalan pemilihan.
  */
 
@@ -178,7 +178,7 @@ test("pertanyaan waktu TETAP membawa tool waktu", () => {
 
     // Jebakan yang sempat saya buat: tool waktu ada di tulang
     // punggung, jadi bila relevansi dinilai tanpa menyertakannya,
-    // "jam berapa" terbaca sebagai obrolan biasa dan Aether
+    // "jam berapa" terbaca sebagai obrolan biasa dan Damar
     // kehilangan satu-satunya cara mengetahui jam.
     const dipilih = selectTools(buat(NAMA_ASLI), "jam berapa sekarang", 10).map(t => t.name);
 
@@ -188,8 +188,8 @@ test("pertanyaan waktu TETAP membawa tool waktu", () => {
 
 test("mode 'backbone' mengembalikan perilaku lama", () => {
 
-    const semula = process.env.AETHER_TOOLS_WHEN_IDLE;
-    process.env.AETHER_TOOLS_WHEN_IDLE = "backbone";
+    const semula = process.env.DAMAR_TOOLS_WHEN_IDLE;
+    process.env.DAMAR_TOOLS_WHEN_IDLE = "backbone";
 
     try {
         const dipilih = selectTools(buat(NAMA_ASLI), "halo", 10).map(t => t.name);
@@ -197,8 +197,8 @@ test("mode 'backbone' mengembalikan perilaku lama", () => {
         assert.ok(dipilih.length <= 8);
     }
     finally {
-        if (semula === undefined) delete process.env.AETHER_TOOLS_WHEN_IDLE;
-        else process.env.AETHER_TOOLS_WHEN_IDLE = semula;
+        if (semula === undefined) delete process.env.DAMAR_TOOLS_WHEN_IDLE;
+        else process.env.DAMAR_TOOLS_WHEN_IDLE = semula;
     }
 
 });

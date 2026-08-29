@@ -13,7 +13,7 @@ function makeCore(store, clock, overrides = {}) {
     return new acc.ContinuityCore({
         store: store ?? createMemoryAccStore(),
         clock: clock ?? acc.manualClock(1_000_000),
-        config: acc.createACCConfig({ AETHER_ACC: "shadow" }, overrides)
+        config: acc.createACCConfig({ DAMAR_ACC: "shadow" }, overrides)
     });
 }
 

@@ -4,7 +4,7 @@ const assert = require("node:assert");
 const buildMemory = require("../../src/memory/buildMemory");
 
 /**
- * Ingatan Aether tentang dirinya sendiri.
+ * Ingatan Damar tentang dirinya sendiri.
  *
  * Menyentuh basis data memori yang sungguhan — sama seperti
  * bugMemory. Catatan uji diberi penanda unik supaya tidak tertukar
@@ -159,7 +159,7 @@ test("catatan bergaya jurnal dapat ditemukan lewat pertanyaan wajar", async () =
     // dulu membaca memori sungguhan, dan tes-tes di berkas ini
     // sempat menitipkan 9 catatan palsu ke sana. Karena memori
     // disuntikkan ke system prompt, catatan "Area: uji" itu benar-
-    // benar muncul sebagai konteks saat pengguna menyapa Aether.
+    // benar muncul sebagai konteks saat pengguna menyapa Damar.
     await buildMemory.record({
         area: "keselamatan",
         change: `terminal_run diklasifikasikan destruktif ${tanda}`,

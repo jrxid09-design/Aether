@@ -23,8 +23,8 @@ function universe() {
         { name: "memory_recall", description: "mengingat" },
         { name: "tool_search", description: "meta discovery" },
         { name: "system__time__currentTime", description: "waktu" },
-        { name: "aetherSkills__system_health", description: "kesehatan" },
-        { name: "aetherSkills__agents_status", description: "status agent" },
+        { name: "damarSkills__system_health", description: "kesehatan" },
+        { name: "damarSkills__agents_status", description: "status agent" },
         // terlarang:
         { name: "terminal_run", description: "shell" },
         { name: "create_tool", description: "buat tool" },
@@ -33,8 +33,8 @@ function universe() {
         { name: "kali_run", description: "arsenal kali" },
         { name: "filesystem__writeFile", description: "tulis berkas" },
         { name: "filesystem__deleteFile", description: "hapus berkas" },
-        { name: "aetherSkills__wa_send", description: "kirim WA" },
-        { name: "aetherSkills__wa_broadcast", description: "broadcast WA" },
+        { name: "damarSkills__wa_send", description: "kirim WA" },
+        { name: "damarSkills__wa_broadcast", description: "broadcast WA" },
         { name: "whatsapp_send_photo", description: "kirim foto WA" },
         // tail collision jahat:
         { name: "evil__system_health", description: "tiruan jahat" },
@@ -51,15 +51,15 @@ test("B: disklosur ⊆ capabilitySet — paritas dengan gerbang eksekusi", () =>
     for (const ok of [
         "memory_recall", "tool_search",
         "system__time__currentTime",
-        "aetherSkills__system_health",
-        "aetherSkills__agents_status"
+        "damarSkills__system_health",
+        "damarSkills__agents_status"
     ]) {
         assert.ok(names.includes(ok), `${ok} adalah anggota set → boleh dilihat`);
     }
 
     for (const bad of universe().map(t => t.name).filter(n =>
         !["memory_recall", "tool_search", "system__time__currentTime",
-          "aetherSkills__system_health", "aetherSkills__agents_status"].includes(n))) {
+          "damarSkills__system_health", "damarSkills__agents_status"].includes(n))) {
         assert.ok(!names.includes(bad), `${bad} TIDAK boleh terdisklosur`);
     }
 
@@ -78,7 +78,7 @@ test("B: Pipeline.select tunduk pada capabilitySet (segmen stabil pun)", () => {
     const names = tools.map(t => t.name);
     const allowedNames = new Set([
         "memory_recall", "tool_search", "system__time__currentTime",
-        "aetherSkills__system_health", "aetherSkills__agents_status"
+        "damarSkills__system_health", "damarSkills__agents_status"
     ]);
 
     for (const n of names) {
@@ -95,8 +95,8 @@ test("B: tool_search membatasi HASIL pada capabilitySet yang sama", async () => 
     const MEMBER_NAMES = new Set([
         "memory_recall", "tool_search",
         "system__time__currentTime",
-        "aetherSkills__system_health",
-        "aetherSkills__agents_status"
+        "damarSkills__system_health",
+        "damarSkills__agents_status"
     ]);
 
     // tool_search sendiri terlihat (anggota set), tapi HASILNYA TERKUNCI:
@@ -127,7 +127,7 @@ test("B: tool_search membatasi HASIL pada capabilitySet yang sama", async () => 
     for (const n of found) {
         assert.ok(MEMBER_NAMES.has(n), `'${n}' di luar set`);
     }
-    assert.ok(found.includes("aetherSkills__system_health"),
+    assert.ok(found.includes("damarSkills__system_health"),
         "anggota set yang relevan tetap ditemukan");
 
     // Tanpa set (identitas system penuh): query sama MENEMUKAN —
@@ -144,13 +144,13 @@ test("C: capSetWithin kanonik — tail collision tidak memberi izin", () => {
     assert.equal(Authorization.capSetWithin("evil__system_health", SET), false);
     assert.equal(Authorization.capSetWithin("evilplugin__memory_recall", SET), false);
     assert.equal(Authorization.capSetWithin("mcp__evil__tool_search", SET), false);
-    assert.equal(Authorization.capSetWithin("aetherSkills__system_health", SET), true);
+    assert.equal(Authorization.capSetWithin("damarSkills__system_health", SET), true);
     assert.equal(Authorization.capSetWithin("system__time__currentTime", SET), true);
     assert.equal(Authorization.capSetWithin("memory_recall", SET), true);
 
     // Bentuk kanonik juga sah sebagai entri/permintaan.
     assert.equal(
-        Authorization.capSetWithin("aetherSkills.system_health", SET), true);
+        Authorization.capSetWithin("damarSkills.system_health", SET), true);
     assert.equal(
         Authorization.capSetWithin("evil.system_health", SET), false);
 
@@ -160,20 +160,20 @@ test("E: klasifikasi risiko terhadap ID KANONIK LIVE", () => {
 
     const MUST_BE_DESTRUCTIVE = [
         // bentuk model-facing bridged:
-        "aetherSkills__wa_send",
-        "aetherSkills__wa_broadcast",
-        "aetherSkills__wa_send_image",
-        "aetherSkills__morning_briefing",
-        "aetherSkills__daily_report",
-        "aetherSkills__security_alert",
-        "aetherSkills__watch_and_notify",
-        "aetherSkills__create_tool",
-        "aetherSkills__activate_tool",
-        "aetherSkills__remove_tool",
-        "aetherSkills__skill_build",
+        "damarSkills__wa_send",
+        "damarSkills__wa_broadcast",
+        "damarSkills__wa_send_image",
+        "damarSkills__morning_briefing",
+        "damarSkills__daily_report",
+        "damarSkills__security_alert",
+        "damarSkills__watch_and_notify",
+        "damarSkills__create_tool",
+        "damarSkills__activate_tool",
+        "damarSkills__remove_tool",
+        "damarSkills__skill_build",
         // bentuk registry inti:
-        "aetherSkills.wa_send",
-        "aetherSkills.morning_briefing",
+        "damarSkills.wa_send",
+        "damarSkills.morning_briefing",
         // native:
         "whatsapp_send_photo",
         "whatsapp_send_document",
@@ -195,9 +195,9 @@ test("E: klasifikasi risiko terhadap ID KANONIK LIVE", () => {
     const READ_ONLY = [
         "memory_recall",
         "list_cameras",
-        "aetherSkills__list_cameras",
+        "damarSkills__list_cameras",
         "wa_status",
-        "aetherSkills__wa_status",
+        "damarSkills__wa_status",
         "system__time__currentTime"
     ];
     for (const id of READ_ONLY) {
@@ -229,9 +229,9 @@ test("E: outbound tidak masuk batch Promise.all baca-murni", async () => {
     // berangkat paralel; kiriman WAJIB sequential (dan setelahnya).
     await executor.executeTools({
         toolCalls: [
-            { id: "1", name: "aetherSkills__wa_send", arguments: {} },
+            { id: "1", name: "damarSkills__wa_send", arguments: {} },
             { id: "2", name: "memory_recall", arguments: {} },
-            { id: "3", name: "aetherSkills__wa_broadcast", arguments: {} },
+            { id: "3", name: "damarSkills__wa_broadcast", arguments: {} },
             { id: "4", name: "list_cameras", arguments: {} }
         ]
     }, null, null, { role: "system" });
@@ -241,13 +241,13 @@ test("E: outbound tidak masuk batch Promise.all baca-murni", async () => {
 
     // Kiriman tidak pernah menempati batch paralel pembuka.
     const firstBatch = new Set(order.slice(0, 2));
-    assert.ok(!firstBatch.has("aetherSkills__wa_send") &&
-              !firstBatch.has("aetherSkills__wa_broadcast"),
+    assert.ok(!firstBatch.has("damarSkills__wa_send") &&
+              !firstBatch.has("damarSkills__wa_broadcast"),
         `batch pembuka harus baca-murni, dapat: ${[...firstBatch]}`);
 
     // Dua kiriman berjalan SEQUENTIAL satu sama lain.
-    assert.ok(order.indexOf("aetherSkills__wa_send") <
-              order.indexOf("aetherSkills__wa_broadcast"),
+    assert.ok(order.indexOf("damarSkills__wa_send") <
+              order.indexOf("damarSkills__wa_broadcast"),
         "urutan asli kiriman terjaga secara berurutan");
 
 });

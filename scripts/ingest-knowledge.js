@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Ingest basis pengetahuan AI/memory ke dalam memori dokumen Aether.
+ * Ingest basis pengetahuan AI/memory ke dalam memori dokumen Damar.
  *
  * Sumber (repo GitHub pemilik):
  *   - IAAR-Shanghai/Awesome-AI-Memory
@@ -55,7 +55,7 @@ async function main() {
 
     const DocumentService = require("../src/memory/services/DocumentService");
 
-    const tmpRoot = path.join(os.tmpdir(), "aether-knowledge");
+    const tmpRoot = path.join(os.tmpdir(), "damar-knowledge");
     fs.mkdirSync(tmpRoot, { recursive: true });
 
     for (const repo of targets) {
@@ -100,7 +100,7 @@ async function main() {
 
     }
 
-    console.log("\nSelesai. Cari lewat Console → Memory → Dokumen, atau tanya Aether langsung.");
+    console.log("\nSelesai. Cari lewat Console → Memory → Dokumen, atau tanya Damar langsung.");
 
 }
 

@@ -4,7 +4,7 @@ const assert = require("node:assert");
 const { createMcpHandler } = require("../../src/mcp/mcpHandler");
 
 /**
- * Jembatan MCP Aether.
+ * Jembatan MCP Damar.
  *
  * Yang dijaga: JSON-RPC benar (initialize/tools/list/tools/call),
  * tool DESTRUKTIF disembunyikan & ditolak secara default, notifikasi
@@ -29,7 +29,7 @@ const mk = (allow = false, calls = []) => createMcpHandler({ registry: mockRegis
 test("initialize mengembalikan protokol & serverInfo", async () => {
     const r = await mk().handle({ jsonrpc: "2.0", id: 1, method: "initialize" });
     assert.equal(r.result.protocolVersion, "2024-11-05");
-    assert.equal(r.result.serverInfo.name, "aether");
+    assert.equal(r.result.serverInfo.name, "damar");
     assert.ok(r.result.capabilities.tools);
 });
 

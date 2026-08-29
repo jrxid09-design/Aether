@@ -81,7 +81,7 @@ test("dream.hourTrigger: hanya jam 02 dan sekali per hari", () => {
 // ---- MCP configStore ----
 
 function tmpFile() {
-    return path.join(fs.mkdtempSync(path.join(os.tmpdir(), "aether-mcp-")), "mcp.json");
+    return path.join(fs.mkdtempSync(path.join(os.tmpdir(), "damar-mcp-")), "mcp.json");
 }
 
 test("mcpStore: upsert + remove + normalize args string", () => {

@@ -13,7 +13,7 @@ const { SessionStore } = require("../../src/channels/sessionStore");
  */
 
 function makeManager() {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aether-chmgr-"));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "damar-chmgr-"));
     return new ChannelManager(new SessionStore(path.join(dir, "channels.db")));
 }
 

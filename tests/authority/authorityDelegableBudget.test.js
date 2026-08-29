@@ -20,7 +20,7 @@ async function seedParent(registry, { capabilityId = "team.ops",
         kind: "authority_expansion",
         problem: "p", proposedChange: "c",
         requestedAuthority: {
-            capabilityId, subject: "aether-core",
+            capabilityId, subject: "damar-core",
             actions: ["use", "delegate"], scope: ["scope=home-lan"],
             allowedPurposes: ["ops.maintenance"],
             restrictions: ["tool:fs.read"], maxExecutions,
@@ -39,7 +39,7 @@ async function seedParent(registry, { capabilityId = "team.ops",
 function childRequest(capabilityId, actions, maxExecutions) {
     return {
         capabilityId,
-        subject: "aether-core",
+        subject: "damar-core",
         actions: actions ?? ["use"],
         scope: ["scope=home-lan"],
         allowedPurposes: ["ops.maintenance"],

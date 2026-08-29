@@ -24,7 +24,7 @@ async function seedScopedParent(registry, {
         proposalId: "prop-" + capabilityId, createdBy: "owner",
         kind: "authority_expansion",
         problem: "p", proposedChange: "c",
-        requestedAuthority: { capabilityId, subject: "aether-core",
+        requestedAuthority: { capabilityId, subject: "damar-core",
             actions, scope, allowedPurposes, identityBinding,
             restrictions, maxExecutions, expiresAt,
             remainingDelegationDepth: 3 }
@@ -53,7 +53,7 @@ test("B2 POSITIVE e2e: root ACTIVE -> delegate narrower child -> " +
 
     const d = await registry.delegate(parent.capabilityId, {
         capabilityId: "team.ops.child",
-        subject: "aether-core",
+        subject: "damar-core",
         actions: ["use"],
         scope: ["scope=home-lan"],
         allowedPurposes: ["ops.maintenance"],
@@ -102,7 +102,7 @@ test("B2/L-D1: plain object restriction dari caller EKSTERNAL tetap " +
     try {
         decision = await registry.delegate(parent.capabilityId, {
             capabilityId: "team.ops.evil",
-            subject: "aether-core",
+            subject: "damar-core",
             actions: ["use"],
             maxExecutions: 1,
             restrictions: { sneaky: "plain-object" }   // L-D1 violation
@@ -142,7 +142,7 @@ test("B3: scoped parent + child TANPA scope -> child tetap scoped", async () => 
 
     const d = await registry.delegate(parent.capabilityId, {
         capabilityId: "team.ops.inherit",
-        subject: "aether-core",
+        subject: "damar-core",
         actions: ["use"],
         maxExecutions: 1
         // scope / purposes / identity TIDAK disebutkan => inherit
@@ -178,7 +178,7 @@ test("B3: purpose-restricted parent + omitted purpose -> tetap restricted",
 
     const d = await registry.delegate(parent.capabilityId, {
         capabilityId: "mail.send.child",
-        subject: "aether-core", actions: ["send"], maxExecutions: 1 });
+        subject: "damar-core", actions: ["send"], maxExecutions: 1 });
     assert.equal(d.allowed, true);
     assert.deepEqual([...d.grant.allowedPurposes],
         ["reply_to_user_request"]);
@@ -196,14 +196,14 @@ test("B3: explicit wider scope DENY; explicit empty scope pada scoped " +
 
     const wider = await registry.delegate(parent.capabilityId, {
         capabilityId: "team.ops.wider",
-        subject: "aether-core", actions: ["use"], maxExecutions: 1,
+        subject: "damar-core", actions: ["use"], maxExecutions: 1,
         scope: ["scope=home-lan", "scope=cloud"] });
     assert.equal(wider.allowed, false);
     assert.equal(wider.reasonCode, "CAP_SCOPE_MISMATCH");
 
     const emptied = await registry.delegate(parent.capabilityId, {
         capabilityId: "team.ops.emptied",
-        subject: "aether-core", actions: ["use"], maxExecutions: 1,
+        subject: "damar-core", actions: ["use"], maxExecutions: 1,
         scope: [] });
     assert.equal(emptied.allowed, false);
     assert.equal(emptied.reasonCode, "CAP_SCOPE_MISMATCH");
@@ -216,14 +216,14 @@ test("B3: wider purpose DENY; empty purposes pada restricted parent DENY",
 
     const widerP = await registry.delegate(parent.capabilityId, {
         capabilityId: "team.ops.pwider",
-        subject: "aether-core", actions: ["use"], maxExecutions: 1,
+        subject: "damar-core", actions: ["use"], maxExecutions: 1,
         allowedPurposes: ["ops.maintenance", "marketing.broadcast"] });
     assert.equal(widerP.allowed, false);
     assert.equal(widerP.reasonCode, "CAP_PURPOSE_MISMATCH");
 
     const emptied = await registry.delegate(parent.capabilityId, {
         capabilityId: "team.ops.pempty",
-        subject: "aether-core", actions: ["use"], maxExecutions: 1,
+        subject: "damar-core", actions: ["use"], maxExecutions: 1,
         allowedPurposes: [] });
     assert.equal(emptied.allowed, false);
 });
@@ -238,7 +238,7 @@ test("B3: identity channel widening DENY (cli-only parent tidak bisa " +
     for (const channels of [["http"], ["webhook"], ["cli", "http"]]) {
         const d = await registry.delegate(parent.capabilityId, {
             capabilityId: "team.ops.chan",
-            subject: "aether-core", actions: ["use"], maxExecutions: 1,
+            subject: "damar-core", actions: ["use"], maxExecutions: 1,
             identityBinding: { channels } });
         assert.equal(d.allowed, false,
             "channel widening harus DENY: " + channels.join(","));
@@ -248,7 +248,7 @@ test("B3: identity channel widening DENY (cli-only parent tidak bisa " +
     // Narrowed: tanpa identityBinding sama sekali = inherit cli-only.
     const inherited = await registry.delegate(parent.capabilityId, {
         capabilityId: "team.ops.inh-id",
-        subject: "aether-core", actions: ["use"], maxExecutions: 1 });
+        subject: "damar-core", actions: ["use"], maxExecutions: 1 });
     assert.equal(inherited.allowed, true);
     const wrongChannel = await registry.authorize({
         capabilityId: "team.ops.inh-id", action: "use",
@@ -270,7 +270,7 @@ test("B3: identity channel widening DENY (cli-only parent tidak bisa " +
         identityBinding: { channels: ["cli", "webhook"] } });
     const narrowed = await registry.delegate(multiParent.capabilityId, {
         capabilityId: "multi.ops.narrow",
-        subject: "aether-core", actions: ["use"], maxExecutions: 1,
+        subject: "damar-core", actions: ["use"], maxExecutions: 1,
         identityBinding: { channels: ["webhook"] } });
     assert.equal(narrowed.allowed, true);
     assert.deepEqual([...narrowed.grant.identityBinding.channels],
@@ -281,7 +281,7 @@ test("B3: identity channel widening DENY (cli-only parent tidak bisa " +
         capabilityId: "free.ops", identityBinding: null });
     const boundChild = await registry.delegate(unboundParent.capabilityId, {
         capabilityId: "free.ops.bound",
-        subject: "aether-core", actions: ["use"], maxExecutions: 1,
+        subject: "damar-core", actions: ["use"], maxExecutions: 1,
         identityBinding: { sessionIds: ["sess-1"] } });
     assert.equal(boundChild.allowed, true);
 });

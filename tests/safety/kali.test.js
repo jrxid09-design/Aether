@@ -7,7 +7,7 @@ const kali = require("../../src/kali/bridge");
 const { kaliTools } = require("../../src/kali/tools");
 
 /**
- * Penguasaan Kali Linux (Aether 2.0).
+ * Penguasaan Kali Linux (Damar 2.0).
  *
  * Test bebas-lingkungan: tidak menuntut Kali terpasang di CI. Yang
  * dijamin selalu: perintah kosong ditolak, kali_run tercatat destruktif

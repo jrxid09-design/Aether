@@ -48,8 +48,8 @@ test("gateway.chatStream: delta mengalir via onDelta, giliran dipersist", async 
 
 test("upload: tersimpan, tersaji via readUpload, nama berkas dari server", async () => {
 
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aether-comp-up-"));
-    process.env.AETHER_COMPANION_UPLOAD_DIR = dir;
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "damar-comp-up-"));
+    process.env.DAMAR_COMPANION_UPLOAD_DIR = dir;
 
     try {
 
@@ -77,7 +77,7 @@ test("upload: tersimpan, tersaji via readUpload, nama berkas dari server", async
 
     }
     finally {
-        delete process.env.AETHER_COMPANION_UPLOAD_DIR;
+        delete process.env.DAMAR_COMPANION_UPLOAD_DIR;
         fs.rmSync(dir, { recursive: true, force: true });
     }
 

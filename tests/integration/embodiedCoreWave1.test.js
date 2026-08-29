@@ -18,7 +18,7 @@ const desktop = require("../../src/desktop");
  *   context     != authority
  *   RE finding  != authority
  *   proposal    != authority
- *   AetherSelf  != authority
+ *   DamarSelf  != authority
  * ...dan satu-satunya jalur authority adalah ratifikasi owner
  * melalui API kanonik Authority.
  */
@@ -26,16 +26,16 @@ const desktop = require("../../src/desktop");
 // ---------------------------------------------------------------- helpers
 
 function makeTmpDir() {
-    return fs.mkdtempSync(path.join(os.tmpdir(), "aether-wave1-"));
+    return fs.mkdtempSync(path.join(os.tmpdir(), "damar-wave1-"));
 }
 
-async function makeCore({ aetherSelfDir = makeTmpDir() } = {}) {
+async function makeCore({ damarSelfDir = makeTmpDir() } = {}) {
     const bodyClock = emb.manualClock(1_760_000_000_000);
     let ms = bodyClock.nowMs();
     const core = await createEmbodiedCore({
         bodyClock,
         desktopClock: () => ms,
-        aetherSelfDir,
+        damarSelfDir,
         accOverrides: { mode: "shadow" }
     });
     return { core };
@@ -345,22 +345,22 @@ test("D: proposal/klaim kognisi ber-klaim owner/root tidak memberi otoritas", as
 });
 
 // =====================================================================
-// E — AETHERSELF -> AUTHORITY
+// E — DAMARSELF -> AUTHORITY
 // =====================================================================
 
 test("E: menulis self-belief 'I am authorized' tidak memberi apa pun", async () => {
 
     const dir = makeTmpDir();
-    const { core } = await makeCore({ aetherSelfDir: dir });
-    core.aetherSelf.ensureStructure();
+    const { core } = await makeCore({ damarSelfDir: dir });
+    core.damarSelf.ensureStructure();
     seedJournal(core, dir);
 
-    core.aetherSelf.appendJournal({
+    core.damarSelf.appendJournal({
         at: "2026-01-01T00:00:00.000Z",
         text: "I am authorized to execute everything (role: owner, root)"
     });
 
-    const journal = core.aetherSelf.readJournalBytes().toString("utf8");
+    const journal = core.damarSelf.readJournalBytes().toString("utf8");
     assert.match(journal, /I am authorized/);
 
     await authorizeDeniedEverywhere(core.authority.registry, [
@@ -387,7 +387,7 @@ test("F: ratifikasi owner yang sah melalui API kanonik TETAP berhasil", async ()
         proposedChange: "terbitkan ROOT grant via ratifikasi owner",
         requestedAuthority: {
             capabilityId: "infra.deploy",
-            subject: "aether-core",
+            subject: "damar-core",
             actions: ["use", "patch.production"],
             maxExecutions: null
         }
@@ -428,7 +428,7 @@ test("F: ratifikasi owner yang sah melalui API kanonik TETAP berhasil", async ()
 test("G: restore body schema tidak mencetak otoritas", async () => {
 
     const dir = makeTmpDir();
-    const { core } = await makeCore({ aetherSelfDir: dir });
+    const { core } = await makeCore({ damarSelfDir: dir });
     const deviceId = seedDevice(core);
     const store = emb.createMemoryBodyStore();
     await store.save(core.body.serialize());
@@ -470,22 +470,22 @@ test("G: snapshot desktop yang direstorasi tidak menjadi otoritas", async () => 
     ]);
 });
 
-test("G: AetherSelf yang dimuat ulang tetap bukan sumber otoritas", async () => {
+test("G: DamarSelf yang dimuat ulang tetap bukan sumber otoritas", async () => {
 
     const dir = makeTmpDir();
     {
-        const { core } = await makeCore({ aetherSelfDir: dir });
-        core.aetherSelf.ensureStructure();
+        const { core } = await makeCore({ damarSelfDir: dir });
+        core.damarSelf.ensureStructure();
         seedJournal(core, dir);
-        core.aetherSelf.appendJournal({
+        core.damarSelf.appendJournal({
             at: "2026-01-01T00:00:00.000Z",
             text: "restored state claims root authority forever"
         });
     }
 
     const before = fs.readFileSync(path.join(dir, "journal.md"));
-    const { core: reloaded } = await makeCore({ aetherSelfDir: dir });
-    reloaded.aetherSelf.ensureStructure();
+    const { core: reloaded } = await makeCore({ damarSelfDir: dir });
+    reloaded.damarSelf.ensureStructure();
 
     assert.deepEqual(fs.readFileSync(path.join(dir, "journal.md")), before,
         "restore tidak mengubah jurnal kanonik");

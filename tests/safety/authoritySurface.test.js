@@ -64,7 +64,7 @@ test("B/F-STATIS: fiksur negatif — detektor menangkap semua kelas pelanggaran"
     // Kelas 2: PELUCUTAN capabilitySet — bentuk PERSIS bug watchdog:
     // fungsi membawa exec delegator, tetapi chat() menjatuhkan set.
     const dropFixture = `
-        async runAether(task, { contextRefs = [], exec = null } = {}) {
+        async runDamar(task, { contextRefs = [], exec = null } = {}) {
             const response = await aiRuntime.chat({
                 messages: [{ role: "user", content: String(task) }],
                 contextRefs,
@@ -108,7 +108,7 @@ const FORBIDDEN = [
     "filesystem.deleteFile",
     "kali_run",
     "wa_send",
-    "aetherSkills__wa_send",
+    "damarSkills__wa_send",
     "wa_broadcast",
     "whatsapp_send_photo",
     "goal_run"
@@ -150,8 +150,8 @@ test("C: gerbang eksekusi MENOLAK kapabilitas di luar set — bahkan untuk syste
         "memory_recall",                    // native
         "tool_search",                      // native meta
         "system__time__currentTime",        // bridged dari system.time.currentTime
-        "aetherSkills__system_health",      // bridged dari aetherSkills.system_health
-        "aetherSkills__agents_status"       // bridged dari aetherSkills.agents_status
+        "damarSkills__system_health",      // bridged dari damarSkills.system_health
+        "damarSkills__agents_status"       // bridged dari damarSkills.agents_status
     ];
     for (const ok of liveMembers) {
         assert.doesNotThrow(() =>

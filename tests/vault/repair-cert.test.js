@@ -16,7 +16,7 @@ function makeVault(extra = {}) {
 }
 
 function tmpDir() {
-    return fs.mkdtempSync(path.join(os.tmpdir(), "aether-vault-repair-"));
+    return fs.mkdtempSync(path.join(os.tmpdir(), "damar-vault-repair-"));
 }
 
 // =====================================================================

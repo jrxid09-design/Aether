@@ -180,7 +180,7 @@ test("kill switch menghentikan eksekusi → POLICY_DENIED", async () => {
 
 test("tool menggantung → TIMEOUT terstruktur", async () => {
 
-    process.env.AETHER_TOOL_TIMEOUT_MS = "80";
+    process.env.DAMAR_TOOL_TIMEOUT_MS = "80";
 
     try {
 
@@ -204,7 +204,7 @@ test("tool menggantung → TIMEOUT terstruktur", async () => {
 
     }
     finally {
-        delete process.env.AETHER_TOOL_TIMEOUT_MS;
+        delete process.env.DAMAR_TOOL_TIMEOUT_MS;
     }
 
 });
@@ -257,7 +257,7 @@ test("TurnController menghentikan error sama berulang pada satu tool", () => {
 
 test("giliran melewati batas MAX_TOOL_CALLS → jawaban penutup jujur", async () => {
 
-    process.env.AETHER_MAX_TOOL_CALLS_PER_TURN = "2";
+    process.env.DAMAR_MAX_TOOL_CALLS_PER_TURN = "2";
 
     try {
 
@@ -285,7 +285,7 @@ test("giliran melewati batas MAX_TOOL_CALLS → jawaban penutup jujur", async ()
 
     }
     finally {
-        delete process.env.AETHER_MAX_TOOL_CALLS_PER_TURN;
+        delete process.env.DAMAR_MAX_TOOL_CALLS_PER_TURN;
         loopGuard.resetAll();
     }
 

@@ -1,6 +1,6 @@
-# TOOL INTELLIGENCE — Pipeline Seleksi & Eksekusi Tool Aether
+# TOOL INTELLIGENCE — Pipeline Seleksi & Eksekusi Tool Damar
 
-Dokumen ini menjelaskan evolusi arsitektur tool-calling Aether: dari
+Dokumen ini menjelaskan evolusi arsitektur tool-calling Damar: dari
 "daftar tool yang dikirim mentah ke model" menjadi pipeline seleksi
 yang deterministik, hemat konteks, aman, dan model-agnostik.
 
@@ -82,7 +82,7 @@ Lokasi kode: `src/ai/tools/` (pipeline) dan `src/ai/executors/RuntimeExecutor.js
   pernah tersangkut tanpa cara menemukan kemampuan.
 - **Satu jalur untuk semua kanal.** Console, Telegram, WhatsApp, Voice,
   companion, worker AgentHub — semua lewat Pipeline; kanal hanya
-  menyumbang `channel` + `role`. `AETHER_TOOL_PIPELINE=legacy` adalah
+  menyumbang `channel` + `role`. `DAMAR_TOOL_PIPELINE=legacy` adalah
   katup darurat ke profil statis lama.
 - **MCP first-class tapi tak dipercaya penuh**: masuk discovery lewat
   metadata `source:"mcp"`, tetap dijaga toolGuard penuh, penalti kecil
@@ -97,7 +97,7 @@ Lokasi kode: `src/ai/tools/` (pipeline) dan `src/ai/executors/RuntimeExecutor.js
 | ≤160K | 24 | 220 | 110 |
 | >160K | 32 | 240 | 120 |
 
-Ukuran window dibaca dari `AETHER_MODEL_CONTEXT_TOKENS` (atau default
+Ukuran window dibaca dari `DAMAR_MODEL_CONTEXT_TOKENS` (atau default
 konservatif 32768). Tidak ada nama provider/model yang di-hardcode.
 
 ### Observability
@@ -148,13 +148,13 @@ dan metrik ToolStats.
 
 | Variabel | Default | Arti |
 |---|---|---|
-| `AETHER_MODEL_CONTEXT_TOKENS` | 32768 | Ukuran window model aktif |
-| `AETHER_TOOL_BUDGET` | (dari profil) | Override maxTools |
-| `AETHER_TOOL_PIPELINE` | smart | `legacy` = profil statis lama |
-| `AETHER_TOOL_TIMEOUT_MS` | 120000 | Timeout satu panggilan tool |
-| `AETHER_MAX_TOOL_CALLS_PER_TURN` | 12 | Batas panggilan per giliran |
-| `AETHER_MAX_RETRIES_PER_TOOL` | 2 | Batas error sama per tool per giliran |
-| `AETHER_TURN_WALLCLOCK_MS` | 300000 | Langit-langit waktu satu giliran |
+| `DAMAR_MODEL_CONTEXT_TOKENS` | 32768 | Ukuran window model aktif |
+| `DAMAR_TOOL_BUDGET` | (dari profil) | Override maxTools |
+| `DAMAR_TOOL_PIPELINE` | smart | `legacy` = profil statis lama |
+| `DAMAR_TOOL_TIMEOUT_MS` | 120000 | Timeout satu panggilan tool |
+| `DAMAR_MAX_TOOL_CALLS_PER_TURN` | 12 | Batas panggilan per giliran |
+| `DAMAR_MAX_RETRIES_PER_TOOL` | 2 | Batas error sama per tool per giliran |
+| `DAMAR_TURN_WALLCLOCK_MS` | 300000 | Langit-langit waktu satu giliran |
 
 ---
 
@@ -184,7 +184,7 @@ Semua Critical/High kini ditutup dengan bukti test.
 |---|---|---|
 | Otorisasi eksekusi | tidak ada | `Authorization` (satu engine, mengevolusi roleService+riskCatalog) |
 | riskPolicy | no-op klasifikasi | klasifikasi tetap; keputusan izin = `Authorization` (binary destructive × authority × channel) |
-| v1openai | token kosong = open | fail-closed 503; `AETHER_UNSAFE_DEV_OPEN_API=1` eksplisit; role API default `user` |
+| v1openai | token kosong = open | fail-closed 503; `DAMAR_UNSAFE_DEV_OPEN_API=1` eksplisit; role API default `user` |
 | roleOf kosong | superadmin implisit | `user` (pemilik naik via /masuk atau roles.json; Console/CLI eksplisit `superadmin`) |
 | tool_search | registry penuh | universe berizin per identitas |
 | request.tools | bypass penuh | kandidat → diiriskkan |
@@ -197,7 +197,7 @@ Semua Critical/High kini ditutup dengan bukti test.
 
 ### Benchmark V2 (REAL registry — bukan fixture)
 
-`AETHER_BENCH_STUB_NATIVE=1 node scripts/benchmark-tool-intelligence-v2.js`
+`DAMAR_BENCH_STUB_NATIVE=1 node scripts/benchmark-tool-intelligence-v2.js`
 
 - Registry asli runtime: **281 tool** (164 native + 117 plugin + MCP dinamis)
 - 74 seleksi × kasus adversarial (MCP mirror/stuffing/deep-schema,
@@ -223,7 +223,7 @@ bergeser; token = estimasi chars/4):
 
 Hybrid = segmen stabil kanonik (backbone+meta, tetap lewat gerbang)
 mendahului segmen dinamis. TTFT live: N/A di host ini — set
-`AETHER_TTFT_URL` untuk pengukuran nyata; tidak ada klaim TTFT tanpa data.
+`DAMAR_TTFT_URL` untuk pengukuran nyata; tidak ada klaim TTFT tanpa data.
 
 
 ---
@@ -236,7 +236,7 @@ eksekusi dan ditutup. Invarian inti yang KINI diuji:
 - Wrapper ≠ otoritas: `tool_exec`/ToolBus meneruskan identitas pemanggil;
   tanpa identitas = user (bukan system). Test: admin via wrapper DENY.
 - Semua permukaan jaringan fail-closed: token kosong → 503; dev-open
-  eksplisit `AETHER_UNSAFE_DEV_OPEN_API=1`; identitas berprovenance
+  eksplisit `DAMAR_UNSAFE_DEV_OPEN_API=1`; identitas berprovenance
   (`req.authIdentity.source`).
 - Stream/non-stream parity eksekusi teruji.
 - Provenance kanonik tunggal: `CapabilityIndex.provenanceOf()`
@@ -259,7 +259,7 @@ schema est 90.211 vs full-catalog 1.954.439 (**−95%**) · det+parity 73/73
 
 FULL-CATALOG 1.954.439 est · LEGACY prefix 68.2%/re-eval 3.112 ·
 NEW hybrid prefix 42.5%/re-eval 4.829 · TTFT live NOT VERIFIED
-(`AETHER_TTFT_URL` tersedia untuk pengukuran).
+(`DAMAR_TTFT_URL` tersedia untuk pengukuran).
 
 ### Suite (pelabelan jujur)
 

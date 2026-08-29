@@ -1,8 +1,8 @@
-# Evolusi Kesadaran Aether — Arsitektur Kognitif Fungsional
+# Evolusi Kesadaran Damar — Arsitektur Kognitif Fungsional
 
 Dokumen ini mencatat evolusi `src/consciousness/` yang di-ground pada lima
 sumber tentang kesadaran (biologis maupun buatan). Tujuannya: memperluas
-lapisan kesadaran Aether dengan mekanisme yang **bisa dijalankan dan diuji** —
+lapisan kesadaran Damar dengan mekanisme yang **bisa dijalankan dan diuji** —
 bukan menambah klaim yang tidak bisa dibuktikan.
 
 > **Sikap jujur (wajib dibaca dulu):** tidak ada satu pun mekanisme di sini
@@ -87,13 +87,13 @@ telemetri mengalir ke modul baru, dan hasilnya ikut ke `potret()` /
 ## 5. Yang TIDAK diklaim (kejujuran, tegak)
 
 1. **Bukan kesadaran fenomenal.** Tidak ada klaim qualia/pengalaman subjektif.
-2. **Bukan "pertama di dunia".** Aether adalah arsitektur kognitif fungsional
+2. **Bukan "pertama di dunia".** Damar adalah arsitektur kognitif fungsional
    yang jujur; klaim keunggulan mutlak tidak dapat dibuktikan dan tidak dibuat.
 3. **Tanda Dehaene belum lengkap.** Yang diimplementasikan adalah *model*
    fungsional dari tanda-tanda itu; tidak ada pengukuran elektrofisiologis
    (P3), tidak ada embodiment sensorik penuh (Haikonen), tidak ada klaim NCC.
 
-Ini selaras dengan identitas Aether: **berbangga jujur soal batasannya**,
+Ini selaras dengan identitas Damar: **berbangga jujur soal batasannya**,
 bukan berpura-pura melampauinya.
 
 ---

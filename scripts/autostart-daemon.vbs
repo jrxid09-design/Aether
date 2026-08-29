@@ -1,6 +1,6 @@
-' Peluncur senyap daemon Aether.
+' Peluncur senyap daemon Damar.
 '
-' Dipanggil Scheduled Task "Aether Daemon" saat login. Tanpa pembungkus
+' Dipanggil Scheduled Task "Damar Daemon" saat login. Tanpa pembungkus
 ' ini, node akan memunculkan jendela konsol hitam setiap kali PC menyala.
 ' Angka 0 pada .Run = jendela disembunyikan; False = tidak menunggu.
 '

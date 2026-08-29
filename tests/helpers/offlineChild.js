@@ -2,7 +2,7 @@
  * Proses anak untuk tests/safety/offline.test.js.
  *
  * Dijalankan terpisah dengan SENGAJA: jalur keluar diputus di sini
- * sebelum satu pun modul Aether dimuat, jadi tidak ada koneksi yang
+ * sebelum satu pun modul Damar dimuat, jadi tidak ada koneksi yang
  * sempat dibuka lebih dulu lalu dipakai ulang diam-diam. Ini lebih
  * dekat ke keadaan "mesin ini memang tidak punya internet" daripada
  * memblokir di tengah proses yang sudah berjalan.

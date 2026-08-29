@@ -28,7 +28,7 @@ Status: design-freeze C0. Enforcement tests: `tests/cognition/accSecurityBoundar
    maksimum TIDAK mengubah hasil `Authorization.assertExecution` —
    diverifikasi identik sebelum/sesudah akumulasi state.
 
-5. **Shadow-only** (§5): default `AETHER_ACC=off` (nol jejak store);
+5. **Shadow-only** (§5): default `DAMAR_ACC=off` (nol jejak store);
    mode `shadow` hanya observasi/persist/appraise/workspace/witness/
    predict/encode. Tidak ada mode yang mengubah tool selection, role,
    capabilitySet, routing provider, atau respons produksi.

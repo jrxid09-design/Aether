@@ -7,7 +7,7 @@ const { probe } = require("../../src/ml/env");
 const { mlTools } = require("../../src/ml/tools");
 
 /**
- * Peneliti & insinyur ML (Aether 2.0).
+ * Peneliti & insinyur ML (Damar 2.0).
  *
  * Yang dijaga: probe lingkungan JUJUR (tak mengaku GPU tanpa bukti),
  * tool terdaftar & terpilih, dan doktrin metode ilmiah + anti-bocor

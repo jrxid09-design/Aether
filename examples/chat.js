@@ -1,8 +1,8 @@
-const Aether = require("../src/ai"); // sesuaikan dengan export project-mu
+const Damar = require("../src/ai"); // sesuaikan dengan export project-mu
 
 async function main() {
 
-    const ai = new Aether.Builder()
+    const ai = new Damar.Builder()
 
         .provider("openrouter", {
 

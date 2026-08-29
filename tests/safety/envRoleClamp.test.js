@@ -31,11 +31,11 @@ function fakeRes() {
 }
 
 const ORIG = {
-    TOKEN: process.env.AETHER_TOKEN,
-    ROLE: process.env.AETHER_AUTH_ROLE,
-    MCP_ROLE: process.env.AETHER_MCP_ROLE,
-    DEV_OPEN: process.env.AETHER_UNSAFE_DEV_OPEN_API,
-    DEV_ROLE: process.env.AETHER_UNSAFE_DEV_ROLE
+    TOKEN: process.env.DAMAR_TOKEN,
+    ROLE: process.env.DAMAR_AUTH_ROLE,
+    MCP_ROLE: process.env.DAMAR_MCP_ROLE,
+    DEV_OPEN: process.env.DAMAR_UNSAFE_DEV_OPEN_API,
+    DEV_ROLE: process.env.DAMAR_UNSAFE_DEV_ROLE
 };
 
 test.after(() => {
@@ -50,10 +50,10 @@ test("G: enum peran eksternal tertutup — system bukan anggota", () => {
     assert.deepEqual([...EXTERNAL_ROLES], ["user", "admin", "superadmin"]);
 });
 
-test("G: AETHER_AUTH_ROLE=system TIDAK menjadi system di permukaan token", () => {
+test("G: DAMAR_AUTH_ROLE=system TIDAK menjadi system di permukaan token", () => {
 
-    process.env.AETHER_TOKEN = "token-uji-clamp";
-    process.env.AETHER_AUTH_ROLE = "system";
+    process.env.DAMAR_TOKEN = "token-uji-clamp";
+    process.env.DAMAR_AUTH_ROLE = "system";
 
     const mw = tokenGuard({ roleWhenAuthenticated: "superadmin", surface: "console" });
 
@@ -67,9 +67,9 @@ test("G: AETHER_AUTH_ROLE=system TIDAK menjadi system di permukaan token", () =>
         "env 'system' jatuh ke default permukaan (bukan system)");
 });
 
-test("G: AETHER_MCP_ROLE dikunci enum eksternal", () => {
+test("G: DAMAR_MCP_ROLE dikunci enum eksternal", () => {
 
-    assert.equal(clampExternalRole(process.env.AETHER_MCP_ROLE ?? "system", "user"), "user");
+    assert.equal(clampExternalRole(process.env.DAMAR_MCP_ROLE ?? "system", "user"), "user");
     assert.equal(clampExternalRole("SYSTEM", "user"), "user",
         "case/whitespace tidak menjadi celah");
     assert.equal(clampExternalRole("root", "user"), "user");
@@ -80,9 +80,9 @@ test("G: AETHER_MCP_ROLE dikunci enum eksternal", () => {
 
 test("G: jalur dev-open tidak bisa minta system via environment", () => {
 
-    delete process.env.AETHER_TOKEN;
-    process.env.AETHER_UNSAFE_DEV_OPEN_API = "1";
-    process.env.AETHER_UNSAFE_DEV_ROLE = "system";
+    delete process.env.DAMAR_TOKEN;
+    process.env.DAMAR_UNSAFE_DEV_OPEN_API = "1";
+    process.env.DAMAR_UNSAFE_DEV_ROLE = "system";
 
     const mw = tokenGuard({ surface: "api" });
 
@@ -94,7 +94,7 @@ test("G: jalur dev-open tidak bisa minta system via environment", () => {
 
     assert.equal(nextCalled, true);
     assert.equal(req.authIdentity.role, "user",
-        "AETHER_UNSAFE_DEV_ROLE=system dikunci ke user");
+        "DAMAR_UNSAFE_DEV_ROLE=system dikunci ke user");
 
     // Klien non-lokal selalu user paling terbatas.
     const req2 = fakeReq({ ip: "192.168.1.77" });
@@ -106,8 +106,8 @@ test("G: jalur dev-open tidak bisa minta system via environment", () => {
 
 test("G: roleWhenAuthenticated di luar enum juga dikunci", () => {
 
-    process.env.AETHER_TOKEN = "token-uji-clamp";
-    delete process.env.AETHER_AUTH_ROLE;
+    process.env.DAMAR_TOKEN = "token-uji-clamp";
+    delete process.env.DAMAR_AUTH_ROLE;
 
     const mw = tokenGuard({ roleWhenAuthenticated: "system", surface: "x" });
     const req = fakeReq({ token: "token-uji-clamp" });

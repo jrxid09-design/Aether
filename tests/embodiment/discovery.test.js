@@ -81,7 +81,7 @@ test("adapter host nyata: tubuh minimal dengan kejujuran identitas", () => {
 
     // injeksi os palsu agar deterministik & tanpa sentuhan sistem:
     const fakeOs = {
-        hostname: () => "mesin-aether",
+        hostname: () => "mesin-damar",
         platform: () => "win32",
         arch: () => "x64",
         cpus: () => [{ model: "Test CPU Model" }, { model: "Test CPU Model" }],
@@ -109,7 +109,7 @@ test("adapter host nyata: tubuh minimal dengan kejujuran identitas", () => {
         d.descriptor.deviceClass === "NETWORK_INTERFACE").length, 1);
 
     // kejujuran identitas: host stabil, CPU/memori hanya klaim sesi:
-    const host = body.getDevice("host.os:mesin-aether");
+    const host = body.getDevice("host.os:mesin-damar");
     assert.equal(host.descriptor.identity.stability, "stable");
     const cpu = body.devicesByClass("CPU")[0];
     assert.equal(cpu.descriptor.identity.stability, "session");
@@ -117,7 +117,7 @@ test("adapter host nyata: tubuh minimal dengan kejujuran identitas", () => {
     // topologi terhubung ke host:
     const attached = body.getRelationships({ type: "attached_to" });
     assert.ok(attached.length >= 2);
-    assert.ok(attached.every(r => r.toId === "host.os:mesin-aether"));
+    assert.ok(attached.every(r => r.toId === "host.os:mesin-damar"));
 
     // deterministik: dua pemanggilan berikutnya tidak menambah apa pun
     // (idempoten pada level perangkat):

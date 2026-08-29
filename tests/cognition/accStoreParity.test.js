@@ -81,7 +81,7 @@ function coreOn(store, clock) {
     return new acc.ContinuityCore({
         store,
         clock,
-        config: acc.createACCConfig({ AETHER_ACC: "shadow" })
+        config: acc.createACCConfig({ DAMAR_ACC: "shadow" })
     });
 }
 

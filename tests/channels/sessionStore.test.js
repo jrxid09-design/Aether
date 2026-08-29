@@ -12,7 +12,7 @@ const { SessionStore } = require("../../src/channels/sessionStore");
  */
 
 function makeStore() {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aether-channels-"));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "damar-channels-"));
     return new SessionStore(path.join(dir, "channels.db"));
 }
 
@@ -84,7 +84,7 @@ test("list: mengembalikan metadata sesi, bisa difilter kanal", async () => {
 });
 
 test("persistensi: sesi selamat saat dibuka ulang (reopen)", async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aether-channels-"));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "damar-channels-"));
     const file = path.join(dir, "channels.db");
     const key = "channel:whatsapp:dm:62812";
 

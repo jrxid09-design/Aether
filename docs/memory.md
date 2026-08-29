@@ -1,13 +1,13 @@
-# Aether — Local Memory (Phase 4)
+# Damar — Local Memory (Phase 4)
 
-Lapisan yang membuat Aether tidak perlu dijelaskan ulang setiap
+Lapisan yang membuat Damar tidak perlu dijelaskan ulang setiap
 percakapan. Semuanya lokal: satu berkas SQLite di `data/memory.db`,
 tanpa layanan eksternal.
 
 ```
 Hari 1  : "Saya sedang membuat ClipAdd."
 Hari 7  : "Lanjut project."
-Aether  : "Project ClipAdd berada di Workspace/ClipAdd, modul terakhir
+Damar  : "Project ClipAdd berada di Workspace/ClipAdd, modul terakhir
            yang dikerjakan adalah downloader YouTube."
 ```
 
@@ -92,7 +92,7 @@ syarat**:
 2. Vektornya diisi belakangan oleh backfill saat endpoint hidup.
 3. Status ditampilkan jujur di Console (`Mati` + alasannya).
 
-Model embedding diatur lewat `AETHER_EMBED_MODEL` (default
+Model embedding diatur lewat `DAMAR_EMBED_MODEL` (default
 `nomic-embed-text`). Di PC rumah, unduh dulu:
 
 ```bash
@@ -206,6 +206,6 @@ ini cukup dan tidak menambah dependensi native. Bila kelak membengkak,
 
 | Variabel | Default | Guna |
 |---|---|---|
-| `AETHER_MEMORY_DB` | `data/memory.db` | Lokasi basis data memori |
-| `AETHER_EMBED_MODEL` | - | Model embedding (opsional) |
-| `AETHER_EMBED_URL` | - | Endpoint embedding OpenAI-compatible (opsional) |
+| `DAMAR_MEMORY_DB` | `data/memory.db` | Lokasi basis data memori |
+| `DAMAR_EMBED_MODEL` | - | Model embedding (opsional) |
+| `DAMAR_EMBED_URL` | - | Endpoint embedding OpenAI-compatible (opsional) |

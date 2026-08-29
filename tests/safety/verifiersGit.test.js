@@ -23,11 +23,11 @@ const git = (...argv) =>
 
 test.before(() => {
 
-    repo = fs.mkdtempSync(path.join(os.tmpdir(), "aether-verify-"));
+    repo = fs.mkdtempSync(path.join(os.tmpdir(), "damar-verify-"));
 
     git("init", "-q");
-    git("config", "user.email", "uji@aether.local");
-    git("config", "user.name", "Uji Aether");
+    git("config", "user.email", "uji@damar.local");
+    git("config", "user.name", "Uji Damar");
     git("config", "commit.gpgsign", "false");
 
     fs.writeFileSync(path.join(repo, "awal.txt"), "isi mula-mula\n");
@@ -162,12 +162,12 @@ test("berkas belum terlacak tidak dianggap kegagalan rollback", async () => {
 
 test("branch terverifikasi lewat HEAD sungguhan", async () => {
 
-    git("checkout", "-q", "-b", "aether/uji-cabang");
+    git("checkout", "-q", "-b", "damar/uji-cabang");
 
     const { checks } = await jalankan(
         "code_branch",
-        { name: "aether/uji-cabang", project: repo },
-        { branch: "aether/uji-cabang" }
+        { name: "damar/uji-cabang", project: repo },
+        { branch: "damar/uji-cabang" }
     );
 
     assert.equal(checks[0].passed, true, JSON.stringify(checks));
@@ -178,12 +178,12 @@ test("KLAIM BRANCH PALSU tertangkap — HEAD di tempat lain", async () => {
 
     const { checks } = await jalankan(
         "code_branch",
-        { name: "aether/tidak-pernah-dibuat", project: repo },
-        { branch: "aether/tidak-pernah-dibuat" }
+        { name: "damar/tidak-pernah-dibuat", project: repo },
+        { branch: "damar/tidak-pernah-dibuat" }
     );
 
     assert.equal(checks[0].passed, false);
-    assert.match(checks[0].detail, /aether\/uji-cabang/);
+    assert.match(checks[0].detail, /damar\/uji-cabang/);
 
 });
 
@@ -193,7 +193,7 @@ test("bukan repo git → tidak terverifikasi, bukan dinyatakan gagal", async () 
 
     // Membedakan keduanya penting: "tidak dapat diperiksa" bukan
     // "terbukti salah".
-    const kosong = fs.mkdtempSync(path.join(os.tmpdir(), "aether-bukan-repo-"));
+    const kosong = fs.mkdtempSync(path.join(os.tmpdir(), "damar-bukan-repo-"));
 
     try {
 

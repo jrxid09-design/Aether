@@ -91,7 +91,7 @@ test("trust-origin: caller cannot mint a session trusted by any canonical runtim
         { principal: "victim", sessionId: "", channel: "" },
         Object.freeze({ principal: "victim", sessionId: "", channel: "" }),
         JSON.parse(JSON.stringify({ principal: "victim", sessionId: "", channel: "" })),
-        { principal: "victim", sessionId: "", channel: "", [Symbol("aether.action.authSession.brand")]: true }
+        { principal: "victim", sessionId: "", channel: "", [Symbol("damar.action.authSession.brand")]: true }
     ];
     for (const candidate of lookalikes) {
         const d = await h.evaluate(intent, candidate);
@@ -196,7 +196,7 @@ test("trust-origin: fake Symbol/token cannot self-issue a session", async () => 
     await setupAvailable(h);
     const intent = h.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "filesystem.read", operation: "read", arguments: { target: "safe.target" } }));
 
-    const fakeSymbolObj = { principal: "victim", sessionId: "", channel: "", [Symbol("aether.action.authSession.brand")]: true };
+    const fakeSymbolObj = { principal: "victim", sessionId: "", channel: "", [Symbol("damar.action.authSession.brand")]: true };
     const d = await h.evaluate(intent, fakeSymbolObj);
     assert.equal(d.decision, "DENY", "Symbol-branded lookalike rejected");
     assert.equal(d.reasonCode, "INVALID_IDENTITY");

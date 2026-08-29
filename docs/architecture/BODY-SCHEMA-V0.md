@@ -3,7 +3,7 @@
 Status: **V0 (kandidat terisolasi)** — basis `2890f961`, cabang
 `feat/body-schema-sensorium-v0`.
 
-## Posisi dalam tubuh Aether
+## Posisi dalam tubuh Damar
 
 ```
 Sensorium  →  BodySchema  →  Cognition  →  Authority  →  Actuation
@@ -11,7 +11,7 @@ Sensorium  →  BodySchema  →  Cognition  →  Authority  →  Actuation
 ```
 
 V0 membangun dua lapis pertama saja. Tidak ada aktuasi produksi, tidak ada
-penulisan ACC/AetherSelf, tidak ada Presence/Voice/wakeword.
+penulisan ACC/DamarSelf, tidak ada Presence/Voice/wakeword.
 
 ## Penomoran bagian (B§)
 
@@ -151,7 +151,7 @@ terdokumentasi di `persistence/BodyStore.js`.
 Tidak termasuk: Presence Orb, wakeword, double slap, streaming TTS/ASR,
 capture produksi kamera/mikrofon, kontrol keyboard/mouse, automasi OS,
 engine reverse engineering, driver otonom, Evolution Authority, mutasi
-AetherSelf, Colony, ACC C1.
+DamarSelf, Pandawa, ACC C1.
 
 ## Hardening tertunda (non-blocking, terdokumentasi)
 

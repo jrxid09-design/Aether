@@ -8,12 +8,12 @@ This milestone builds the vault CORE ONLY — nothing below is migrated yet.
 | Area | Source | Storage | Leak risk today |
 |---|---|---|---|
 | LLM provider keys | UI → `POST /api/ai/provider`; env seed `OPENROUTER_API_KEY` | `configs/providers.json` via JsonStore (plaintext) | Masked in UI read model (`hasKey`, `keyHint`); legacy `src/providers/openRouterProvider.js` reads env directly and `console.dir`s full request payloads |
-| Telegram | `configs/telegram.json`, fallback `AETHER_TELEGRAM_TOKEN` | plaintext JSON | No masking helper on token path |
-| TOTP shared secret | `AETHER_TOTP_CONFIG` or configs default | plaintext JSON | none applied |
+| Telegram | `configs/telegram.json`, fallback `DAMAR_TELEGRAM_TOKEN` | plaintext JSON | No masking helper on token path |
+| TOTP shared secret | `DAMAR_TOTP_CONFIG` or configs default | plaintext JSON | none applied |
 | WhatsApp session | Baileys `useMultiFileAuthState` | `configs/wa-auth/` creds.json + keys, plaintext | deleted on logout; otherwise unprotected |
-| Home Assistant | `configs/home.json` (`url`,`token`), fallback `AETHER_HASS_*` | plaintext JSON | masked in UI view only |
-| MCP servers | `configs/mcp.json`, `AETHER_MCP_SERVERS` env JSON | plaintext, incl. per-server `env` blocks passed verbatim to spawned processes | no masking anywhere |
-| Integrations | `integrations.json` + `AETHER_<ID>_KEY` env | committed file with apiKey fields | no masking |
+| Home Assistant | `configs/home.json` (`url`,`token`), fallback `DAMAR_HASS_*` | plaintext JSON | masked in UI view only |
+| MCP servers | `configs/mcp.json`, `DAMAR_MCP_SERVERS` env JSON | plaintext, incl. per-server `env` blocks passed verbatim to spawned processes | no masking anywhere |
+| Integrations | `integrations.json` + `DAMAR_<ID>_KEY` env | committed file with apiKey fields | no masking |
 | Env vars | `.env` via dotenv | process env | any error/log string containing them is forwarded unfiltered |
 
 ## Logging / redaction today

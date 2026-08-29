@@ -1,6 +1,6 @@
 /**
  * Registry sintetis untuk benchmark — ±120 tool yang mencerminkan
- * domain nyata Aether (nama & deskripsi bergaya sama dengan registry
+ * domain nyata Damar (nama & deskripsi bergaya sama dengan registry
  * asli), termasuk tiga tool MCP dinamis yang tidak dikenal pipeline.
  */
 
@@ -9,7 +9,7 @@ const NATIVE = [
     ["memory_recall", "Recall long-term memories relevant to a query"],
     ["memory_forget", "Forget a memory entry by id or topic"],
     ["memory_related", "Explore relations between remembered entities"],
-    ["memory_entities", "List entities known to Aether"],
+    ["memory_entities", "List entities known to Damar"],
     ["memory_documents", "List stored documents in memory"],
     ["system.time.currentTime", "Get the current date and time"],
     ["weather.currentWeather", "Get current weather for a city"],
@@ -95,7 +95,7 @@ const NATIVE = [
     ["voice_status", "Voice runtime status"],
     ["transcribe", "Transcribe an audio file to text"],
     ["tts_speak", "Speak text out loud with TTS"],
-    ["self_state", "Show Aether inner state"],
+    ["self_state", "Show Damar inner state"],
     ["self_reflect", "Save an inner reflection"],
     ["think_deeply", "Think through a hard problem step by step"],
     ["world_describe", "Describe the world model around a topic"],
@@ -116,7 +116,7 @@ const NATIVE = [
     ["desktop_type", "Type text into the focused window"],
     ["captureScreen", "Capture the desktop screen image"],
     // Tool meta disclosure — terdaftar oleh aiRuntimeService di runtime nyata.
-    ["tool_search", "Search all Aether capabilities and tools by keyword"]
+    ["tool_search", "Search all Damar capabilities and tools by keyword"]
 ];
 
 /** Tool MCP eksternal — TIDAK diketahui pipeline sebelumnya. */

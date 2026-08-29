@@ -13,7 +13,7 @@ function makeCore(clockMs = 1_000_000) {
     return new acc.ContinuityCore({
         store: createMemoryAccStore(),
         clock: acc.manualClock(clockMs),
-        config: acc.createACCConfig({ AETHER_ACC: "shadow" })
+        config: acc.createACCConfig({ DAMAR_ACC: "shadow" })
     });
 }
 

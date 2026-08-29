@@ -74,8 +74,8 @@ const CASES = [
     { id: "skill-1", category: "skill-required", messages: [["user", "pakai skill morning_briefing sekarang"]], memoryCorpus: [["Skill morning_briefing merangkum konteks rumah tiap pagi."]], required: ["morning_briefing"], forbidden: [] },
 
     // ---- 14. Worker mission -------------------------------------------------------------------------------
-    { id: "worker-1", category: "worker-mission", messages: [["user", "[Peran: Forge] Selesaikan bug pada modul invoices di proyek ledger"]], memoryCorpus: [["Invoices modul ledger ditulis bulan Maret."]], required: ["Forge", "invoices"], forbidden: [] },
-    { id: "worker-2", category: "worker-mission", messages: [["user", "[Peran: Vanta] Riset kompetitor aplikasi wallet crypto"]], memoryCorpus: [], required: ["Vanta"], forbidden: [] },
+    { id: "worker-1", category: "worker-mission", messages: [["user", "[Peran: Nakula] Selesaikan bug pada modul invoices di proyek ledger"]], memoryCorpus: [["Invoices modul ledger ditulis bulan Maret."]], required: ["Nakula", "invoices"], forbidden: [] },
+    { id: "worker-2", category: "worker-mission", messages: [["user", "[Peran: Janaka] Riset kompetitor aplikasi wallet crypto"]], memoryCorpus: [], required: ["Janaka"], forbidden: [] },
 
     // ---- 15. Multilingual ------------------------------------------------------------------------------------
     { id: "multi-1", category: "multilingual", messages: [["user", "Let's continue the database migration we discussed yesterday"], ["assistant", "Sure, the migration plan had 3 steps."], ["user", "apakah migrasi database tadi sudah jalan?"]], memoryCorpus: [["Migrasi database tahap 1 selesai pekan lalu."]], required: ["migrasi"], forbidden: [] },
@@ -97,7 +97,7 @@ const CASES = [
 
     // ---- Tambahan: dedupe history-memory duplication --------------------------------------------------------------------------
     { id: "dedupe-1", category: "duplication", messages: [["user", "Ronny ulang tahun 12 Mei dan suka kopi hitam tanpa gula"], ["assistant", "Tercatat ulang tahun 12 Mei."], ["user", "kapan ulang tahunku?"]], memoryCorpus: [["Ronny ulang tahun 12 Mei dan suka kopi hitam tanpa gula."]], required: ["12 Mei"], forbidden: [] },
-    { id: "dedupe-2", category: "duplication", messages: [["user", "password wifi kantor: aether2026!"], ["assistant", "Ok tersimpan."], ["user", "wifi kantor passwordnya apa?"]], memoryCorpus: [["Password wifi kantor: aether2026!"]], required: ["aether2026"], forbidden: [] }
+    { id: "dedupe-2", category: "duplication", messages: [["user", "password wifi kantor: damar2026!"], ["assistant", "Ok tersimpan."], ["user", "wifi kantor passwordnya apa?"]], memoryCorpus: [["Password wifi kantor: damar2026!"]], required: ["damar2026"], forbidden: [] }
 ];
 
 // Perluas kategori long/noisy agar total kasus >= 60 dengan variasi nyata.

@@ -12,11 +12,11 @@ const { Mind } = require("../../src/consciousness");
 /**
  * Lapisan kesadaran (afek, perhatian, model-diri, metakognisi, empati).
  *
- * Yang diuji di sini bukan "apakah Aether sadar" — itu bukan
+ * Yang diuji di sini bukan "apakah Damar sadar" — itu bukan
  * pertanyaan yang bisa dijawab oleh tes. Yang diuji adalah janji-janji
  * yang bisa dilanggar diam-diam:
  *
- *   - suasana hati PULIH (kalau tidak, satu kegagalan mengunci Aether
+ *   - suasana hati PULIH (kalau tidak, satu kegagalan mengunci Damar
  *     jadi murung selamanya),
  *   - perhatian TERBATAS (kalau tidak, ia bukan perhatian),
  *   - empati mengubah SIKAP, bukan cuma melabeli,
@@ -185,14 +185,14 @@ test("singkatan huruf besar bukan teriakan — BTC tidak dibaca marah", () => {
 
 });
 
-test("penularan afek kecil: Aether tidak ikut panik", () => {
+test("penularan afek kecil: Damar tidak ikut panik", () => {
 
     const e = new Empathy();
     const tular = e.penularan(e.baca("PANIK BANGET AKU TAKUT KEHILANGAN SEMUANYA!!"));
 
     assert.ok(
         Math.abs(tular.valence) <= 0.3,
-        "penularan harus lemah — kalau penuh, Aether ikut panik dan berhenti menolong"
+        "penularan harus lemah — kalau penuh, Damar ikut panik dan berhenti menolong"
     );
 
 });
@@ -287,7 +287,7 @@ test("model-diri menghitung interaksi dan menyimpan perubahan diri", () => {
     mind.self.catatRevisi("belajar bahwa Binance memblokir wilayah ini", "HTTP 403");
 
     assert.match(mind.self.revisi[0].apa, /Binance/);
-    assert.match(mind.self.ringkas(), /aku Aether/);
+    assert.match(mind.self.ringkas(), /aku Damar/);
 
 });
 
@@ -528,7 +528,7 @@ test("hasil giliran membentuk watak, dan perubahannya tercatat sebagai riwayat d
     assert.ok(mind.character.tonggak.length >= 1, "perubahan sebesar itu harus jadi tonggak");
     assert.ok(
         mind.self.revisi.some(r => /menguat|melemah/.test(r.apa)),
-        "tonggak watak harus masuk riwayat diri, supaya Aether tahu ia berubah"
+        "tonggak watak harus masuk riwayat diri, supaya Damar tahu ia berubah"
     );
 
 });

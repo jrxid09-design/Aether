@@ -5,7 +5,7 @@ Branch lane: `feat/audit-provenance-ledger-v1` · Base: `9d72965`
 ## Purpose
 
 A canonical, bounded, append-oriented **observational** record of what happened
-across Aether subsystems: what, when, which subsystem, which interaction /
+across Damar subsystems: what, when, which subsystem, which interaction /
 thread / project / session, which device, which Recovery generation, what
 evidence, what Authority context was observed, what the outcome was, and what
 was recorded afterward (causal links, corrections, supersessions).

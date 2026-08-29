@@ -200,7 +200,7 @@ test("call-site SelfHealingEngine.recover: inisiator transitif TIDAK melebar", a
 
     // Goal user → pemulihan transitif → worker tetap 'user'.
     await healing.recover({
-        tool: "agent:vanta",
+        tool: "agent:janaka",
         action: "pulihkan langkah",
         error: new Error("boom"),
         goalId: "g9",
@@ -214,7 +214,7 @@ test("call-site SelfHealingEngine.recover: inisiator transitif TIDAK melebar", a
     // Goal admin → pemulihan mewarisi admin.
     seen.length = 0;
     await healing.recover({
-        tool: "agent:vanta", action: "x", error: new Error("y"), goalId: "g8",
+        tool: "agent:janaka", action: "x", error: new Error("y"), goalId: "g8",
         exec: { role: "admin", sessionId: "goal-admin" }
     });
     assert.equal(seen[0].role, "admin");
@@ -226,7 +226,7 @@ test("call-site SelfHealingEngine.recover: batas otonom eksplisit boleh system",
     seen.length = 0;
 
     await healing.recover({
-        tool: "agent:aether",
+        tool: "agent:damar",
         action: "pemulihan mandiri watchdog",
         error: new Error("remediasi langsung gagal berulang"),
         goalId: null,
@@ -306,7 +306,7 @@ test("call-site Watchdog.escalateAutonomously: satu-satunya pemakai internal:tru
         assert.ok(captured, "eskalasi harus sampai ke SelfHealing");
         assert.equal(captured.internal, true,
             "batas otonom menandai dirinya secara eksplisit");
-        assert.equal(captured.tool, "agent:aether");
+        assert.equal(captured.tool, "agent:damar");
 
         // Dan grant hasil resolusinya adalah system kanonik.
         const delegator = resolveDelegator(captured.exec ?? null, captured.internal === true, `heal:${captured.goalId ?? "?"}`);
@@ -365,7 +365,7 @@ test("call-site MissionEngine.run: exec inisiator diteruskan apa adanya", async 
         id: projPath, filename: projPath, loaded: true,
         exports: {
             get: async () => ({ id: "p1", title: "Proyek", phase: "DISCOVERY", dir: "/tmp/lab-p1" }),
-            agentsForPhase: () => ["vanta"]
+            agentsForPhase: () => ["janaka"]
         }
     };
 

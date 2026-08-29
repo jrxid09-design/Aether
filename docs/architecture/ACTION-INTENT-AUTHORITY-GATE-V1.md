@@ -51,7 +51,7 @@ public/downstream Action package exposes no factories that let callers
 construct another authority runtime over canonical state.
 
 ```
-AETHER TRUSTED BOOTSTRAP LAYER  (src/action/bootstrap.js)
+DAMAR TRUSTED BOOTSTRAP LAYER  (src/action/bootstrap.js)
         │
         │ owns (defined in its PRIVATE closure + constructed once internally —
         │       NOT caller-supplied, NOT importable):
@@ -184,7 +184,7 @@ runtime's brand, state, or facade.
 
 ## AuthenticationDomain (src/action/bootstrap.js — private closure)
 
-Composed ONLY by trusted Aether bootstrap, inside its private closure,
+Composed ONLY by trusted Damar bootstrap, inside its private closure,
 OUTSIDE any public constructor. Its closure owns:
 
 - `authenticate(evidence)` — the single public identity surface. Resolves
@@ -401,7 +401,7 @@ surface (`bindCompositionHost`, `bindAuthenticationHost`, `bindHost`,
 `acquireHost`, `registerHost`, `installHost`, `claimComposition`,
 `bootstrapBind`, `hostToken`, `getFactory`, `getComposer`).
 
-Privileged composition lives in `src/action/bootstrap.js` — the trusted Aether
+Privileged composition lives in `src/action/bootstrap.js` — the trusted Damar
 runtime/bootstrap layer — which exposes exactly
 `{ createCanonicalActionFacade, PRIVILEGED_KEYS }`. The production facade
 factory takes NO options; all canonical state (CapabilityRuntime,

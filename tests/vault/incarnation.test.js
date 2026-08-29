@@ -13,7 +13,7 @@ const { VaultError } = require("../../src/runtime/vault/errors");
 const INCARNATION_PATTERN = /^inc-[0-9a-f]{32}$/;
 
 function tmpDir() {
-    return fs.mkdtempSync(path.join(os.tmpdir(), "aether-vault-incarnation-"));
+    return fs.mkdtempSync(path.join(os.tmpdir(), "damar-vault-incarnation-"));
 }
 
 /**

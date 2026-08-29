@@ -14,7 +14,7 @@ const { hashing } = require("../../src/reintel");
 const { analyzeArtifact } = require("../../src/reintel");
 
 test("SHA-256 identity: hash buffer dan streaming path identik", async () => {
-    const payload = Buffer.from("aether re intelligence fixture\n".repeat(1000));
+    const payload = Buffer.from("damar re intelligence fixture\n".repeat(1000));
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "reintel-id-"));
     const p = path.join(dir, "blob.bin");
     fs.writeFileSync(p, payload);

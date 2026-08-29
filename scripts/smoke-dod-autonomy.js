@@ -31,10 +31,10 @@ svc.initialize();
     }
 
     const goal = await autonomy.goals.create({
-        title: "Hitung checksum adler-32 dari string 'aether'",
-        description: "Buat/temukan kapabilitas checksum adler-32 lalu hitung nilai untuk string 'aether'. " +
-            "Jika tool belum ada, buat skill baru (Node.js murni). Sukses: angka adler32 'aether' terlapor.",
-        successCriteria: ["nilai adler32 dari string 'aether' terlapor sebagai angka"]
+        title: "Hitung checksum adler-32 dari string 'damar'",
+        description: "Buat/temukan kapabilitas checksum adler-32 lalu hitung nilai untuk string 'damar'. " +
+            "Jika tool belum ada, buat skill baru (Node.js murni). Sukses: angka adler32 'damar' terlapor.",
+        successCriteria: ["nilai adler32 dari string 'damar' terlapor sebagai angka"]
     });
 
     const t = setTimeout(() => { console.log("TIMEOUT"); process.exit(1); }, 560000);

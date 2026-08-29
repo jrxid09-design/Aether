@@ -65,7 +65,7 @@ test("tool baca-saja tetap lolos saat berhenti", () => {
     killSwitch.engage({ reason: "uji", actor: "test" });
 
     assert.doesNotThrow(
-        () => killSwitch.assertRunning("aetherSkills.system_health"),
+        () => killSwitch.assertRunning("damarSkills.system_health"),
         "tool dalam allowlist baca-saja harus lolos"
     );
 

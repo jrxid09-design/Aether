@@ -1,7 +1,7 @@
 # Runtime Host Wiring Map — pre-implementation study (Wave 3)
 
 Base: 9d72965 (`integration: compose certified runtime foundations wave2`)
-Branch: `integration/aether-runtime-host-v1`
+Branch: `integration/damar-runtime-host-v1`
 
 ## Current boot / process lifecycle
 
@@ -21,7 +21,7 @@ Branch: `integration/aether-runtime-host-v1`
 ## Certified foundations (Wave 1 + 2)
 
 - `src/integration/embodiedCore.js` — Wave 1: returns frozen `{ version, authority,
-  body, desktop, reintel, acc (mode:"shadow"), aetherSelf, observeEmbodiment,
+  body, desktop, reintel, acc (mode:"shadow"), damarSelf, observeEmbodiment,
   observeDesktop, feedCognition, describe }`.
 - `src/integration/runtimeCore.js` — Wave 2 `createRuntimeCore()`: composes
   embodiedCore + ResourceGovernor + Recovery Capsule + InteractionBus + Presence
@@ -65,7 +65,7 @@ Branch: `integration/aether-runtime-host-v1`
   handleTranscript/speak/interrupt/status), `StateMachine` STATES =
   IDLE/WAKE_DETECTED/LISTENING/TRANSCRIBING/THINKING/EXECUTING/SPEAKING with
   barge-in `SPEAKING→LISTENING`; providers wakeWord/clapDetector/stt/tts as
-  adapters; audio backend default "none"; opt-in via `AETHER_VOICE_ENABLED=false`
+  adapters; audio backend default "none"; opt-in via `DAMAR_VOICE_ENABLED=false`
   default. Wired in server boot try/catch.
 - `docs/VOICE-RUNTIME.md`: voice is just another channel; standby makes zero LLM
   calls; graceful degradation; voice not trusted.

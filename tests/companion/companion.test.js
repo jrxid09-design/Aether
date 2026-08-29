@@ -12,11 +12,11 @@ const { CompanionGateway } = require("../../src/companion/companionGateway");
 
 /**
  * Companion (device tertaut) — device di jaringan sama bisa pakai tools
- * & skill Aether. Test menguji registry, pairing, auth, dan gateway.
+ * & skill Damar. Test menguji registry, pairing, auth, dan gateway.
  */
 
 function makeRegistry() {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aether-comp-"));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "damar-comp-"));
     const store = new JsonStore(path.join(dir, "companions.json"), { devices: [] });
     return new DeviceRegistry(store);
 }

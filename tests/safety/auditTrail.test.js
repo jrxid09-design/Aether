@@ -6,8 +6,8 @@ const path = require("node:path");
 
 // Biasanya sudah dipasang `tests/helpers/testEnv.js`; baris ini
 // menjaga berkas tetap benar saat dijalankan sendirian.
-process.env.AETHER_AUDIT_DIR ||=
-    fs.mkdtempSync(path.join(os.tmpdir(), "aether-audit-"));
+process.env.DAMAR_AUDIT_DIR ||=
+    fs.mkdtempSync(path.join(os.tmpdir(), "damar-audit-"));
 
 const auditTrail = require("../../src/core/safety/auditTrail");
 const toolGuard = require("../../src/core/safety/toolGuard");
@@ -17,7 +17,7 @@ const loopGuard = require("../../src/core/safety/loopGuard");
  * Jejak audit yang bertahan (§96, Konstitusi Pasal 5).
  *
  * `telemetry.publish()` hanya memancarkan event tanpa menyimpannya:
- * kalau Console tidak terbuka, tidak ada catatan bahwa Aether
+ * kalau Console tidak terbuka, tidak ada catatan bahwa Damar
  * mengirim pesan atau bahwa sebuah verifikasi gagal.
  */
 
@@ -66,7 +66,7 @@ test("peristiwa tercatat ke berkas, bukan hanya dipancarkan", () => {
 
 test("PENOLAKAN tercatat — inilah yang paling perlu terlihat", () => {
 
-    // Gerbang izin kini DIMATIKAN (Aether langsung bertindak). Yang
+    // Gerbang izin kini DIMATIKAN (Damar langsung bertindak). Yang
     // masih menolak adalah kill switch: tarik STOP, lalu coba tool.
     const killSwitch = require("../../src/core/safety/killSwitch");
     loopGuard.resetAll();
@@ -139,7 +139,7 @@ test("pembacaan rutin TIDAK menenggelamkan jejak", async () => {
 test("menulis berkas TERCATAT — disk berubah, pemilik berhak tahu", async () => {
 
     // Batasnya bukan "berbahaya", melainkan "ada yang berubah di
-    // luar kepala Aether". Menulis berkas termasuk.
+    // luar kepala Damar". Menulis berkas termasuk.
     const sebelum = bacaSemua().length;
 
     await toolGuard.after(
@@ -246,7 +246,7 @@ test("mencatat tidak pernah melempar walau masukan kacau", () => {
 test("jejak tes tidak menyentuh jejak sungguhan", () => {
 
     assert.ok(
-        !auditTrail.DIR.includes(path.join("Workspace", "Aether", "data")),
+        !auditTrail.DIR.includes(path.join("Workspace", "Damar", "data")),
         `tes harus menulis ke direktori sementara, bukan ${auditTrail.DIR}`
     );
 

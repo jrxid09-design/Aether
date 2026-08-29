@@ -1,6 +1,6 @@
-# Aether ToolForge — Aether menambah kemampuannya sendiri
+# Damar ToolForge — Damar menambah kemampuannya sendiri
 
-Aether bisa membuat tool/plugin baru — lewat percakapan maupun
+Damar bisa membuat tool/plugin baru — lewat percakapan maupun
 manual — lalu langsung memakainya tanpa restart daemon.
 
 ## Lewat percakapan
@@ -9,7 +9,7 @@ Cukup minta:
 
 > "Buatkan tool untuk cek ping ke sebuah host."
 
-Aether menyusun kode, menyimpannya sebagai **draft** (belum aktif),
+Damar menyusun kode, menyimpannya sebagai **draft** (belum aktif),
 lalu menjelaskan apa yang dilakukan tool + peringatan risiko. Setelah
 kamu setujui ("ya, aktifkan"), tool langsung bisa dipanggil.
 
@@ -37,7 +37,7 @@ approve     → aktif (pindah ke userPlugins/, di-load)
   memberi tahu supaya kamu tahu apa yang disetujui.
 - **Plugin bawaan** tidak bisa ditimpa atau dihapus dari forge.
 - Untuk otonomi penuh (langsung aktif tanpa persetujuan):
-  `AETHER_TOOL_AUTOAPPROVE=1` di `.env`. Default lebih aman.
+  `DAMAR_TOOL_AUTOAPPROVE=1` di `.env`. Default lebih aman.
 
 ## Manual (input / hapus sendiri)
 

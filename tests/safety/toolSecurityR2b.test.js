@@ -45,7 +45,7 @@ test("R2-12/13. 4K & 8K window: serialized schema <= hardCap", async () => {
 
     for (const w of [4096, 8192]) {
 
-        process.env.AETHER_MODEL_CONTEXT_TOKENS = String(w);
+        process.env.DAMAR_MODEL_CONTEXT_TOKENS = String(w);
 
         try {
             const r = await Pipeline.select({
@@ -62,7 +62,7 @@ test("R2-12/13. 4K & 8K window: serialized schema <= hardCap", async () => {
                 `${w}: ser=${ser} > cap=${r.diagnostics.windowHardCap}`);
         }
         finally {
-            delete process.env.AETHER_MODEL_CONTEXT_TOKENS;
+            delete process.env.DAMAR_MODEL_CONTEXT_TOKENS;
         }
     }
 
@@ -72,7 +72,7 @@ test("R2-16K. window 16K tetap dalam batas", async () => {
 
     const { all } = captureRegistry();
 
-    process.env.AETHER_MODEL_CONTEXT_TOKENS = "16384";
+    process.env.DAMAR_MODEL_CONTEXT_TOKENS = "16384";
 
     try {
         const r = await Pipeline.select({
@@ -87,7 +87,7 @@ test("R2-16K. window 16K tetap dalam batas", async () => {
         assert.ok(ser <= r.diagnostics.windowHardCap);
     }
     finally {
-        delete process.env.AETHER_MODEL_CONTEXT_TOKENS;
+        delete process.env.DAMAR_MODEL_CONTEXT_TOKENS;
     }
 
 });
@@ -183,7 +183,7 @@ test("R2-G1. request.tools eksplisit tetap diiriskkan", async () => {
 
 test("R2-LEGACY. legacy hatch tetap melalui gerbang peran", async () => {
 
-    process.env.AETHER_TOOL_PIPELINE = "legacy";
+    process.env.DAMAR_TOOL_PIPELINE = "legacy";
 
     try {
         const AIRuntime = require("../../src/ai/runtime/AIRuntime");
@@ -205,7 +205,7 @@ test("R2-LEGACY. legacy hatch tetap melalui gerbang peran", async () => {
         assert.ok(!views.some(v => v.name === "terminal_run"));
     }
     finally {
-        delete process.env.AETHER_TOOL_PIPELINE;
+        delete process.env.DAMAR_TOOL_PIPELINE;
     }
 
 });

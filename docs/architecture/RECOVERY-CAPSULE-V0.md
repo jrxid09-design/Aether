@@ -1,4 +1,4 @@
-# AETHER RECOVERY CAPSULE V0
+# DAMAR RECOVERY CAPSULE V0
 
 Status: V0 — inert recovery substrate. No runtime wiring. No authority. No actuation.
 
@@ -42,8 +42,8 @@ differences:
 | **ACC continuity** (`src/cognition/continuity/ContinuityCore.js`, `src/cognition/persistence/AccStore.js`) | Canonical event-sourced ACC state: journal → reducer → state → snapshot, hash-chained events, projection watermark | ACC continuity is the *owner of one subsystem's internal state*. Recovery Capsule checkpoints *that a provider's state existed*, its version and digest — it is not event-sourced, keeps no reducer state, and never becomes a second ACC. Future ACC integration happens via an explicit provider, not by reading ACC internals. |
 | **Memory persistence** (`src/memory/db/`) | Memory notes / conversation history schema (SQLite + migrations) | Memory is *content storage* for recall. Recovery stores *checkpointed subsystem state bundles* with trust classification and restore transactions. It writes no memory records and reads none back into prompts. |
 | **SQLite stores generally** (`checkpoints` table in `src/autonomy/CheckpointSystem.js`, channel/session DBs) | Durable rows for specific features | Recovery V0 uses a deterministic **in-memory store** so certification is hermetic; a filesystem backend (temp write → fsync → atomic rename → validate-before-replace) is specified below but deliberately not wired. |
-| **Git / `CheckpointSystem`** (`.aether-checkpoints`, `git add -A && git commit` of the working tree) | Whole-worktree snapshots before risky changes | That is *file-tree rollback for humans*. Recovery Capsule is *machine-verifiable structured state bundles* with digests, epochs, lineage, two-phase restore, and fail-closed validation. Git has no schema validation, no section trust model, no restore transaction, and no completeness semantics. |
-| **AetherSelf** | Self-model narrative content | Self-model is *content owned by cognition*. Recovery treats it (if ever integrated) as just another provider section, classified and opaque like everything else. |
+| **Git / `CheckpointSystem`** (`.damar-checkpoints`, `git add -A && git commit` of the working tree) | Whole-worktree snapshots before risky changes | That is *file-tree rollback for humans*. Recovery Capsule is *machine-verifiable structured state bundles* with digests, epochs, lineage, two-phase restore, and fail-closed validation. Git has no schema validation, no section trust model, no restore transaction, and no completeness semantics. |
+| **DamarSelf** | Self-model narrative content | Self-model is *content owned by cognition*. Recovery treats it (if ever integrated) as just another provider section, classified and opaque like everything else. |
 
 If a future branch introduces a canonical equivalent, this module must be
 retired into it rather than grown in parallel.

@@ -1,4 +1,4 @@
-# Pemetaan Direktif → Aether yang Berjalan
+# Pemetaan Direktif → Damar yang Berjalan
 
 **Tanggal:** 2026-08-11
 **Dasar:** ADR-006 (strangler fig)
@@ -51,7 +51,7 @@ Maksud pasal dipertahankan; caranya disesuaikan dengan kenyataan Node + produksi
 
 | § | Tuntutan asli | Pengganti | Alasan |
 |---|---|---|---|
-| 8 | Core Python | **Node tetap; Python hanya sidecar memori** | Menulis ulang 43.000 baris runtime berjalan melanggar §277. Kebutuhan ekosistem Python (Graphiti/Qdrant/Neo4j) terpenuhi lewat layanan terpisah di balik antarmuka milik Aether |
+| 8 | Core Python | **Node tetap; Python hanya sidecar memori** | Menulis ulang 43.000 baris runtime berjalan melanggar §277. Kebutuhan ekosistem Python (Graphiti/Qdrant/Neo4j) terpenuhi lewat layanan terpisah di balik antarmuka milik Damar |
 | 8 | Tauri | **Electron yang sudah ada** | Sudah berjalan dan dipakai. Tauri hanya bila Electron terbukti menghambat — belum terbukti |
 | 8 | React + TypeScript | **Vanilla JS + JSDoc bertipe** | Console sudah vanilla dan bekerja. Menambah React = menulis ulang UI tanpa manfaat yang terbukti. Ketat-tipe dicapai lewat JSDoc + `checkJs` |
 | 6 | Struktur monorepo baru | **Struktur legacy diperbaiki bertahap** | Memindahkan 440 berkas sekaligus memutus produksi |
@@ -73,7 +73,7 @@ Maksud pasal dipertahankan; caranya disesuaikan dengan kenyataan Node + produksi
 | 50 | Research engine | Setelah provenance memori |
 | 52 | Analyst | Setelah sidecar Python ada |
 | 60–61 | Vision / CCTV | Belum ada kamera di jaringan; vision dasar sudah jalan |
-| 74 | Aether Lab | Setelah telemetri per-model tersedia |
+| 74 | Damar Lab | Setelah telemetri per-model tersedia |
 | 75 | Perbaikan diri | Setelah sandbox + audit + kill switch lengkap |
 | 76 | Digital Twin | Sebagian sudah ada (`nasService`, `systemController`) |
 | 88 | Avatar Three.js | **Sudah ada dan baru dirombak** |
@@ -107,7 +107,7 @@ Batas keamanan lebih dulu — inilah yang membuat otonomi layak dipercaya (§275
 
 | Prioritas | Item | Alasan |
 |---|---|---|
-| **P0** | Kill switch (§37) | Tidak ada cara menghentikan Aether saat ini |
+| **P0** | Kill switch (§37) | Tidak ada cara menghentikan Damar saat ini |
 | **P0** | Tingkat risiko + capability (§33–34) | 75 tool berjalan tanpa otorisasi berjenjang |
 | **P0** | Verification Engine (§46) | Melapor sukses tanpa bukti |
 | **P1** | Error terstruktur (§110) | Prasyarat recovery yang benar |

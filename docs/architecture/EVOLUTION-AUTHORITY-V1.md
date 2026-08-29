@@ -5,7 +5,7 @@ Branch: `feat/evolution-authority-v1`.
 
 ## Prinsip
 
-    AETHER OWNS ITS EVOLUTION.
+    DAMAR OWNS ITS EVOLUTION.
     THE OWNER RATIFIES MATERIAL TRANSITIONS.
 
 - **Delegation != Escalation.** Tanpa ratifikasi baru,
@@ -25,7 +25,7 @@ Branch: `feat/evolution-authority-v1`.
 | `src/authority/delegation.js` | `attenuateGrant` — subset law per field |
 | `src/authority/store.js` | memory & SQLite backend; `consumeExecution` ATOMIK (BEGIN IMMEDIATE) |
 | `src/authority/registry.js` | authorize (machine-readable decision), delegate, suspend/resume/revoke, generation bulk-revoke, propose/revise/ratify, snapshot + revalidasi |
-| `src/services/aetherSelfService.js` | resolver path kanonik tunggal, migrasi legacy byte-exact, journal append-only |
+| `src/services/damarSelfService.js` | resolver path kanonik tunggal, migrasi legacy byte-exact, journal append-only |
 
 ## Keputusan otoritas
 
@@ -46,9 +46,9 @@ tabel events).
 ## Alur evolusi V1
 
 ACC/self-observation → EvolutionProposal (DRAFT) → dokumen di
-`AetherSelf/evolution/proposals` → eksperimen/evidence →
+`DamarSelf/evolution/proposals` → eksperimen/evidence →
 AuthorityExpansionRequest → OWNER_RATIFIED → root grant baru →
 (penerapan produksi = milestone berikutnya).
 
-V1 TIDAK melakukan deploy otomatis, tidak ada Colony, tidak ada
+V1 TIDAK melakukan deploy otomatis, tidak ada Pandawa, tidak ada
 self-modification produksi tanpa ratifikasi.

@@ -8,7 +8,7 @@ function parentGrant() {
     return acc.model.buildGrant({
         capabilityId: "team.ops",
         kind: "root",
-        subject: "aether-core",
+        subject: "damar-core",
         issuer: "owner",
         actions: ["use", "delegate"],
         scope: ["scope=home-lan"],

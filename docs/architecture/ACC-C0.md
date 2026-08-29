@@ -1,4 +1,4 @@
-# ACC C0 — Aether Cognitive Core (Discovery + Contract)
+# ACC C0 — Damar Cognitive Core (Discovery + Contract)
 
 Status: **C0.0 delivered — implementation gates PENDING-GATE** (node execution
 unavailable in the WSL session; gates run via `scripts/acc-gates.ps1`).
@@ -60,7 +60,7 @@ Gate runner: `scripts/acc-gates.ps1` (Windows-native node). Results land in
 
 ## 5. Non-goals honored in C0
 
-No Capability Lifecycle, no Colony, no embodiment, no self-granted permission,
+No Capability Lifecycle, no Pandawa, no embodiment, no self-granted permission,
 no self-preservation drive, no autonomous model switching policy, no
 consciousness/personhood claims, no hidden chain-of-thought persistence, no
 per-event LLM calls (all C0 reducers are deterministic; LLM enters only as a

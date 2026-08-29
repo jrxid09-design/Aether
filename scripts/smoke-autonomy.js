@@ -1,5 +1,5 @@
 /**
- * Smoke test runtime otonom Aether.
+ * Smoke test runtime otonom Damar.
  * Jalankan: node scripts/smoke-autonomy.js
  */
 const path = require("node:path");

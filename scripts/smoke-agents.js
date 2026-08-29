@@ -33,25 +33,25 @@ async function main() {
     }
     check("profil tool 10 worker", semuaLengkap, ringkas.join(" "));
 
-    // Forge WAJIB punya opencode_run.
-    const forgeTools = toolsForWorker(all, "forge", []).map(t => t.name);
-    check("forge punya opencode_run", forgeTools.includes("opencode_run"));
+    // Nakula WAJIB punya opencode_run.
+    const nakulaTools = toolsForWorker(all, "nakula", []).map(t => t.name);
+    check("nakula punya opencode_run", nakulaTools.includes("opencode_run"));
 
     // --- 2. AgentHub.get / health -------------------------------
     const agentHub = require("../src/services/agentHub");
-    const forge = agentHub.get("forge");
-    check("agentHub.get('forge')", forge?.kind === "worker", forge?.label);
+    const nakula = agentHub.get("nakula");
+    check("agentHub.get('nakula')", nakula?.kind === "worker", nakula?.label);
 
     const health = await agentHub.health();
     check("agentHub.health()", health.length === 13, `${health.length} agent`);
 
-    // --- 3. runWorker dengan tool nyata (pulse → system_health) --
+    // --- 3. runWorker dengan tool nyata (sadewa → system_health) --
     try {
-        const r = await agentHub.run("pulse", "Jawab HANYA dengan kata: PULSE-OK (tanpa memanggil tool).");
-        check("agentHub.run(pulse)", r.ok === true, JSON.stringify(r.output ?? "").slice(0, 60));
+        const r = await agentHub.run("sadewa", "Jawab HANYA dengan kata: PULSE-OK (tanpa memanggil tool).");
+        check("agentHub.run(sadewa)", r.ok === true, JSON.stringify(r.output ?? "").slice(0, 60));
     }
     catch (e) {
-        check("agentHub.run(pulse)", false, e.message);
+        check("agentHub.run(sadewa)", false, e.message);
     }
 
     // --- 4. opencode_run end-to-end ------------------------------
@@ -64,22 +64,22 @@ async function main() {
             fresh: true
         });
         const parsed = JSON.parse(r.output?.match(/\{[^}]+\}/)?.[0] ?? "{}");
-        check("opencode_run membaca package.json", r.ok && parsed.name === "aether",
+        check("opencode_run membaca package.json", r.ok && parsed.name === "damar",
             `name=${parsed.name} v${parsed.version}`);
     }
     catch (e) {
         check("opencode_run membaca package.json", false, e.message);
     }
 
-    // --- 5. Forge → mendelegasikan coding ke opencode ------------
+    // --- 5. Nakula → mendelegasikan coding ke opencode ------------
     try {
-        const r = await agentHub.run("forge",
+        const r = await agentHub.run("nakula",
             "Pakai tool opencode_run untuk membaca package.json proyek ini, lalu jawab satu baris: nama dan versi proyek.");
-        const ok = r.ok && /aether/i.test(r.output ?? "");
-        check("Forge → opencode_run", ok, JSON.stringify(r.output ?? "").slice(0, 80));
+        const ok = r.ok && /damar/i.test(r.output ?? "");
+        check("Nakula → opencode_run", ok, JSON.stringify(r.output ?? "").slice(0, 80));
     }
     catch (e) {
-        check("Forge → opencode_run", false, e.message);
+        check("Nakula → opencode_run", false, e.message);
     }
 
     // --- 6. Memori: tulis langsung tanpa proposal ----------------

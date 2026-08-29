@@ -56,7 +56,7 @@ test("mint: forged token / copied / structurally identical cannot mint", () => {
     assert.equal(registryMod.MINT_TOKEN, undefined);
     assert.equal(api.MINT_TOKEN, undefined);
     // The closure token cannot be imported, guessed, or cloned.
-    const forgedSym = Symbol("aether.capability.registrar.mint");
+    const forgedSym = Symbol("damar.capability.registrar.mint");
     assert.notEqual(typeof registryMod.mintRegistrar, "function");
     assert.equal(registryMod.mintRegistrar, undefined);
 });

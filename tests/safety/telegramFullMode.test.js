@@ -14,7 +14,7 @@ const totp = require("../../src/core/auth/totp");
  * → tetap terbatas, /keluar → kembali terbatas, TTL kedaluwarsa.
  *
  * TelegramService singleton memakai configs/telegram.json & totp.json
- * di repo. Untuk tes, file di-arahkan ke tmp via AETHER_TOTP_CONFIG
+ * di repo. Untuk tes, file di-arahkan ke tmp via DAMAR_TOTP_CONFIG
  * kalau ada — tapi modul sudah require saat awal. Solusi: tes logika
  * lewat instance baru dengan store diisolasi.
  */
@@ -33,8 +33,8 @@ function makeIsolated() {
     // dihapus dan path di-override lewat env.
     delete require.cache[require.resolve("../../src/services/telegramService")];
 
-    // Simpan & override config path lewat env AETHER_TOTP_CONFIG.
-    process.env.AETHER_TOTP_CONFIG = path.join(dir, "totp.json");
+    // Simpan & override config path lewat env DAMAR_TOTP_CONFIG.
+    process.env.DAMAR_TOTP_CONFIG = path.join(dir, "totp.json");
 
     const svc = require("../../src/services/telegramService");
 
@@ -136,6 +136,6 @@ test("/masuk tanpa secret → arahkan /totp setup", async () => {
 
 test("pesan non-perintah tidak dikonsumsi oleh handleFullModeCommand", async () => {
     const { svc } = makeIsolated();
-    const handled = await svc.handleFullModeCommand("12345", "halo aether");
+    const handled = await svc.handleFullModeCommand("12345", "halo damar");
     assert.equal(handled, false, "pesan biasa harus lanjut ke converse");
 });
