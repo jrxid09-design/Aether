@@ -17,19 +17,11 @@ class DamarSelfTool {
 
     async execute(context, args = {}) {
         const os = require('os');
-        const fs = require('fs');
-        const path = require('path');
+        const selfService = require('../../src/services/damarSelfService')
+            .createDamarSelfService();
 
-        const SELF_PATH = 'C:\\Workspace\\Aether\\DAMAR_SELF.md';
-        const STATE_PATH = 'C:\\Workspace\\Aether\\DAMAR_STATE.json';
-
-        function readState() {
-            try { return JSON.parse(fs.readFileSync(STATE_PATH, 'utf8')); } catch(e) { return {}; }
-        }
-
-        function writeState(state) {
-            fs.writeFileSync(STATE_PATH, JSON.stringify(state, null, 2), 'utf8');
-        }
+        function readState() { return selfService.readRuntimeState(); }
+        function writeState(state) { selfService.writeRuntimeState(state); }
 
         const { action } = args;
 
@@ -109,7 +101,9 @@ class DamarSelfTool {
 
         if (action === 'update') {
             const prev = readState();
-            const selfMd = fs.existsSync(SELF_PATH) ? fs.readFileSync(SELF_PATH, 'utf8') : null;
+            let selfMd = null;
+            try { selfMd = selfService.readIdentityBytes(); }
+            catch { /* canonical self may not be initialized yet */ }
 
             prev.lastUpdate = new Date().toISOString();
             prev.selfMdExists = !!selfMd;
