@@ -79,6 +79,7 @@ test("structural: action module imports no executors, authority mutators, fs/net
             const ok =
                 target.startsWith("./") ||
                 target === "node:crypto" ||
+                target === "node:util" ||
                 target === "../capability/registry/ids" ||
                 target === "../../capability/registry/ids" ||
                 target === "../authority/evaluate" ||

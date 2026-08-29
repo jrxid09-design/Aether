@@ -230,6 +230,58 @@ status, or errors. The canonical evidence sanitizer:
 
 `verifier error != verified failure` is enforced structurally.
 
+### ZERO-TRAP EVIDENCE CLASSIFICATION (TARGETED REPAIR 1)
+
+**Invariant:** for hostile evidence objects, NO attacker-controlled object
+behavior may execute merely because Lane 4 is deciding whether the evidence
+is safe. The safety check itself must not be an execution gadget.
+
+**Trust ordering** (mirrors the Lane 3 brand-first lesson — SAFE ORIGIN
+FIRST, REFLECTION SECOND):
+
+1. Classification of an untrusted value uses ONLY `typeof`, strict equality,
+   and `util.types.isProxy()` / `util.types.isPromise()` — internal-slot
+   probes that consult NO Proxy handler (verified against every instrumented
+   trap family: `get`, `has`, `ownKeys`, `getOwnPropertyDescriptor`,
+   `getPrototypeOf`, `set`, `defineProperty`, `deleteProperty`, `apply`,
+   `construct`; even revoked proxies answer without handler consultation).
+2. Any `Proxy` — trap-bearing, transparent, or revoked — is rejected BEFORE
+   any reflection. **TRUSTED SHAPE != TRUSTED ORIGIN**: no shape-based trust
+   is invented for unmarked values; fail-closed rejection is preferred over
+   broader unsafe acceptance.
+3. Only after a value is proven not to be a Proxy does reflection proceed
+   (static prototype identity, ownKeys, descriptors), and EVERY nested value
+   re-enters the gate before its own reflection. The zero-trap invariant
+   holds recursively — a hostile Proxy nested inside otherwise normal-looking
+   evidence poisons the entire observation (fail-closed `ERROR`).
+
+**Error values:** native Errors are the only exotic family ACCEPTED as
+evidence, normalized to `{name,message}` and matched via the STATIC
+prototype chain — never `value instanceof Error`, which routes through
+`Error[Symbol.hasInstance] -> OrdinaryHasInstance` and was exactly the
+`getPrototypeOf` gadget flagged by the audit. A Proxy wrapping an Error
+target is rejected at the proxy gate and never reaches the Error branch.
+Duck-typed `{name, message}` plain objects are evaluated as ordinary
+evidence, not through the Error path.
+
+**Observation delivery:** the observation runner never reads `.then` off an
+unclassified value (a thenable-check would probe a hostile Proxy's `get`
+trap) and never resolves a Promise with an unclassified value. The raw
+return of `observe()` is classified first; hostile returns are boxed into a
+plain frozen sentinel object (boxing performs no `.then` probe on the
+contained value); genuine Promises (internal-slot `isPromise`) from async
+observers are awaited through the Promise's own `then` with re-classification
+of the resolved value.
+
+**Classification outcomes** map to contracts, never to world claims:
+`hostile` (Proxy / revoked proxy / non-plain exotic rejected at the gate)
+poisons the observation → verifier-infrastructure `ERROR`; `inert`
+(functions/symbols/bigints/undefined/non-finite numbers/class instances)
+are sanitized to `null` per the established evidence contract; `primitive`/
+`array`/`object`/`error` are sanitized/bounded normally. Sanitizer failure
+is NEVER reinterpreted as `VERIFIED_SUCCESS`, `VERIFIED_FAILURE`, or
+`INCONCLUSIVE` evidence success.
+
 ---
 
 ## 9. VERIFICATION TIMEOUT

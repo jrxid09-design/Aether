@@ -361,14 +361,19 @@ async function runStorm(seed) {
                     record("timeout", true, v.verificationState);
                     break;
                 }
-                case 11: { // hostile Proxy probes (brand predicates + verify)
-                    const traps = { get: 0, has: 0, ownKeys: 0, gopd: 0, gtp: 0 };
+                case 11: { // hostile Proxy probes (brand predicates + verify + hostile EVIDENCE)
+                    const traps = { get: 0, has: 0, ownKeys: 0, gopd: 0, gtp: 0, set: 0, def: 0, del: 0, apply: 0, construct: 0 };
                     const hostile = new Proxy({}, {
                         get(t, p) { traps.get++; return t[p]; },
                         has(t, p) { traps.has++; return p in t; },
                         ownKeys(t) { traps.ownKeys++; return Reflect.ownKeys(t); },
                         getOwnPropertyDescriptor(t, p) { traps.gopd++; return Reflect.getOwnPropertyDescriptor(t, p); },
-                        getPrototypeOf(t) { traps.gtp++; return Reflect.getPrototypeOf(t); }
+                        getPrototypeOf(t) { traps.gtp++; return Reflect.getPrototypeOf(t); },
+                        set(t, p, v) { traps.set++; return Reflect.set(t, p, v); },
+                        defineProperty(t, p, d) { traps.def++; return Reflect.defineProperty(t, p, d); },
+                        deleteProperty(t, p) { traps.del++; return Reflect.deleteProperty(t, p); },
+                        apply(t, thisArg, args) { traps.apply++; return Reflect.apply(t, thisArg, args); },
+                        construct(t, args) { traps.construct++; return Reflect.construct(t, args); }
                     });
                     const before = Object.values(traps).reduce((a, b) => a + b, 0);
                     h.isCanonicalVerificationRequest(hostile);
@@ -376,11 +381,66 @@ async function runStorm(seed) {
                     h.isCanonicalCompensationPlan(hostile);
                     const after = Object.values(traps).reduce((a, b) => a + b, 0);
                     if (after - before > 0) C.hostileVerificationTrapExecution += (after - before);
-                    // verify() with hostile proxy result must reject without trap-driven decisions
+
+                    // verify() with hostile PROXY RESULT (top-level): must
+                    // reject without trap-driven decisions, AND the
+                    // verification result must be ERROR (not
+                    // VERIFIED_SUCCESS / VERIFIED_FAILURE).
                     try {
-                        await h.verify({ executionResult: hostile, expectedPostcondition: { expect: { "world.value": { op: "eq", value: 42 } } } });
+                        const v = await h.verify({ executionResult: hostile, expectedPostcondition: { expect: { "world.value": { op: "eq", value: 42 } } } });
                         C.forgedExecutionVerified++;
-                    } catch { /* rejected */ }
+                    } catch { /* NOT_CANONICAL_EXECUTION_RESULT — expected */ }
+
+                    // HOSTILE EVIDENCE probe: a verifier whose observe()
+                    // returns a hostile Proxy as evidence. The trap counters
+                    // for the EVIDENCE itself must stay zero (classification
+                    // is internal-slot only), and verify() must fail closed
+                    // as ERROR — never VERIFIED_SUCCESS / VERIFIED_FAILURE
+                    // based on fake evidence.
+                    {
+                        const evTraps = { get: 0, has: 0, ownKeys: 0, gopd: 0, gtp: 0, set: 0, def: 0, del: 0, apply: 0, construct: 0 };
+                        const hostileEvidence = new Proxy({ world: { value: 999 } }, {
+                            get(t, p) { evTraps.get++; return Reflect.get(t, p); },
+                            has(t, p) { evTraps.has++; return Reflect.has(t, p); },
+                            ownKeys(t) { evTraps.ownKeys++; return Reflect.ownKeys(t); },
+                            getOwnPropertyDescriptor(t, p) { evTraps.gopd++; return Reflect.getOwnPropertyDescriptor(t, p); },
+                            getPrototypeOf(t) { evTraps.gtp++; return Reflect.getPrototypeOf(t); },
+                            set(t, p, v) { evTraps.set++; return Reflect.set(t, p, v); },
+                            defineProperty(t, p, d) { evTraps.def++; return Reflect.defineProperty(t, p, d); },
+                            deleteProperty(t, p) { evTraps.del++; return Reflect.deleteProperty(t, p); },
+                            apply(t, thisArg, args) { evTraps.apply++; return Reflect.apply(t, thisArg, args); },
+                            construct(t, args) { evTraps.construct++; return Reflect.construct(t, args); }
+                        });
+                        const hostileCap = CAPS[capIdx];
+                        h.removeVerifier(`ver-${hostileCap.id}`);
+                        h.registerVerifier({
+                            capabilityId: hostileCap.id, operations: ["read"], capabilityIncarnationId: hostileCap.incarnationId,
+                            verifierId: `ver-${hostileCap.id}`,
+                            // SYNC observe (avoids the language's thenable probe
+                            // at async-return time) — this isolates Lane 4's own
+                            // classification behavior as the trap counter.
+                            observe: () => hostileEvidence
+                        });
+                        const evBefore = Object.values(evTraps).reduce((a, b) => a + b, 0);
+                        const result = await executeRead(capIdx, subject, "safe.target", round);
+                        const v = await h.verify({ executionResult: result, expectedPostcondition: { expect: { "world.value": { op: "eq", value: 42 } } } });
+                        const evAfter = Object.values(evTraps).reduce((a, b) => a + b, 0);
+                        if (evAfter - evBefore > 0) C.hostileVerificationTrapExecution += (evAfter - evBefore);
+                        if (v.verificationState === VERIFICATION_STATE.VERIFIED_SUCCESS) C.forgedEvidenceAccepted++;
+                        if (v.verificationState === VERIFICATION_STATE.VERIFIED_FAILURE) C.forgedEvidenceAccepted++;
+                        if (v.verificationState !== VERIFICATION_STATE.ERROR) {
+                            // hostile evidence must ALWAYS classify as ERROR
+                            C.hostileVerificationTrapExecution++;
+                        }
+                        // restore the real verifier for subsequent rounds
+                        h.removeVerifier(`ver-${hostileCap.id}`);
+                        h.registerVerifier({
+                            capabilityId: hostileCap.id, operations: ["read"], capabilityIncarnationId: hostileCap.incarnationId,
+                            verifierId: `ver-${hostileCap.id}`,
+                            observe: async (octx) => ({ world: { value: worldValues.get(hostileCap.idx) }, observedExecutionId: octx.executionId })
+                        });
+                    }
+
                     record("hostile", true, "zero-traps");
                     break;
                 }

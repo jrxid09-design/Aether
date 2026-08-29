@@ -64,6 +64,8 @@ const { canonicalScope } = require("../../src/action/intent");
 // ---------------------------------------------------------------------------
 
 function isPlainObject(v) {
+    // Called ONLY on values already classified Proxy-free by safeClassify
+    // (see the zero-trap trust-ordering note there).
     if (v === null || typeof v !== "object" || Array.isArray(v)) return false;
     const proto = Object.getPrototypeOf(v);
     return proto === Object.prototype || proto === null;
@@ -79,18 +81,81 @@ function deepFreeze(obj) {
 
 const DANGEROUS_KEYS = Object.freeze(new Set(["__proto__", "constructor", "prototype"]));
 
+// ---------------------------------------------------------------------------
+// ZERO-TRAP HOSTILE CLASSIFICATION (TARGETED REPAIR 1 — test-domain mirror of
+// the production closure's vSafeClassify4).
+//
+// ROOT CAUSE mirrored: detach()/sanitizeEvidence() invoked reflection
+// (instanceof Error, getPrototypeOf, ownKeys, descriptors) on UNCLASSIFIED
+// verifier observation values, so a Proxy could execute attacker-controlled
+// traps during evidence classification. Post-repair trust ordering —
+// SAFE ORIGIN FIRST, REFLECTION SECOND — uses ONLY typeof / === /
+// util.types.isProxy() (internal-slot probe, zero traps even for revoked
+// proxies) until a value is proven not to be a Proxy. Proxies and other
+// exotic objects are rejected BEFORE any reflection; every nested value
+// re-enters the gate before its own reflection (the invariant holds
+// recursively). No transparent-Proxy acceptance: fail-closed rejection is
+// preferred over fragile shape-based trust.
+// ---------------------------------------------------------------------------
+const { types: utilTypes } = require("node:util");
+
+/**
+ * Zero-trap classification of an untrusted value. Returns:
+ *   "primitive" | "null" | "error" | "array" | "object" | "hostile"
+ * Uses only typeof/===/internal-slot probes on unclassified values.
+ * "hostile" is NOT a world claim: callers map it to fail-closed states.
+ */
+function safeClassify(value) {
+    if (value === null) return "null";
+    const t = typeof value;
+    if (t === "string" || t === "boolean") return "primitive";
+    if (t === "number") return Number.isFinite(value) ? "primitive" : "inert";
+    // function/symbol/bigint/undefined are INERT: droppable in evidence,
+    // rejected in postcondition/parameter payloads.
+    if (t === "function" || t === "symbol" || t === "bigint" || t === "undefined") return "inert";
+    if (t !== "object") return "hostile";
+    // THE GATE: internal-slot proxy probe (zero traps, zero throws).
+    if (utilTypes.isProxy(value)) return "hostile";
+    if (Array.isArray(value)) {
+        return Object.getPrototypeOf(value) === Array.prototype ? "array" : "hostile";
+    }
+    // A genuine Promise is a trusted native delivery object: classify it so
+    // the observation runner can await it WITHOUT probing `.then` on an
+    // unclassified value. util.types.isPromise is an internal-slot probe
+    // (zero traps). A Proxy wrapping a Promise reports false and is rejected
+    // as "hostile" at the gate.
+    if (utilTypes.isPromise(value)) return "promise";
+    const proto = Object.getPrototypeOf(value);
+    if (proto === Object.prototype || proto === null) return "object";
+    // static Error prototype chain — NOT instanceof (no HasInstance gadget)
+    let cursor = proto;
+    for (let hops = 0; hops < 8 && cursor !== null; hops++) {
+        if (cursor === Error.prototype || cursor === globalThis.Error?.prototype) return "error";
+        cursor = Object.getPrototypeOf(cursor);
+    }
+    // Other exotic objects (class instances, Map/Set/Date/RegExp, cross-realm
+    // objects): NOT proxies, so own-property reflection is trap-free; the
+    // established evidence contract sanitizes them to null ("inert") rather
+    // than poisoning. Only actual Proxies poison.
+    return "inert";
+}
+
 function detach(value, state) {
     state.nodes++;
     if (state.nodes > state.maxNodes) throw fail(REASONS.BOUND_EXCEEDED, `payload exceeds node budget (${state.maxNodes})`);
-    if (value === null) return null;
-    const t = typeof value;
-    if (t === "string" || t === "boolean") return value;
-    if (t === "number") {
-        if (!Number.isFinite(value)) throw fail(REASONS.MALFORMED_PAYLOAD, "numbers must be finite");
-        return value;
+    // ZERO-TRAP GATE: classification before any reflection.
+    const cls = safeClassify(value);
+    if (cls === "null") return null;
+    if (cls === "primitive") return value;
+    if (cls === "inert") {
+        const t = typeof value;
+        if (t === "function") throw fail(REASONS.FUNCTION_VALUE, "function values are not permitted");
+        throw fail(REASONS.SYMBOL_VALUE, `${t} values are not permitted`);
     }
-    if (t === "function") throw fail(REASONS.FUNCTION_VALUE, "function values are not permitted");
-    if (t === "symbol" || t === "bigint" || t === "undefined") throw fail(REASONS.SYMBOL_VALUE, `${t} values are not permitted`);
+    if (cls === "hostile") {
+        throw fail(REASONS.NON_PLAIN_OBJECT, "proxy-like or non-plain value is not permitted (zero-trap fail-closed)");
+    }
+    // cls is "array" | "object" — reflection is now safe.
     if (Array.isArray(value)) {
         if (state.path.has(value)) throw fail(REASONS.CYCLIC_INPUT, "cyclic structure is not permitted");
         if (value.length > BOUNDS.GLOBAL_MAX_ARRAY_LENGTH) throw fail(REASONS.BOUND_EXCEEDED, "array length exceeds global bound");
@@ -139,17 +204,15 @@ function formExpectedPostcondition(raw) {
     if (typeof raw === "function" || typeof raw === "symbol" || typeof raw === "bigint") {
         throw fail(REASONS.EXECUTABLE_POSTCONDITION_REJECTED, "expected postcondition must be declarative; executable values are rejected");
     }
+    // ZERO-TRAP REPAIR: classify FIRST (typeof/===/internal-slot probes only).
+    // Any Proxy — trap-bearing or transparent — is rejected here with zero
+    // traps; the old ownKeys-vs-enumerable divergence probe ran reflection on
+    // unclassified values and was itself a trap gadget, so it is removed.
+    if (safeClassify(raw) !== "object") {
+        throw fail(REASONS.NON_PLAIN_OBJECT, "proxy-like or non-plain postcondition is not permitted (zero-trap fail-closed)");
+    }
+    // raw is now a genuinely plain object: reflection is safe.
     if (!isPlainObject(raw)) throw fail(REASONS.NON_PLAIN_OBJECT, "expected postcondition must be a plain declarative object");
-    // TRAP-BEARING PROXY REJECTION (mirrors the production closure).
-    let expectedOwnKeys = null;
-    try {
-        expectedOwnKeys = Object.getOwnPropertyNames(raw).length;
-    } catch {
-        throw fail(REASONS.NON_PLAIN_OBJECT, "hostile postcondition object (ownKeys inspection failed)");
-    }
-    if (expectedOwnKeys === 0 && Object.keys(raw).length !== 0) {
-        throw fail(REASONS.NON_PLAIN_OBJECT, "hostile postcondition object (inconsistent key enumeration)");
-    }
     let detached;
     try {
         const state = { nodes: 0, maxNodes: BOUNDS.MAX_PARAMETERS_NODES, path: new Set() };
@@ -270,29 +333,47 @@ function evaluatePostcondition(postcondition, evidence) {
 }
 
 const V_EV_STRING_CHARS = 1024, V_EV_KEYS = 64, V_EV_DEPTH = 8, V_EV_NODES = 512;
+// Sentinel returned for hostile values; the caller maps to the
+// verifier-infrastructure ERROR state (never a world claim).
+const HOSTILE_SENTINEL = Symbol("damar.action.verification.evidence.hostile");
+const HOSTILE_EVIDENCE_DETAIL =
+    "hostile observation rejected: proxy-like or non-detached value (zero-trap fail-closed)";
 
 function sanitizeEvidence(value) {
     const state = { nodes: 0, path: new Set() };
+
+    function normalizeErrorName(v) {
+        let n = v.name; if (typeof n !== "string") n = "Error"; n = n.slice(0, 64);
+        let m = v.message; if (typeof m !== "string") m = ""; m = m.slice(0, V_EV_STRING_CHARS);
+        return { name: n, message: m };
+    }
+
     function walk(v, depth) {
         state.nodes++;
         if (state.nodes > V_EV_NODES || depth > V_EV_DEPTH) return null;
-        if (v === null) return null;
-        const t = typeof v;
-        if (t === "string") return v.length > V_EV_STRING_CHARS ? v.slice(0, V_EV_STRING_CHARS) : v;
-        if (t === "boolean") return v;
-        if (t === "number") return Number.isFinite(v) ? v : null;
-        if (t === "bigint" || t === "symbol" || t === "undefined" || t === "function") return null;
-        if (v instanceof Error) return { name: String(v.name ?? "Error").slice(0, 64), message: String(v.message ?? "").slice(0, V_EV_STRING_CHARS) };
-        if (!isPlainObject(v) && !Array.isArray(v)) return null;
+        // (1) ZERO-TRAP GATE.
+        const cls = safeClassify(v);
+        if (cls === "null" || cls === "inert") return null;
+        if (cls === "primitive") {
+            const t = typeof v;
+            if (t === "string") return v.length > V_EV_STRING_CHARS ? v.slice(0, V_EV_STRING_CHARS) : v;
+            if (t === "boolean") return v;
+            return v;
+        }
+        if (cls === "error") return normalizeErrorName(v);
+        if (cls === "hostile") return HOSTILE_SENTINEL;
+        // cls is "array" | "object" — reflection is now safe.
         if (state.path.has(v)) return null;
         state.path.add(v);
         if (Array.isArray(v)) {
             const out = v.slice(0, 256).map((x) => walk(x, depth + 1));
             state.path.delete(v);
+            if (out.some((x) => x === HOSTILE_SENTINEL)) return HOSTILE_SENTINEL;
             return out;
         }
         const out = {};
         let keys = 0;
+        let poisoned = false;
         for (const key of Object.getOwnPropertyNames(v)) {
             if (keys >= V_EV_KEYS) break;
             keys++;
@@ -300,12 +381,20 @@ function sanitizeEvidence(value) {
             const desc = Object.getOwnPropertyDescriptor(v, key);
             if (!desc || desc.get || desc.set) continue;
             const kk = key.length > 128 ? key.slice(0, 128) : key;
-            out[kk] = walk(desc.value, depth + 1);
+            const child = walk(desc.value, depth + 1);
+            if (child === HOSTILE_SENTINEL) {
+                poisoned = true;
+                break;
+            }
+            out[kk] = child;
         }
         state.path.delete(v);
+        if (poisoned) return HOSTILE_SENTINEL;
         return out;
     }
-    return walk(value, 0);
+    const result = walk(value, 0);
+    if (result === HOSTILE_SENTINEL) return HOSTILE_SENTINEL;
+    return result;
 }
 
 function buildVerifierRegistry() {
@@ -372,6 +461,92 @@ const CALLER_COMPENSATOR_KEYS = Object.freeze([
     "repairFn", "undo", "undoFn", "restore", "restoreFn", "compensateFn"
 ]);
 const TIMEOUT_SENTINEL = Symbol("damar.action.verification.timeout");
+
+/**
+ * ZERO-TRAP observation runner (mirrors the production vRunObservation4).
+ * Boxes the observation into a PLAIN frozen wrapper {kind, value?} resolved
+ * through promises that NEVER contain an unclassified value. Classification
+ * of the raw return AND the resolved value uses ONLY typeof / === /
+ * internal-slot isProxy probes — zero attacker-controlled traps.
+ */
+function runObservation(binding, request, executionResult, timeoutMs) {
+    return new Promise((resolve) => {
+        let done = false;
+        const finish = (box) => {
+            if (done) return;
+            done = true;
+            resolve(box);
+        };
+        const timeoutHandle = setTimeout(() => finish(Object.freeze({ kind: "timeout" })), timeoutMs);
+        if (typeof timeoutHandle.unref === "function") timeoutHandle.unref();
+
+        let rawReturn;
+        try {
+            rawReturn = binding.observe({
+                verificationId: request.verificationId,
+                executionId: request.executionId,
+                intentId: request.intentId,
+                capabilityId: request.capabilityId,
+                operation: request.operation,
+                principal: request.principal,
+                scope: request.scope,
+                parameters: executionResult.parameters ?? null,
+                expectedPostcondition: request.expectedPostcondition
+            });
+        } catch (e) {
+            clearTimeout(timeoutHandle);
+            finish(Object.freeze({
+                kind: "throw",
+                name: String((e && e.name) ?? "Error").slice(0, 64),
+                message: String((e && e.message) ?? "").slice(0, V_EV_STRING_CHARS)
+            }));
+            return;
+        }
+
+        // ZERO-TRAP classify the raw return. NO `.then` read.
+        const cls = safeClassify(rawReturn);
+        if (cls === "promise") {
+            // Genuine Promise from an async observer: await through the
+            // Promise's OWN then (no trap on the trusted Promise object).
+            rawReturn.then(
+                (resolved) => {
+                    clearTimeout(timeoutHandle);
+                    const rcls = safeClassify(resolved);
+                    if (rcls === "hostile" || rcls === "error" || rcls === "promise") {
+                        finish(Object.freeze({ kind: "hostile" }));
+                        return;
+                    }
+                    finish(Object.freeze({ kind: "value", value: resolved }));
+                },
+                (err) => {
+                    clearTimeout(timeoutHandle);
+                    finish(Object.freeze({
+                        kind: "throw",
+                        name: String((err && err.name) ?? "Error").slice(0, 64),
+                        message: String((err && err.message) ?? "").slice(0, V_EV_STRING_CHARS)
+                    }));
+                }
+            );
+            return;
+        }
+        if (cls === "hostile" || cls === "error") {
+            clearTimeout(timeoutHandle);
+            finish(Object.freeze({ kind: "hostile" }));
+            return;
+        }
+        if (cls !== "object" && cls !== "array" && cls !== "primitive" && cls !== "null") {
+            clearTimeout(timeoutHandle);
+            finish(Object.freeze({ kind: "hostile" }));
+            return;
+        }
+
+        // Synchronous plain return: box the value directly (the wrapper has
+        // no `then` property, so resolution of the OUTER promise does NOT
+        // probe the contained value).
+        clearTimeout(timeoutHandle);
+        finish(Object.freeze({ kind: "value", value: rawReturn }));
+    });
+}
 
 /**
  * Build a Lane 4 test harness:
@@ -473,39 +648,44 @@ async function makeVerificationHarness({ clock, scopeBindings, authenticate } = 
         verificationsById.set(dupKey, rec);
         verificationsById.set(verificationId, rec);
 
+        // ---- OBSERVING (ZERO-TRAP DELIVERY — mirrors the production closure) ----
+        // The observation value is UNTRUSTED at receipt. The runner never
+        // reads `.then` off an unclassified value (a thenable-check would
+        // probe a hostile Proxy's get trap) and never resolves a promise with
+        // an unclassified value: the raw return is classified FIRST via the
+        // internal-slot probe, hostile returns are boxed as a plain sentinel
+        // object, and genuine Promises from async observers are awaited via
+        // the Promise's own then with re-classification of the resolved value.
         const observedAtMs = canonicalClockNow();
         let observation = null, verifierErrored = null;
         try {
-            observation = await Promise.race([
-                binding.observe({
-                    verificationId: request.verificationId,
-                    executionId: request.executionId,
-                    intentId: request.intentId,
-                    capabilityId: request.capabilityId,
-                    operation: request.operation,
-                    principal: request.principal,
-                    scope: request.scope,
-                    parameters: executionResult.parameters ?? null,
-                    expectedPostcondition: request.expectedPostcondition
-                }),
-                new Promise((resolve) => {
-                    const h = setTimeout(() => resolve(TIMEOUT_SENTINEL), timeoutMs);
-                    if (typeof h.unref === "function") h.unref();
-                })
-            ]);
+            observation = await runObservation(binding, request, executionResult, timeoutMs);
         } catch (e) { verifierErrored = e; }
 
         let verificationState, observedEvidence = null, detail = "";
         if (verifierErrored !== null) {
             verificationState = VERIFICATION_STATE.ERROR;
             observedEvidence = sanitizeEvidence(verifierErrored);
+            if (observedEvidence === HOSTILE_SENTINEL) observedEvidence = null;
             detail = "verifier infrastructure error";
-        } else if (observation === TIMEOUT_SENTINEL) {
+        } else if (observation.kind === "timeout") {
             verificationState = VERIFICATION_STATE.TIMED_OUT;
             detail = `verification exceeded ${timeoutMs}ms; ambiguity preserved`;
+        } else if (observation.kind === "throw") {
+            verificationState = VERIFICATION_STATE.ERROR;
+            observedEvidence = deepFreeze({ name: observation.name, message: observation.message });
+            detail = "verifier infrastructure error";
+        } else if (observation.kind === "hostile") {
+            verificationState = VERIFICATION_STATE.ERROR;
+            observedEvidence = null;
+            detail = HOSTILE_EVIDENCE_DETAIL;
         } else {
-            const evidence = sanitizeEvidence(observation);
-            if (evidence === null && observation !== null && observation !== undefined) {
+            const evidence = sanitizeEvidence(observation.value);
+            if (evidence === HOSTILE_SENTINEL) {
+                verificationState = VERIFICATION_STATE.ERROR;
+                observedEvidence = null;
+                detail = HOSTILE_EVIDENCE_DETAIL;
+            } else if (evidence === null && observation.value !== null && observation.value !== undefined) {
                 verificationState = VERIFICATION_STATE.INCONCLUSIVE;
                 detail = "observation could not be normalized into evidence";
             } else {

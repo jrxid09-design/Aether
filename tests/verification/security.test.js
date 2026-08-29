@@ -823,12 +823,12 @@ test("hostile: expected postcondition probes fail closed or sanitize", async () 
     await assert.rejects(() => h.verify({
         executionResult: result,
         expectedPostcondition: { expect: { "world.value": { op: "eq", value: () => 1 } } }
-    }), (e) => [REASONS.FUNCTION_VALUE, REASONS.MALFORMED_PAYLOAD, REASONS.MALFORMED_REQUEST].includes(e.reasonCode));
+    }), (e) => [REASONS.FUNCTION_VALUE, REASONS.NON_PLAIN_OBJECT, REASONS.MALFORMED_PAYLOAD, REASONS.MALFORMED_REQUEST].includes(e.reasonCode));
     // symbol value
     await assert.rejects(() => h.verify({
         executionResult: result,
         expectedPostcondition: { expect: { "world.value": { op: "eq", value: Symbol("x") } } }
-    }), (e) => [REASONS.SYMBOL_VALUE, REASONS.MALFORMED_PAYLOAD, REASONS.MALFORMED_REQUEST].includes(e.reasonCode));
+    }), (e) => [REASONS.SYMBOL_VALUE, REASONS.NON_PLAIN_OBJECT, REASONS.MALFORMED_PAYLOAD, REASONS.MALFORMED_REQUEST].includes(e.reasonCode));
     // accessor property
     const accessor = {};
     Object.defineProperty(accessor, "expect", { get() { return {}; } });
@@ -853,9 +853,10 @@ test("hostile: expected postcondition probes fail closed or sanitize", async () 
         executionResult: result,
         expectedPostcondition: { expect: { [`${"a.".repeat(80)}x`]: { op: "exists" } } }
     }), (e) => [REASONS.DANGEROUS_KEY, REASONS.BOUND_EXCEEDED, REASONS.MALFORMED_REQUEST].includes(e.reasonCode));
-    // Proxy-wrapped postcondition: a TRAP-BEARING proxy is rejected (ownKeys
-    // inspection divergence), a transparent proxy is sanitized (detached to a
-    // plain frozen object; never retained raw).
+    // Proxy-wrapped postcondition: ZERO-TRAP REPAIR — EVERY Proxy (transparent
+    // or trap-bearing) is rejected at the internal-slot gate WITHOUT executing
+    // any trap. TRUSTED SHAPE != TRUSTED ORIGIN: no shape-based trust is
+    // invented for unmarked values.
     await assert.rejects(() => h.verify({
         executionResult: result,
         expectedPostcondition: new Proxy({}, {
@@ -865,15 +866,24 @@ test("hostile: expected postcondition probes fail closed or sanitize", async () 
                 return { enumerable: true, configurable: true, get: () => ({ "world.value": { op: "eq", value: 42 } }) };
             }
         })
-    }), (e) => [REASONS.NON_PLAIN_OBJECT, REASONS.MALFORMED_REQUEST, REASONS.ACCESSOR_PROPERTY].includes(e.reasonCode),
+    }), (e) => e.reasonCode === REASONS.NON_PLAIN_OBJECT,
         "trap-bearing Proxy postcondition must be rejected");
     {
-        const transparent = new Proxy({ expect: { "world.value": { op: "eq", value: 42 } } }, {});
-        const v = await h.verify({ executionResult: result, expectedPostcondition: transparent });
-        assert.equal(v.verificationState, VERIFICATION_STATE.VERIFIED_SUCCESS,
-            "transparent proxy data is sanitized, not retained raw");
-        assert.ok(Object.isFrozen(v.expectedPostcondition),
-            "formed postcondition must be frozen regardless of proxy input");
+        // Even a fully transparent Proxy carrying valid plain data is
+        // rejected: accepting it would require shape-based introspection of
+        // unmarked values, which is the gadget the repair removes.
+        let fired = 0;
+        const transparent = new Proxy({ expect: { "world.value": { op: "eq", value: 42 } } }, {
+            get(t, p) { fired++; return Reflect.get(t, p); },
+            ownKeys(t) { fired++; return Reflect.ownKeys(t); },
+            getOwnPropertyDescriptor(t, k) { fired++; return Reflect.getOwnPropertyDescriptor(t, k); },
+            getPrototypeOf(t) { fired++; return Reflect.getPrototypeOf(t); },
+            has(t, k) { fired++; return Reflect.has(t, k); }
+        });
+        await assert.rejects(() => h.verify({ executionResult: result, expectedPostcondition: transparent }),
+            (e) => e.reasonCode === REASONS.NON_PLAIN_OBJECT,
+            "transparent Proxy postcondition must also fail closed");
+        assert.equal(fired, 0, "rejection of a transparent Proxy must execute ZERO traps");
     }
 });
 
@@ -881,9 +891,10 @@ test("hostile: verifier observation output is sanitized (no raw retention)", asy
     const h = await makeHarness4();
     const cap = await setupWorld(h);
     class Secret {}
+    // ZERO-TRAP REPAIR: a nested Proxy poisons the observation; the Proxy is
+    // removed from the benign-sanitization fixture and probed separately.
     const hostileObservation = {
         world: { value: 42 },
-        proxy: new Proxy({}, { get() { return 1; } }),
         cls: new Secret(),
         fn: () => 1,
         sym: Symbol("s"),
@@ -904,12 +915,22 @@ test("hostile: verifier observation output is sanitized (no raw retention)", asy
     assert.equal(ev.big, null, "bigint must be sanitized to null (not retained)");
     assert.equal(ev.cls, null, "class instances must be nulled");
     assert.equal(ev.cyc, null, "cycles must be cut (nulled)");
-    // Proxy is never RETAINED: it is either nulled or detached into a plain
-    // frozen object with no proxy identity (raw retention is the violation).
-    assert.ok(ev.proxy === null || (typeof ev.proxy === "object" && Object.getPrototypeOf(ev.proxy) === Object.prototype),
-        "Proxy must not be retained raw (nulled or detached to plain object)");
-    assert.ok(!isProxyLike(ev.proxy), "sanitized evidence must not contain a live Proxy");
     assert.equal(ev.world.value, 42);
+
+    // ZERO-TRAP REPAIR: a nested Proxy now POISONS the whole observation
+    // (zero-trap fail-closed) — probed separately, never retained.
+    const { proxy } = makeTrapProxy({}, { getPrototypeOf: () => Object.prototype });
+    const poisoned = { world: { value: 42 }, detail: proxy };
+    h.removeVerifier("ver-hostile");
+    h.registerVerifier({
+        capabilityId: "fs.cap", operations: ["read"], capabilityIncarnationId: cap.incarnationId,
+        verifierId: "ver-hostile", observe: async () => poisoned
+    });
+    const result2 = await runExecutedAction(h);
+    const v2 = await h.verify({ executionResult: result2, expectedPostcondition: goodPostcondition() });
+    assert.equal(v2.verificationState, VERIFICATION_STATE.ERROR,
+        "nested Proxy must poison the entire observation (fail closed)");
+    assert.equal(v2.observedEvidence, null);
 });
 
 test("hostile: compensation parameters/metadata probes fail closed", async () => {
@@ -924,7 +945,7 @@ test("hostile: compensation parameters/metadata probes fail closed", async () =>
     await assert.rejects(() => h.compensate({
         verification: v, capabilityId: "fs.restore", operation: "write", principal: "alice",
         parameters: { bad: () => 1 }, reason: "r"
-    }), (e) => [REASONS.FUNCTION_VALUE, REASONS.MALFORMED_PAYLOAD, REASONS.MALFORMED_REQUEST].includes(e.reasonCode));
+    }), (e) => [REASONS.FUNCTION_VALUE, REASONS.NON_PLAIN_OBJECT, REASONS.MALFORMED_PAYLOAD, REASONS.MALFORMED_REQUEST].includes(e.reasonCode));
     const cyclicParams = {};
     cyclicParams.self = cyclicParams;
     await assert.rejects(() => h.compensate({
@@ -935,6 +956,28 @@ test("hostile: compensation parameters/metadata probes fail closed", async () =>
         verification: v, capabilityId: "fs.restore", operation: "write", principal: "alice",
         parameters: JSON.parse('{"__proto__": {"x": 1}}'), reason: "r"
     }), (e) => [REASONS.DANGEROUS_KEY, REASONS.MALFORMED_REQUEST].includes(e.reasonCode));
+    // ZERO-TRAP REPAIR: a Proxy as compensation parameters is rejected at the
+    // gate with ZERO trap execution.
+    {
+        const traps = { get: 0, has: 0, ownKeys: 0, gopd: 0, gtp: 0, set: 0, def: 0, del: 0 };
+        const hostileParams = new Proxy({ path: "x" }, {
+            get(t, p) { traps.get++; return Reflect.get(t, p); },
+            has(t, p) { traps.has++; return Reflect.has(t, p); },
+            ownKeys(t) { traps.ownKeys++; return Reflect.ownKeys(t); },
+            getOwnPropertyDescriptor(t, p) { traps.gopd++; return Reflect.getOwnPropertyDescriptor(t, p); },
+            getPrototypeOf(t) { traps.gtp++; return Reflect.getPrototypeOf(t); },
+            set(t, p, v) { traps.set++; return Reflect.set(t, p, v); },
+            defineProperty(t, p, d) { traps.def++; return Reflect.defineProperty(t, p, d); },
+            deleteProperty(t, p) { traps.del++; return Reflect.deleteProperty(t, p); }
+        });
+        await assert.rejects(() => h.compensate({
+            verification: v, capabilityId: "fs.restore", operation: "write", principal: "alice",
+            parameters: hostileParams, reason: "r"
+        }), (e) => e.reasonCode === REASONS.NON_PLAIN_OBJECT,
+            "Proxy compensation parameters must fail closed at the zero-trap gate");
+        assert.equal(Object.values(traps).reduce((a, b) => a + b, 0), 0,
+            "rejection of Proxy compensation parameters must execute ZERO traps");
+    }
 });
 
 // ---------------------------------------------------------------------------
@@ -1013,4 +1056,278 @@ test("sanity: production facade verify() requires canonical production results (
     // facade must reject them (foreign trust domain).
     await assert.rejects(() => prod.verify({ executionResult: result, expectedPostcondition: goodPostcondition() }),
         (e) => e.reasonCode === REASONS.NOT_CANONICAL_EXECUTION_RESULT);
+});
+
+// ---------------------------------------------------------------------------
+// ZERO-TRAP HOSTILE EVIDENCE PROOFS (TARGETED REPAIR 1)
+//
+// Production-path tests: canonical verify() with verifier.observe() returning
+// hostile Proxy values. For EVERY case the instrumented trap counters for
+// get / has / ownKeys / getOwnPropertyDescriptor / getPrototypeOf / set /
+// defineProperty / deleteProperty (and apply / construct where the
+// classification path can encounter callables) must be EXACTLY ZERO, and the
+// verification must fail closed as verifier-infrastructure ERROR — never
+// VERIFIED_SUCCESS, never VERIFIED_FAILURE, never INCONCLUSIVE evidence.
+//
+// Zero-trap mechanism: classification uses ONLY typeof/===/internal-slot
+// util.types.isProxy() probes until a value is proven not to be a Proxy;
+// every nested value re-enters the gate before its own reflection.
+// ---------------------------------------------------------------------------
+
+/** Instrument EVERY relevant Proxy trap family. */
+function makeTrapProxy(target, handlers = {}) {
+    const traps = {
+        get: 0, has: 0, ownKeys: 0, getOwnPropertyDescriptor: 0,
+        getPrototypeOf: 0, set: 0, defineProperty: 0, deleteProperty: 0,
+        apply: 0, construct: 0
+    };
+    const proxy = new Proxy(target, {
+        get(t, p, r) { traps.get++; return handlers.get ? handlers.get(t, p, r) : Reflect.get(t, p, r); },
+        has(t, p) { traps.has++; return handlers.has ? handlers.has(t, p) : Reflect.has(t, p); },
+        ownKeys(t) { traps.ownKeys++; return handlers.ownKeys ? handlers.ownKeys(t) : Reflect.ownKeys(t); },
+        getOwnPropertyDescriptor(t, p) { traps.getOwnPropertyDescriptor++; return handlers.getOwnPropertyDescriptor ? handlers.getOwnPropertyDescriptor(t, p) : Reflect.getOwnPropertyDescriptor(t, p); },
+        getPrototypeOf(t) { traps.getPrototypeOf++; return handlers.getPrototypeOf ? handlers.getPrototypeOf(t) : Reflect.getPrototypeOf(t); },
+        set(t, p, v, r) { traps.set++; return handlers.set ? handlers.set(t, p, v, r) : Reflect.set(t, p, v, r); },
+        defineProperty(t, p, d) { traps.defineProperty++; return handlers.defineProperty ? handlers.defineProperty(t, p, d) : Reflect.defineProperty(t, p, d); },
+        deleteProperty(t, p) { traps.deleteProperty++; return handlers.deleteProperty ? handlers.deleteProperty(t, p) : Reflect.deleteProperty(t, p); },
+        apply(t, thisArg, args) { traps.apply++; return Reflect.apply(t, thisArg, args); },
+        construct(t, args) { traps.construct++; return Reflect.construct(t, args); }
+    });
+    const total = () => Object.values(traps).reduce((a, b) => a + b, 0);
+    return { proxy, traps, total };
+}
+
+async function makeZeroTrapWorld({ worldValue = 42 } = {}) {
+    const h = await makeHarness4();
+    const cap = await setupWorld(h);
+    await h.lane3.lane2.grantAuthority({ capabilityId: "fs.cap", subject: "alice", actions: ["read"], identityBinding: { principals: ["alice"] } });
+    await h.registerVerifier({
+        capabilityId: "fs.cap", operations: ["read"], capabilityIncarnationId: cap.incarnationId,
+        verifierId: "ver-zt",
+        observe: async (ctx) => ({ hostile: ctx.observedExecutionId === "__hostile__" ? null : null, world: { value: worldValue } })
+    });
+    return { h, cap };
+}
+
+async function verifyWithObservation(h, cap, observationFactory, postcondition = goodPostcondition()) {
+    // Re-register the verifier with the hostile observation for this probe.
+    h.removeVerifier("ver-zt");
+    h.registerVerifier({
+        capabilityId: "fs.cap", operations: ["read"], capabilityIncarnationId: cap.incarnationId,
+        verifierId: "ver-zt", observe: observationFactory
+    });
+    const result = await runExecutedAction(h);
+    return await h.verify({ executionResult: result, expectedPostcondition: postcondition });
+}
+
+function assertZeroTraps(traps, label) {
+    for (const [name, count] of Object.entries(traps)) {
+        assert.equal(count, 0, `[${label}] trap '${name}' fired ${count} times; ZERO required`);
+    }
+}
+
+test("ZT-A: Proxy over {} with getPrototypeOf trap -> ERROR, zero traps", async () => {
+    const h = await makeHarness4();
+    const cap = await setupWorld(h);
+    const { proxy, traps, total } = makeTrapProxy({}, { getPrototypeOf: () => Object.prototype });
+    const v = await verifyWithObservation(h, cap, () => proxy);
+    assert.equal(v.verificationState, VERIFICATION_STATE.ERROR, "hostile evidence must fail closed as ERROR");
+    assert.notEqual(v.verificationState, VERIFICATION_STATE.VERIFIED_SUCCESS);
+    assert.notEqual(v.verificationState, VERIFICATION_STATE.VERIFIED_FAILURE);
+    assert.notEqual(v.verificationState, VERIFICATION_STATE.INCONCLUSIVE);
+    assert.equal(v.observedEvidence, null, "hostile evidence must not be retained");
+    assert.match(v.detail, /hostile observation rejected/);
+    assertZeroTraps(traps, "ZT-A");
+    assert.equal(total(), 0, "ZT-A total trap executions must be zero");
+});
+
+test("ZT-B: Proxy over {} with ownKeys trap -> ERROR, zero traps", async () => {
+    const h = await makeHarness4();
+    const cap = await setupWorld(h);
+    const { proxy, traps, total } = makeTrapProxy({}, { ownKeys: () => ["world"] });
+    const v = await verifyWithObservation(h, cap, () => proxy);
+    assert.equal(v.verificationState, VERIFICATION_STATE.ERROR);
+    assertZeroTraps(traps, "ZT-B");
+    assert.equal(total(), 0, "ZT-B total trap executions must be zero");
+});
+
+test("ZT-C: Proxy over {} with getOwnPropertyDescriptor trap -> ERROR, zero traps", async () => {
+    const h = await makeHarness4();
+    const cap = await setupWorld(h);
+    const { proxy, traps, total } = makeTrapProxy({}, {
+        getOwnPropertyDescriptor: () => ({ enumerable: true, configurable: true, value: 42 })
+    });
+    const v = await verifyWithObservation(h, cap, () => proxy);
+    assert.equal(v.verificationState, VERIFICATION_STATE.ERROR);
+    assertZeroTraps(traps, "ZT-C");
+    assert.equal(total(), 0, "ZT-C total trap executions must be zero");
+});
+
+test("ZT-D: Proxy over {} with get trap -> ERROR, zero traps", async () => {
+    const h = await makeHarness4();
+    const cap = await setupWorld(h);
+    const { proxy, traps, total } = makeTrapProxy({}, { get: () => 42 });
+    const v = await verifyWithObservation(h, cap, () => proxy);
+    assert.equal(v.verificationState, VERIFICATION_STATE.ERROR);
+    assertZeroTraps(traps, "ZT-D");
+    assert.equal(total(), 0, "ZT-D total trap executions must be zero");
+});
+
+test("ZT-E: Proxy combining ALL traps -> ERROR, zero traps", async () => {
+    const h = await makeHarness4();
+    const cap = await setupWorld(h);
+    // Every handler FORGES the data a naive sanitizer would trust; any trap
+    // execution at all would be detectable.
+    const { proxy, traps, total } = makeTrapProxy({ world: { value: 42 } }, {
+        get: () => ({ world: { value: 42 } }),
+        has: () => true,
+        ownKeys: () => ["world"],
+        getOwnPropertyDescriptor: () => ({ enumerable: true, configurable: true, value: { world: { value: 42 } } }),
+        getPrototypeOf: () => Object.prototype
+    });
+    const v = await verifyWithObservation(h, cap, () => proxy);
+    assert.equal(v.verificationState, VERIFICATION_STATE.ERROR);
+    assertZeroTraps(traps, "ZT-E");
+    assert.equal(total(), 0, "ZT-E total trap executions must be zero");
+});
+
+test("ZT-F: Proxy wrapping an Error-like target -> ERROR, zero traps, no special introspection path", async () => {
+    const h = await makeHarness4();
+    const cap = await setupWorld(h);
+    const errTarget = new Error("gadget");
+    const { proxy, traps, total } = makeTrapProxy(errTarget, {
+        get: (t, p) => (p === "name" ? "FakeError" : p === "message" ? "forged" : Reflect.get(t, p))
+    });
+    const v = await verifyWithObservation(h, cap, () => proxy);
+    assert.equal(v.verificationState, VERIFICATION_STATE.ERROR,
+        "Proxy-wrapped Error must NOT gain the trusted Error introspection path");
+    assert.equal(v.observedEvidence, null);
+    assertZeroTraps(traps, "ZT-F");
+    assert.equal(total(), 0, "ZT-F total trap executions must be zero");
+});
+
+test("ZT-G: Proxy wrapping an Array-like target -> ERROR, zero traps (no Array.isArray + index access gadget)", async () => {
+    const h = await makeHarness4();
+    const cap = await setupWorld(h);
+    const { proxy, traps, total } = makeTrapProxy([1, 2, 3], {
+        get: (t, p) => Reflect.get(t, p),
+        ownKeys: (t) => Reflect.ownKeys(t)
+    });
+    const v = await verifyWithObservation(h, cap, () => proxy);
+    assert.equal(v.verificationState, VERIFICATION_STATE.ERROR,
+        "Proxy-wrapped array must fail closed at the zero-trap gate");
+    assertZeroTraps(traps, "ZT-G");
+    assert.equal(total(), 0, "ZT-G total trap executions must be zero");
+});
+
+test("ZT-H: nested hostile Proxy inside otherwise normal-looking evidence -> ERROR, zero traps (recursive gate)", async () => {
+    const h = await makeHarness4();
+    const cap = await setupWorld(h);
+    const { proxy: nested, traps, total } = makeTrapProxy({}, { getPrototypeOf: () => Object.prototype });
+    const outer = { status: "ok", detail: nested, world: { value: 42 } };
+    const v = await verifyWithObservation(h, cap, async () => outer);
+    // Nested hostile evidence poisons the whole observation: fail closed.
+    assert.equal(v.verificationState, VERIFICATION_STATE.ERROR,
+        "a hostile nested Proxy must poison the entire observation (fail closed)");
+    assert.notEqual(v.verificationState, VERIFICATION_STATE.VERIFIED_SUCCESS);
+    assert.notEqual(v.verificationState, VERIFICATION_STATE.VERIFIED_FAILURE);
+    assertZeroTraps(traps, "ZT-H");
+    assert.equal(total(), 0, "ZT-H total trap executions must be zero");
+});
+
+test("ZT-H2: deeply nested hostile Proxy inside arrays -> ERROR, zero traps", async () => {
+    const h = await makeHarness4();
+    const cap = await setupWorld(h);
+    const { proxy: deep, traps, total } = makeTrapProxy({ evil: true }, { ownKeys: () => ["evil"] });
+    const outer = { status: "ok", rows: [{ ok: 1 }, [2, { nest: deep }]] };
+    const v = await verifyWithObservation(h, cap, async () => outer);
+    assert.equal(v.verificationState, VERIFICATION_STATE.ERROR,
+        "hostile Proxy nested inside arrays must poison the observation");
+    assertZeroTraps(traps, "ZT-H2");
+    assert.equal(total(), 0, "ZT-H2 total trap executions must be zero");
+});
+
+test("ZT-I: revoked Proxy -> ERROR, zero traps", async () => {
+    const h = await makeHarness4();
+    const cap = await setupWorld(h);
+    const { proxy, revoke } = Proxy.revocable({ world: { value: 42 } }, {});
+    revoke();
+    const v = await verifyWithObservation(h, cap, () => proxy);
+    assert.equal(v.verificationState, VERIFICATION_STATE.ERROR,
+        "revoked proxy must be fail-closed (internal-slot probe still reports it)");
+    assert.equal(v.observedEvidence, null);
+    // No trap can fire on a revoked proxy's handler (it has none); the point
+    // is that typeof inspection of the revoked object itself never throws and
+    // never consults handler behavior.
+});
+
+test("ZT-J: genuine native Errors stay supported; hostile Error-shaped plain objects do not", async () => {
+    const h = await makeHarness4();
+    const cap = await setupWorld(h);
+    // (1) genuine native Error as observation: the postcondition cannot match
+    // {name,message}, so the outcome is a fail-closed *typed* classification —
+    // but crucially NOT a crash and NOT a forged success.
+    const realErr = new Error("sensor offline");
+    const vErr = await verifyWithObservation(h, cap, async () => realErr);
+    assert.notEqual(vErr.verificationState, VERIFICATION_STATE.VERIFIED_SUCCESS,
+        "an Error observation must never mint VERIFIED_SUCCESS for a data postcondition");
+    assert.ok(vErr.observedEvidence === null || vErr.observedEvidence.name === "Error",
+        "native Error evidence (if present) is normalized {name,message} only");
+    // (2) plain object DUCK-TYPED as Error ({name,message}) is NOT normalized
+    // through the Error path and carries no special status: it is evaluated
+    // as ordinary evidence against the postcondition (which cannot match).
+    const duck = { name: "Error", message: "fake" };
+    const vDuck = await verifyWithObservation(h, cap, async () => duck);
+    assert.notEqual(vDuck.verificationState, VERIFICATION_STATE.VERIFIED_SUCCESS);
+    assert.deepEqual(vDuck.observedEvidence, { name: "Error", message: "fake" },
+        "plain-object evidence is evaluated as data, not via Error duck typing");
+});
+
+test("ZT-K: hostile evidence is NEVER a compensation trigger (no false restoration path)", async () => {
+    const h = await makeHarness4();
+    const cap = await setupWorld(h);
+    const { proxy, traps, total } = makeTrapProxy({}, { getPrototypeOf: () => Object.prototype });
+    const v = await verifyWithObservation(h, cap, () => proxy);
+    assert.equal(v.verificationState, VERIFICATION_STATE.ERROR);
+    await assert.rejects(() => h.compensate({
+        verification: v, capabilityId: "fs.restore", operation: "write",
+        principal: "alice", parameters: {}, reason: "hostile probe"
+    }), (e) => e.reasonCode === REASONS.COMPENSATION_NOT_INDICATED,
+        "ERROR verification must NOT trigger compensation");
+    assertZeroTraps(traps, "ZT-K");
+});
+
+test("ZT-L: bounded benign evidence is unaffected by the gate (no regression to bounds)", async () => {
+    const h = await makeHarness4();
+    const cap = await setupWorld(h);
+    const bigString = "x".repeat(2000);
+    const deep = { a: { b: { c: { d: { e: { f: { g: { h: { i: 1 } } } } } } } } }; // depth 9 > bound
+    const cyclic = { ok: true };
+    cyclic.self = cyclic;
+    const v = await verifyWithObservation(h, cap, async () => ({
+        world: { value: 42 },
+        big: bigString,
+        deep,
+        cyclic,
+        accessor: Object.defineProperty({}, "k", { get() { return 1; }, enumerable: true }),
+        arr: Array.from({ length: 300 }, (_, i) => i)
+    }), { expect: { "world.value": { op: "eq", value: 42 } } });
+    assert.equal(v.verificationState, VERIFICATION_STATE.VERIFIED_SUCCESS,
+        "benign evidence with over-bound decorations must still verify on the matching path");
+    const ev = v.observedEvidence;
+    assert.equal(ev.big.length, 1024, "string bound preserved");
+    assert.equal(ev.deep.a.b.c.d.e.f.g.h, null, "depth bound preserved (over-deep leaf truncated)");
+    assert.equal(ev.cyclic.self, null, "cycle handling preserved");
+    assert.equal(ev.accessor.k, undefined, "accessor property skipped");
+    assert.equal(ev.arr.length, 256, "array slice bound preserved");
+});
+
+test("ZT-M: brand predicates on hostile evidence proxies remain zero-trap", async () => {
+    const { proxy, traps, total } = makeTrapProxy({}, { getPrototypeOf: () => Object.prototype });
+    const v = bootstrap.createCanonicalVerificationFacade();
+    assert.equal(v.isCanonicalVerificationRequest(proxy), false);
+    assert.equal(v.isCanonicalVerificationResult(proxy), false);
+    assert.equal(v.isCanonicalCompensationPlan(proxy), false);
+    assertZeroTraps(traps, "ZT-M");
+    assert.equal(total(), 0, "ZT-M total trap executions must be zero");
 });
