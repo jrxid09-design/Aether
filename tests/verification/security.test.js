@@ -1501,7 +1501,7 @@ test("AT-4: hostile Proxy with get('then') trap -> rejected at the gate, zero La
     assert.equal(total(), 0, "AT-4 total trap executions must be zero");
 });
 
-test("AT-5: hostile thenable object { get then() { trap++ } } -> hostile at the gate, zero traps", async () => {
+test("AT-5: hostile thenable object { get then() { trap++ } } -> whole-object ERROR, zero traps", async () => {
     const h = await makeHarness4();
     const cap = await setupWorld(h);
     let thenReads = 0;
@@ -1510,14 +1510,24 @@ test("AT-5: hostile thenable object { get then() { trap++ } } -> hostile at the 
         get then() { thenReads++; return () => ({}); }
     };
     const v = await verifyWithObservation(h, cap, () => hostileThenable);
-    // A plain object with a `then` accessor is a thenable: assimilating it
-    // would execute the accessor. Lane 4 never assimilates the return: it is
-    // a PLAIN OBJECT classified via static prototype + own-property walk —
-    // but the accessor is SKIPPED during the walk (accessors are skipped in
-    // evidence), so no trap fires. It must never become VERIFIED_SUCCESS
-    // through the `then` property (which is dropped).
+    // TARGETED REPAIR 3 (strengthened): a plain object with an OWN `then`
+    // accessor is a thenable-shaped transport surface. Presence of the own
+    // property is sufficient to reject the ENTIRE observation — the
+    // accessor is NEVER invoked, and the sibling `world` data must NOT be
+    // partially sanitized into a VERIFIED_SUCCESS.
+    assert.equal(v.verificationState, VERIFICATION_STATE.ERROR,
+        "own-then thenable must be whole-object rejected as transport");
+    assert.notEqual(v.verificationState, VERIFICATION_STATE.VERIFIED_SUCCESS);
     assert.notEqual(v.verificationState, VERIFICATION_STATE.VERIFIED_FAILURE);
-    assert.equal(thenReads, 0, "Lane 4 must never read the then accessor");
+    assert.notEqual(v.verificationState, VERIFICATION_STATE.INCONCLUSIVE);
+    assert.equal(thenReads, 0, "Lane 4 must never read/invoke the then accessor");
+    assert.equal(v.observedEvidence, null, "no partial evidence may be retained");
+    assert.match(v.detail, /thenable-shaped observation transport rejected/);
+    // Not a compensation trigger.
+    await assert.rejects(() => h.compensate({
+        verification: v, capabilityId: "fs.restore", operation: "write",
+        principal: "alice", parameters: {}, reason: "probe"
+    }), (e) => e.reasonCode === REASONS.COMPENSATION_NOT_INDICATED);
 });
 
 test("AT-6: Proxy-wrapped Promise -> hostile at the gate (internal-slot isProxy), zero traps", async () => {
@@ -1781,4 +1791,182 @@ test("AT-18: sync observers never auto-Promise.resolve (no assimilation of sync 
     assert.equal(v.verificationState, VERIFICATION_STATE.ERROR);
     assertZeroTraps(traps, "AT-18");
     assert.equal(total(), 0, "AT-18 sync hostile return must execute zero traps (no auto-assimilation)");
+});
+
+// ---------------------------------------------------------------------------
+// PLAIN-THENABLE WHOLE-OBJECT REJECTION MATRIX (TARGETED REPAIR 3)
+//
+// ANY raw observation value (top-level or nested) with an OWN property named
+// `then` must be rejected as a whole observation transport object — regardless
+// of whether `then` is a data property, accessor, function, non-function,
+// undefined, or null. No getter/setter invocation, no duck typing, no partial
+// sanitization. Outcome: typed ERROR, never VERIFIED_SUCCESS / VERIFIED_
+// FAILURE / INCONCLUSIVE, never a compensation trigger.
+// ---------------------------------------------------------------------------
+
+const THENABLE_FIXTURES = [
+    { label: "accessor then", build: () => { let t = 0; const o = { world: { value: 42 } }; Object.defineProperty(o, "then", { get() { t++; return undefined; } }); return { obs: o, trapCount: () => t }; } },
+    { label: "setter-only then", build: () => { let t = 0; const o = { world: { value: 42 } }; Object.defineProperty(o, "then", { set() { t++; } }); return { obs: o, trapCount: () => t }; } },
+    { label: "data then=undefined", build: () => ({ obs: { world: { value: 42 }, then: undefined }, trapCount: () => 0 }) },
+    { label: "data then=null", build: () => ({ obs: { world: { value: 42 }, then: null }, trapCount: () => 0 }) },
+    { label: "data then=number", build: () => ({ obs: { world: { value: 42 }, then: 123 }, trapCount: () => 0 }) },
+    { label: "data then=function", build: () => ({ obs: { world: { value: 42 }, then: () => ({}) }, trapCount: () => 0 }) },
+    { label: "data then=string", build: () => ({ obs: { world: { value: 42 }, then: "x" }, trapCount: () => 0 }) },
+    { label: "data then=boolean", build: () => ({ obs: { world: { value: 42 }, then: true }, trapCount: () => 0 }) },
+];
+
+for (const fx of THENABLE_FIXTURES) {
+    test(`PT: ${fx.label} -> whole-object ERROR, sibling world NOT partially used`, async () => {
+        const h = await makeHarness4();
+        const cap = await setupWorld(h);
+        const { obs, trapCount } = fx.build();
+        const v = await verifyWithObservation(h, cap, () => obs);
+        assert.equal(v.verificationState, VERIFICATION_STATE.ERROR,
+            `${fx.label}: own then must reject the whole observation`);
+        assert.notEqual(v.verificationState, VERIFICATION_STATE.VERIFIED_SUCCESS, `${fx.label}: never VERIFIED_SUCCESS`);
+        assert.notEqual(v.verificationState, VERIFICATION_STATE.VERIFIED_FAILURE, `${fx.label}: never VERIFIED_FAILURE`);
+        assert.notEqual(v.verificationState, VERIFICATION_STATE.INCONCLUSIVE, `${fx.label}: never INCONCLUSIVE`);
+        assert.equal(v.observedEvidence, null, `${fx.label}: no partial evidence retained`);
+        assert.match(v.detail, /thenable-shaped observation transport rejected/);
+        assert.equal(trapCount(), 0, `${fx.label}: then getter/setter must never execute`);
+        await assert.rejects(() => h.compensate({
+            verification: v, capabilityId: "fs.restore", operation: "write",
+            principal: "alice", parameters: {}, reason: "probe"
+        }), (e) => e.reasonCode === REASONS.COMPENSATION_NOT_INDICATED,
+            `${fx.label}: thenable rejection must not trigger compensation`);
+    });
+}
+
+test("PT: nested plain object with own then poisons the whole observation", async () => {
+    const h = await makeHarness4();
+    const cap = await setupWorld(h);
+    const obs = {
+        world: { value: 42 },
+        metadata: { then: "x" }  // nested own `then`
+    };
+    const v = await verifyWithObservation(h, cap, () => obs);
+    assert.equal(v.verificationState, VERIFICATION_STATE.ERROR,
+        "nested own-then must poison the whole observation");
+    assert.equal(v.observedEvidence, null, "no partial evidence from sibling fields");
+    assert.notEqual(v.verificationState, VERIFICATION_STATE.VERIFIED_SUCCESS);
+    await assert.rejects(() => h.compensate({
+        verification: v, capabilityId: "fs.restore", operation: "write",
+        principal: "alice", parameters: {}, reason: "probe"
+    }), (e) => e.reasonCode === REASONS.COMPENSATION_NOT_INDICATED);
+});
+
+test("PT: array with own accessor then -> whole-object ERROR, getter never invoked", async () => {
+    const h = await makeHarness4();
+    const cap = await setupWorld(h);
+    let traps = 0;
+    const arr = [];
+    Object.defineProperty(arr, "then", { get() { traps++; return undefined; }, enumerable: true });
+    // Add a sibling element so that partial sanitization (if it occurred)
+    // would produce an array whose first element is 42.
+    arr.push(42);
+    const v = await verifyWithObservation(h, cap, () => arr);
+    assert.equal(v.verificationState, VERIFICATION_STATE.ERROR,
+        "array with own then must reject the whole observation");
+    assert.equal(traps, 0, "array own-then getter must never be invoked");
+    assert.equal(v.observedEvidence, null, "no partial array evidence retained");
+});
+
+test("PT: Error with own then property -> whole-object rejection (Error branch does not bypass)", async () => {
+    const h = await makeHarness4();
+    const cap = await setupWorld(h);
+    let traps = 0;
+    const err = new Error("x");
+    Object.defineProperty(err, "then", { get() { traps++; return undefined; } });
+    const v = await verifyWithObservation(h, cap, () => err);
+    assert.equal(v.verificationState, VERIFICATION_STATE.ERROR,
+        "Error with own then must be whole-object rejected as transport");
+    assert.equal(traps, 0, "Error own-then getter must never be invoked");
+    assert.equal(v.observedEvidence, null, "no normalized Error evidence retained");
+    assert.match(v.detail, /thenable-shaped observation transport rejected/);
+});
+
+test("PT: sibling valid evidence that WOULD satisfy postcondition absent rejection", async () => {
+    const h = await makeHarness4();
+    const cap = await setupWorld(h);
+    // The postcondition matches world.value===42; the observation has
+    // world.value===42 AND an own `then`. Without R3, the `then` accessor
+    // would be skipped and world.value would survive -> VERIFIED_SUCCESS.
+    // R3 must reject the whole observation.
+    let traps = 0;
+    const obs = Object.defineProperty({ world: { value: 42 } }, "then", { get() { traps++; return undefined; } });
+    const v = await verifyWithObservation(h, cap, () => obs, goodPostcondition());
+    assert.equal(v.verificationState, VERIFICATION_STATE.ERROR,
+        "sibling valid evidence must NOT yield VERIFIED_SUCCESS when own then is present");
+    assert.equal(traps, 0, "then accessor must never execute");
+    assert.equal(v.observedEvidence, null);
+});
+
+test("PT: postcondition with own then is rejected whole (consistent input rejection)", async () => {
+    const h = await makeHarness4();
+    const cap = await setupWorld(h);
+    await h.registerVerifier({
+        capabilityId: "fs.cap", operations: ["read"], capabilityIncarnationId: cap.incarnationId,
+        verifierId: "ver-fs", observe: () => ({ world: { value: 42 } })
+    });
+    const result = await runExecutedAction(h);
+    // A postcondition carrying an own `then` data property is rejected as
+    // transport-shaped input.
+    await assert.rejects(() => h.verify({
+        executionResult: result,
+        expectedPostcondition: { then: undefined, expect: { "world.value": { op: "eq", value: 42 } } }
+    }), (e) => e.reasonCode === REASONS.UNSUPPORTED_ASYNC_RAW_RETURN,
+        "postcondition with own then must be rejected whole");
+    // Accessor-backed then on postcondition: descriptor check fires before
+    // the accessor is ever invoked.
+    let traps = 0;
+    const accessorPc = Object.defineProperty({ expect: { "world.value": { op: "eq", value: 42 } } }, "then", { get() { traps++; return undefined; } });
+    await assert.rejects(() => h.verify({
+        executionResult: result,
+        expectedPostcondition: accessorPc
+    }), (e) => e.reasonCode === REASONS.UNSUPPORTED_ASYNC_RAW_RETURN);
+    assert.equal(traps, 0, "postcondition own-then accessor must never execute");
+});
+
+test("PT: compensation parameters with own then are rejected whole", async () => {
+    const h = await makeHarness4();
+    const cap = await setupWorld(h);
+    await h.registerVerifier({
+        capabilityId: "fs.cap", operations: ["read"], capabilityIncarnationId: cap.incarnationId,
+        verifierId: "ver-fs", observe: () => ({ world: { value: 0 } })
+    });
+    const result = await runExecutedAction(h);
+    const v = await h.verify({ executionResult: result, expectedPostcondition: goodPostcondition() });
+    // compensation parameters carrying own `then` (data or accessor) are
+    // rejected as transport-shaped input.
+    await assert.rejects(() => h.compensate({
+        verification: v, capabilityId: "fs.restore", operation: "write", principal: "alice",
+        parameters: { then: undefined, path: "x" }, reason: "r"
+    }), (e) => e.reasonCode === REASONS.UNSUPPORTED_ASYNC_RAW_RETURN);
+    let traps = 0;
+    const accessorParams = Object.defineProperty({ path: "x" }, "then", { get() { traps++; return undefined; } });
+    await assert.rejects(() => h.compensate({
+        verification: v, capabilityId: "fs.restore", operation: "write", principal: "alice",
+        parameters: accessorParams, reason: "r"
+    }), (e) => e.reasonCode === REASONS.UNSUPPORTED_ASYNC_RAW_RETURN);
+    assert.equal(traps, 0, "compensation-parameter own-then accessor must never execute");
+});
+
+test("PT: sink-delivered evidence with own then -> whole-object ERROR via sink path", async () => {
+    const h = await makeHarness4();
+    const cap = await setupWorld(h);
+    let traps = 0;
+    const obs = Object.defineProperty({ world: { value: 42 } }, "then", { get() { traps++; return undefined; } });
+    h.removeVerifier("ver-fs");
+    h.registerVerifier({
+        capabilityId: "fs.cap", operations: ["read"], capabilityIncarnationId: cap.incarnationId,
+        verifierId: "ver-fs",
+        observe: (ctx, sink) => sink.resolveEvidence(obs)
+    });
+    const result = await runExecutedAction(h);
+    const v = await h.verify({ executionResult: result, expectedPostcondition: goodPostcondition() });
+    assert.equal(v.verificationState, VERIFICATION_STATE.ERROR,
+        "sink-delivered own-then evidence must reject the whole observation");
+    assert.equal(traps, 0, "sink-delivered own-then accessor must never execute");
+    assert.equal(v.observedEvidence, null);
+    assert.match(v.detail, /thenable-shaped observation transport rejected/);
 });

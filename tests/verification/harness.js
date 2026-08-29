@@ -140,6 +140,18 @@ function safeClassify(value) {
     return "inert";
 }
 
+/**
+ * PLAIN-THENABLE WHOLE-OBJECT TRANSPORT REJECTION (TARGETED REPAIR 3 —
+ * mirrors the production vHasOwnThen4). A non-Proxy object/array carrying
+ * an OWN `then` property (data, accessor, function, non-function,
+ * undefined, null) is a thenable-shaped transport surface: reject whole.
+ * Descriptor lookup only — no duck typing, no getter/setter invocation.
+ * The caller must have already classified the value as non-Proxy.
+ */
+function hasOwnThen(v) {
+    return Object.getOwnPropertyDescriptor(v, "then") !== undefined;
+}
+
 function detach(value, state) {
     state.nodes++;
     if (state.nodes > state.maxNodes) throw fail(REASONS.BOUND_EXCEEDED, `payload exceeds node budget (${state.maxNodes})`);
@@ -154,6 +166,15 @@ function detach(value, state) {
     }
     if (cls === "hostile") {
         throw fail(REASONS.NON_PLAIN_OBJECT, "proxy-like or non-plain value is not permitted (zero-trap fail-closed)");
+    }
+    // TARGETED REPAIR 3: own-`then` whole-input rejection for
+    // postcondition/compensation-parameter payloads (consistent with the
+    // observation transport rule). Descriptor lookup only; no getter.
+    if (cls === "object" || cls === "array" || cls === "error") {
+        if (hasOwnThen(value)) {
+            throw fail(REASONS.UNSUPPORTED_ASYNC_RAW_RETURN,
+                "thenable-shaped input is not permitted (own \"then\" property rejected whole)");
+        }
     }
     // cls is "array" | "object" — reflection is now safe.
     if (Array.isArray(value)) {
@@ -338,6 +359,10 @@ const V_EV_STRING_CHARS = 1024, V_EV_KEYS = 64, V_EV_DEPTH = 8, V_EV_NODES = 512
 const HOSTILE_SENTINEL = Symbol("damar.action.verification.evidence.hostile");
 const HOSTILE_EVIDENCE_DETAIL =
     "hostile observation rejected: proxy-like or non-detached value (zero-trap fail-closed)";
+// TARGETED REPAIR 3: own-`then` thenable-shaped transport rejection sentinel.
+const THENABLE_SENTINEL = Symbol("damar.action.verification.evidence.thenableTransport");
+const THENABLE_TRANSPORT_DETAIL =
+    "thenable-shaped observation transport rejected: own \"then\" property poisons the whole observation";
 
 function sanitizeEvidence(value) {
     const state = { nodes: 0, path: new Set() };
@@ -360,8 +385,18 @@ function sanitizeEvidence(value) {
             if (t === "boolean") return v;
             return v;
         }
-        if (cls === "error") return normalizeErrorName(v);
+        if (cls === "error") {
+            // TARGETED REPAIR 3: an Error with own `then` is transport-shaped
+            // and must be rejected whole — the Error branch must not bypass
+            // the own-then rule. Descriptor lookup; no getter.
+            if (hasOwnThen(v)) return THENABLE_SENTINEL;
+            return normalizeErrorName(v);
+        }
         if (cls === "hostile") return HOSTILE_SENTINEL;
+        // TARGETED REPAIR 3: own-`then` whole-object transport rejection.
+        // The value is a non-Proxy plain object/array; descriptor lookup
+        // performs no traps; the `then` getter/setter is NEVER invoked.
+        if (hasOwnThen(v)) return THENABLE_SENTINEL;
         // cls is "array" | "object" — reflection is now safe.
         if (state.path.has(v)) return null;
         state.path.add(v);
@@ -369,11 +404,13 @@ function sanitizeEvidence(value) {
             const out = v.slice(0, 256).map((x) => walk(x, depth + 1));
             state.path.delete(v);
             if (out.some((x) => x === HOSTILE_SENTINEL)) return HOSTILE_SENTINEL;
+            if (out.some((x) => x === THENABLE_SENTINEL)) return THENABLE_SENTINEL;
             return out;
         }
         const out = {};
         let keys = 0;
         let poisoned = false;
+        let poisonedSentinel = HOSTILE_SENTINEL;
         for (const key of Object.getOwnPropertyNames(v)) {
             if (keys >= V_EV_KEYS) break;
             keys++;
@@ -382,18 +419,20 @@ function sanitizeEvidence(value) {
             if (!desc || desc.get || desc.set) continue;
             const kk = key.length > 128 ? key.slice(0, 128) : key;
             const child = walk(desc.value, depth + 1);
-            if (child === HOSTILE_SENTINEL) {
+            if (child === HOSTILE_SENTINEL || child === THENABLE_SENTINEL) {
                 poisoned = true;
+                poisonedSentinel = child;
                 break;
             }
             out[kk] = child;
         }
         state.path.delete(v);
-        if (poisoned) return HOSTILE_SENTINEL;
+        if (poisoned) return poisonedSentinel;
         return out;
     }
     const result = walk(value, 0);
     if (result === HOSTILE_SENTINEL) return HOSTILE_SENTINEL;
+    if (result === THENABLE_SENTINEL) return THENABLE_SENTINEL;
     return result;
 }
 
@@ -520,6 +559,11 @@ function runObservation(binding, request, executionResult, timeoutMs) {
                     finalize(Object.freeze({ kind: "throw", name: "Error", message: "invalid observation value delivered to sink" }));
                     return;
                 }
+                // TARGETED REPAIR 3: own-`then` whole-object transport rejection
+                if ((cls === "object" || cls === "array") && hasOwnThen(rawEvidence)) {
+                    finalize(Object.freeze({ kind: "thenableTransport" }));
+                    return;
+                }
                 finalize(Object.freeze({ kind: "value", value: rawEvidence }));
             },
             rejectObservation(err) {
@@ -554,6 +598,11 @@ function runObservation(binding, request, executionResult, timeoutMs) {
         }
         if (rawReturn === undefined) {
             // async-via-sink signal: do NOT finalize from the return value.
+        } else if (cls === "error" && hasOwnThen(rawReturn)) {
+            // TARGETED REPAIR 3: Error with own `then` is transport-shaped —
+            // reject whole BEFORE Error normalization (no branch bypass).
+            finalize(Object.freeze({ kind: "thenableTransport" }));
+            return;
         } else if (cls === "inert" || cls === "error") {
             const name = ((rawReturn !== null && typeof rawReturn.name === "string") ? rawReturn.name.slice(0, 64) : "Error");
             const message = ((rawReturn !== null && typeof rawReturn.message === "string") ? rawReturn.message.slice(0, V_EV_STRING_CHARS) : "observer returned an unsupported value; async observers must use the trusted sink");
@@ -572,6 +621,13 @@ function runObservation(binding, request, executionResult, timeoutMs) {
         // probe the contained value). For the undefined sink-async signal,
         // the sink/timeout owns completion.
         if (!finalized && rawReturn !== undefined) {
+            // TARGETED REPAIR 3: own-`then` whole-object transport rejection
+            // BEFORE boxing as valid data. Descriptor lookup on a proven
+            // non-Proxy performs no traps; the getter is never invoked.
+            if ((cls === "object" || cls === "array" || cls === "error") && hasOwnThen(rawReturn)) {
+                finalize(Object.freeze({ kind: "thenableTransport" }));
+                return;
+            }
             finalize(Object.freeze({ kind: "value", value: rawReturn }));
         }
     });
@@ -716,12 +772,24 @@ async function makeVerificationHarness({ clock, scopeBindings, authenticate } = 
             verificationState = VERIFICATION_STATE.ERROR;
             observedEvidence = null;
             detail = `unsupported async observation transport (${REASONS.UNSUPPORTED_ASYNC_RAW_RETURN}); async observers must complete through the trusted sink`;
+        } else if (observation.kind === "thenableTransport") {
+            // TARGETED REPAIR 3: observation value (or a nested value) carried
+            // an OWN `then` property — thenable-shaped transport. Whole-object
+            // rejection before postcondition evaluation.
+            verificationState = VERIFICATION_STATE.ERROR;
+            observedEvidence = null;
+            detail = THENABLE_TRANSPORT_DETAIL;
         } else {
             const evidence = sanitizeEvidence(observation.value);
             if (evidence === HOSTILE_SENTINEL) {
                 verificationState = VERIFICATION_STATE.ERROR;
                 observedEvidence = null;
                 detail = HOSTILE_EVIDENCE_DETAIL;
+            } else if (evidence === THENABLE_SENTINEL) {
+                // Nested own-`then` poisoned the whole observation.
+                verificationState = VERIFICATION_STATE.ERROR;
+                observedEvidence = null;
+                detail = THENABLE_TRANSPORT_DETAIL;
             } else if (evidence === null && observation.value !== null && observation.value !== undefined) {
                 verificationState = VERIFICATION_STATE.INCONCLUSIVE;
                 detail = "observation could not be normalized into evidence";

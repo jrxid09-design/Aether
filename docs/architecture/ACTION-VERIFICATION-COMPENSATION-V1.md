@@ -295,6 +295,28 @@ native promise semantics on untrusted evidence:
   never a compensation trigger. The returned Promise object itself is never
   assimilated by Lane 4 (no `.then` call, no `await`, no `Promise.resolve`).
 
+* **Plain thenable observation values are UNSUPPORTED (TARGETED REPAIR 3):**
+  ANY non-Proxy object/array (or native Error) carrying an OWN property
+  named `then` — whether a data property (function, non-function, undefined,
+  null, number, string, boolean) or an accessor (getter/setter) — is a
+  thenable-shaped transport surface and is rejected WHOLE. The detection
+  uses `Object.getOwnPropertyDescriptor(value, "then")` AFTER the value has
+  been proven non-Proxy by the classifier: the descriptor lookup performs NO
+  attacker-controlled trap and NEVER invokes the `then` getter/setter. There
+  is NO duck typing (no `typeof obj.then`), NO partial sanitization (no
+  skipping the `then` field and retaining sibling data). The rule is
+  recursive: a nested own-`then` poisons the ENTIRE observation. The Error
+  normalization branch does NOT bypass the rule: an Error with own `then` is
+  rejected before `{name,message}` normalization. The same whole-input
+  rejection applies to expectedPostcondition and compensation-parameter
+  payloads (an own `then` anywhere in the input rejects the whole input).
+  Outcome: typed `ERROR` (`UNSUPPORTED_ASYNC_RAW_RETURN`), never
+  `VERIFIED_SUCCESS`/`VERIFIED_FAILURE`/`INCONCLUSIVE`, never a compensation
+  trigger. Rationale: a plain thenable is semantically ambiguous with async
+  transport; an accessor-backed `then` can execute behavior; partial removal
+  can manufacture apparently-valid evidence — Lane 4 must not produce truth
+  by deleting dangerous fields.
+
 **Trusted verifier vs untrusted evidence (boundary):** the verifier FUNCTION
 is bootstrap-registered trusted code; the EVIDENCE it returns remains
 untrusted world data. Trusted code does not make a returned arbitrary object

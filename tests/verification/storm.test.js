@@ -73,6 +73,8 @@ async function runStorm(seed) {
         unsafeAsyncRawReturnAccepted: 0,
         lateObservationMutatedResult: 0,
         duplicateObservationCompletionAccepted: 0,
+        // TARGETED REPAIR 3 — plain-thenable partial acceptance counter
+        plainThenableEvidenceAccepted: 0,
         callerVerifierAccepted: 0,
         staleVerifierIncarnationUsed: 0,
         verifierErrorCalledFailure: 0,
@@ -161,7 +163,7 @@ async function runStorm(seed) {
     }
 
     for (let round = 0; round < OP_TARGET; round++) {
-        const roll = Math.floor(rng() * 13);
+        const roll = Math.floor(rng() * 14);
         const capIdx = Math.floor(rng() * CAP_POOL);
         const subject = subjects[Math.floor(rng() * subjects.length)];
         const cap = CAPS[capIdx];
@@ -541,6 +543,50 @@ async function runStorm(seed) {
                         observe: (octx, sink) => sink.resolveEvidence({ world: { value: worldValues.get(hostileCap.idx) }, observedExecutionId: octx.executionId })
                     });
                     record("async-transport", true, "probed");
+                    break;
+                }
+                case 13: { // TARGETED REPAIR 3: plain-thenable evidence
+                    // probe. A plain object with own `then` + sibling valid
+                    // world data: must be whole-object rejected as ERROR —
+                    // never VERIFIED_SUCCESS / VERIFIED_FAILURE / INCONCLUSIVE.
+                    const hostileCap = CAPS[capIdx];
+                    h.removeVerifier(`ver-${hostileCap.id}`);
+                    let thenTraps = 0;
+                    const thenableEvidence = Object.defineProperty({ world: { value: 42 } }, "then", { get() { thenTraps++; return undefined; } });
+                    h.registerVerifier({
+                        capabilityId: hostileCap.id, operations: ["read"], capabilityIncarnationId: hostileCap.incarnationId,
+                        verifierId: `ver-${hostileCap.id}`,
+                        observe: () => thenableEvidence
+                    });
+                    const result = await executeRead(capIdx, subject, "safe.target", round);
+                    const v = await h.verify({ executionResult: result, expectedPostcondition: { expect: { "world.value": { op: "eq", value: 42 } } } });
+                    // The exact bug R3 closes: pre-R3, the `then` accessor
+                    // was skipped during sanitization, world.value survived,
+                    // and the postcondition matched -> VERIFIED_SUCCESS. R3
+                    // rejects the whole observation.
+                    if (v.verificationState === VERIFICATION_STATE.VERIFIED_SUCCESS ||
+                        v.verificationState === VERIFICATION_STATE.VERIFIED_FAILURE ||
+                        v.verificationState === VERIFICATION_STATE.INCONCLUSIVE) {
+                        C.plainThenableEvidenceAccepted++;
+                    }
+                    if (v.verificationState !== VERIFICATION_STATE.ERROR) {
+                        C.plainThenableEvidenceAccepted++;
+                    }
+                    if (thenTraps !== 0) C.plainThenableEvidenceAccepted++;
+                    if (v.observedEvidence !== null) C.plainThenableEvidenceAccepted++;
+                    // Not a compensation trigger.
+                    try {
+                        await h.compensate({ verification: v, capabilityId: "pool.restore", operation: "write", principal: subject, parameters: {}, reason: "r" });
+                        C.compensationBypassedAuthority++;
+                    } catch { /* rejected */ }
+                    // restore real verifier
+                    h.removeVerifier(`ver-${hostileCap.id}`);
+                    h.registerVerifier({
+                        capabilityId: hostileCap.id, operations: ["read"], capabilityIncarnationId: hostileCap.incarnationId,
+                        verifierId: `ver-${hostileCap.id}`,
+                        observe: (octx, sink) => sink.resolveEvidence({ world: { value: worldValues.get(hostileCap.idx) }, observedExecutionId: octx.executionId })
+                    });
+                    record("plain-thenable", true, v.verificationState);
                     break;
                 }
             }
