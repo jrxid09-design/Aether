@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert");
 
 const RuntimeExecutor = require("../../src/ai/executors/RuntimeExecutor");
+const InternalGrant = require("../../src/ai/tools/internalGrant").createInternalGrantDomain();
 const { AIToolRegistry, AIToolCall } = require("../../src/ai/tools");
 const AITool = require("../../src/ai/tools/AITool");
 const AIStreamChunk = require("../../src/ai/models/AIStreamChunk");
@@ -36,17 +37,18 @@ function buatExecutor(service, daftarTool = [], opsi = {}) {
         registry.register(tool);
     }
 
-    const executor = new RuntimeExecutor(service, opsi);
+    const executor = new RuntimeExecutor(service, { ...opsi, grantDomain: InternalGrant });
 
-    executor.setToolRegistry(registry);
+    executor.setToolRegistry({ get(name) { return registry.get(name); } });
 
     // Identitas eksekusi eksplisit (invariant G — Round-2): mekanika
     // streaming diuji sebagai superadmin; otorisasi diuji terpisah.
     const asli = executor.execute.bind(executor);
     const asliStream = executor.stream.bind(executor);
-    executor.execute = (r) => asli({ exec: { role: "superadmin", channel: "test" }, ...r });
+    const makeExec = () => InternalGrant.mintCanonicalInternalGrant({ authorizedTools: daftarTool.map(t => t.name), provenance: "stream-test" });
+    executor.execute = (r) => asli({ exec: makeExec(), ...r });
     executor.stream = async function* (r) {
-        yield* asliStream({ exec: { role: "superadmin", channel: "test" }, ...r });
+        yield* asliStream({ exec: makeExec(), ...r });
     };
 
     return executor;
