@@ -6,12 +6,15 @@ const ib = require("../../src/runtime/interactionBus");
 
 test("enums: interaction origins are the closed canonical set", () => {
   assert.deepEqual([...ib.INTERACTION_ORIGINS], [
+    "CONSOLE",
+    "CLI",
     "VOICE",
     "PRESENCE",
     "HOTKEY",
     "OBSERVATORY",
     "TELEGRAM",
     "WHATSAPP",
+    "COMPANION",
     "API",
     "SYSTEM",
     "TEST"
