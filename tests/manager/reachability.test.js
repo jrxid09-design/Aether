@@ -86,13 +86,36 @@ test("runtime restart and terminal WebSocket ingress are fail-closed", () => {
     const wsSource = fs.readFileSync(path.join(ROOT, "src/ws/terminalGateway.js"), "utf8");
     assert.match(runtimeSource, /rejectLegacyActionRoute\("Console runtime"\)/);
     assert.match(wsSource, /LEGACY_ACTION_ROUTE_DISABLED/);
-    assert.match(wsSource, /return reject\(socket, 403/);
+    assert.match(wsSource, /return reject\(socket, 503/);
 });
 
 test("external action ingress guard has no authority or executor surface", () => {
     const boundary = require("../../src/manager/legacyBoundary");
-    assert.deepEqual(Object.keys(boundary).sort(), ["LEGACY_ACTION_ROUTE_DISABLED", "rejectLegacyActionRoute"]);
+    assert.deepEqual(Object.keys(boundary).sort(), ["LEGACY_ACTION_ROUTE_DISABLED", "rejectLegacyActionMiddleware", "rejectLegacyActionRoute"]);
     assert.throws(() => boundary.rejectLegacyActionRoute("test"), error =>
         error.code === boundary.LEGACY_ACTION_ROUTE_DISABLED &&
         /canonical Damar Manager/.test(error.message));
+});
+
+test("high-risk Console families are wired to the fail-closed boundary", () => {
+    const source = fs.readFileSync(path.join(ROOT, "src/routes/api/v1/console.js"), "utf8");
+    for (const route of [
+        'router.post("/home/control", homeManagerOnly)',
+        'router.post("/home/mqtt/publish", homeManagerOnly)',
+        'router.post("/orchestrate", managerOnly)',
+        'router.post("/lab/missions/:id/run", labManagerOnly)',
+        'router.post("/lab/experiments/:id/run", labManagerOnly)',
+        'router.post("/automation/run", automationManagerOnly)',
+        'router.post("/mcp/restart", mcpManagerOnly)',
+        'router.put("/devices", managerOnly)',
+        'router.post("/memory", managerOnly)',
+        'router.post("/voice/speak", managerOnly)',
+        'router.post("/forge/:id/approve", managerOnly)'
+    ]) assert.ok(source.includes(route), route);
+});
+
+test("legacy API agent chat cannot reach PlanExecutor plugin execution", () => {
+    const source = fs.readFileSync(path.join(ROOT, "src/routes/api/v1/index.js"), "utf8");
+    assert.match(source, /rejectLegacyActionMiddleware\("legacy agent chat"\)/);
+    assert.doesNotMatch(source, /chatController\.chat\s*\n\s*\)/);
 });
