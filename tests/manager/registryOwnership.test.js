@@ -3,6 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const AIToolRegistry = require("../../src/ai/tools/AIToolRegistry");
+const AIBuilder = require("../../src/ai/builder/AIBuilder");
 const AIRuntime = require("../../src/ai/runtime/AIRuntime");
 
 test("registry snapshots refresh atomically without exposing handlers", () => {
@@ -110,4 +111,34 @@ test("metadata inspection never exposes executable handlers", () => {
     const metadata = runtime.listTools();
     assert.equal(Object.prototype.hasOwnProperty.call(metadata[0], "execute"), false);
     assert.equal(Object.keys(runtime).includes("registryOwner"), false);
+});
+
+test("builder stages and atomically publishes the canonical initial snapshot", () => {
+    const build = () => new AIBuilder().provider("openai", { apiKey: "test", baseUrl: "http://127.0.0.1" });
+    const valid = name => ({ name, description: name, parameters: {}, execute() {} });
+    const b = build();
+    const source = valid("A");
+    b.registerTool(source);
+    b.registerTools([valid("B")]);
+    const engine = b.build();
+    assert.deepEqual(engine.runtime.listTools().map(t => t.name), ["A", "B"]);
+    source.name = "mutated";
+    source.execute = () => "new";
+    assert.deepEqual(engine.runtime.listTools().map(t => t.name), ["A", "B"]);
+    for (const bad of [
+        { name: "missing" },
+        { name: "noncallable", execute: 1 },
+        { name: "", execute() {} },
+        Object.create({ name: "inherited", execute() {} }),
+        (() => { const x = { execute() {} }; Object.defineProperty(x, "name", { get() { throw new Error("getter"); } }); return x; })(),
+        (() => { const x = { name: "accessor" }; Object.defineProperty(x, "execute", { get() { throw new Error("getter"); } }); return x; })(),
+        new Proxy(valid("proxy"), { get() { throw new Error("trap"); } })
+    ]) {
+        const invalid = build();
+        invalid.registerTool(bad);
+        assert.throws(() => invalid.build());
+    }
+    const atomic = build();
+    atomic.registerTools([valid("A"), { name: "bad" }, valid("C")]);
+    assert.throws(() => atomic.build());
 });
