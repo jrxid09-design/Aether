@@ -199,7 +199,7 @@ only creates an isolated foreign domain whose grants are not accepted by the
 canonical executor. Scope metadata is held in a private WeakMap, so visible
 copies and inherited objects cannot widen execution authority.
 
-The AI registry has stable runtime identity and private atomic snapshots.
+The AI registry has stable runtime identity and private atomic snapshots. Its mutation owner is captured by trusted bootstrap wiring and retained only by the runtime service; the public runtime facade has no canonical registry mutator. Ordinary runtime consumers can inspect metadata but cannot publish executable records. Every published record has a non-empty own data name and callable own data execute field; the complete candidate is validated before an atomic swap, with a detached frozen record copy.
 Refreshes replace the snapshot through trusted runtime ownership; they do not
 rebind the executor. Raw registry objects and executable handlers are not
 returned by runtime/engine inspection APIs. `TYPE != PROVENANCE` and

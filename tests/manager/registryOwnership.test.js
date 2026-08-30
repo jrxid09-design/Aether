@@ -27,3 +27,21 @@ test("registry wrappers are not canonical production registry references", () =>
     assert.notEqual(wrapper, registry);
     assert.equal(Object.create(registry) === registry, false);
 });
+
+test("owner snapshot validates complete records and publishes atomically", () => {
+    const owned = AIToolRegistry.createOwnedAIToolRegistry();
+    const valid = { name: "tool-A", description: "A", parameters: {}, execute() {} };
+    owned.owner.replaceSnapshot([valid]);
+    assert.equal(owned.registry.get("tool-A").name, "tool-A");
+    assert.throws(() => owned.owner.replaceSnapshot([valid, { name: "tool-B" }]), /invalid tool contract/);
+    assert.deepEqual(owned.registry.all().map(t => t.name), ["tool-A"]);
+    valid.execute = () => "changed";
+    assert.equal(Object.isFrozen(owned.registry.get("tool-A")), true);
+});
+
+test("builder-created runtime has no public canonical registry mutator", () => {
+    const owned = AIToolRegistry.createOwnedAIToolRegistry();
+    const runtime = new AIRuntime({}, { timeout: 1000, toolRegistry: owned.registry });
+    assert.equal(typeof runtime.setToolRegistry, "undefined");
+    assert.throws(() => AIRuntime.prototype.setToolRegistry.call(runtime, owned.registry), /owner-controlled/);
+});
