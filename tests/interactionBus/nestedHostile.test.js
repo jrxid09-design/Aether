@@ -126,6 +126,76 @@ test("context accessors and malformed nested reference records fail closed", () 
   assert.equal(getterCalls, 0);
 });
 
+test("envelope reference arrays use zero-trap descriptor copying for both fields", () => {
+  const fields = ["contextRefs", "authEvidenceRefs"];
+  for (const field of fields) {
+    const bus = makeBus();
+    const valid = field === "contextRefs"
+      ? [{ type: "doc", ref: "ref-1" }]
+      : [{ provider: "totp_provider", evidenceId: "evd_1", issuedAt: 1, expiresAt: 2 }];
+    const makeSpec = (value) => ({ [field]: value });
+
+    let proxyTraps = 0;
+    const proxy = new Proxy([], {
+      get() { proxyTraps += 1; throw new Error("proxy get"); },
+      ownKeys() { proxyTraps += 1; throw new Error("proxy keys"); }
+    });
+    assert.equal(bus.submit(base(makeSpec(proxy))).accepted, false);
+    assert.equal(proxyTraps, 0, field);
+
+    let getterCalls = 0;
+    const accessorArray = [];
+    Object.defineProperty(accessorArray, "0", {
+      enumerable: true,
+      get() { getterCalls += 1; return valid[0]; }
+    });
+    assert.equal(bus.submit(base(makeSpec(accessorArray))).accepted, false);
+    assert.equal(getterCalls, 0, field);
+
+    let mapCalls = 0;
+    const customMap = valid.slice();
+    Object.defineProperty(customMap, "map", {
+      enumerable: true,
+      value() { mapCalls += 1; throw new Error("custom map"); }
+    });
+    const mapResult = bus.submit(base(makeSpec(customMap)));
+    assert.equal(mapResult.accepted, true, field);
+    assert.equal(mapCalls, 0, field);
+
+    const sparse = [];
+    sparse.length = 1;
+    assert.equal(bus.submit(base(makeSpec(sparse))).accepted, false);
+
+    const wrongPrototype = valid.slice();
+    Object.setPrototypeOf(wrongPrototype, { custom: true });
+    assert.equal(bus.submit(base(makeSpec(wrongPrototype))).accepted, false);
+  }
+});
+
+test("valid envelope reference arrays are detached and frozen", () => {
+  const bus = makeBus();
+  const seen = [];
+  bus.registerHandler({
+    route: "CONVERSATION",
+    supportedKinds: ["MESSAGE"],
+    handler: (envelope, context) => {
+      seen.push(envelope);
+      context.stream.emit("START");
+      context.stream.emit("COMPLETE");
+    }
+  });
+  const contextRefs = [{ type: "doc", ref: "ref-1" }];
+  const authEvidenceRefs = [{ provider: "totp_provider", evidenceId: "evd_1", issuedAt: 1, expiresAt: 2 }];
+  assert.equal(bus.submit(base({ payload: { text: "x" }, contextRefs, authEvidenceRefs })).accepted, true);
+  contextRefs[0].ref = "changed";
+  authEvidenceRefs[0].expiresAt = 999;
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0].contextRefs[0].ref, "ref-1");
+  assert.equal(seen[0].authEvidenceRefs[0].expiresAt, 2);
+  assert.equal(Object.isFrozen(seen[0].contextRefs), true);
+  assert.equal(Object.isFrozen(seen[0].authEvidenceRefs), true);
+});
+
 test("direct hostile submit rejects before transport property observation", () => {
   const bus = makeBus();
   let trapCalls = 0;
