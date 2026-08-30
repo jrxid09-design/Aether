@@ -183,3 +183,13 @@ The current production authentication adapter is fail-closed. Consequently,
 unsupported legacy action families are unavailable rather than silently
 executed. This preserves `NO EXTERNAL AUTHORITY BYPASS` until trusted identity,
 capability mappings, and Lane 3 actuators are added for each family.
+### Final AI tool execution boundary
+
+Provider `toolCalls` are untrusted model output. `tools: []`, role, channel,
+or a caller-shaped execution flag are not authority. The final
+`RuntimeExecutor` sink requires both a canonical in-process execution grant
+and an immutable exact tool scope captured when that grant is minted.
+`CANONICAL GRANT != UNIVERSAL TOOL AUTHORITY`: an empty scope executes nothing,
+an out-of-scope or mixed batch is rejected as a whole, and copied/serialized
+grants are foreign. External cognition has no canonical grant; legitimate
+trusted internal compatibility paths receive only explicitly scoped grants.

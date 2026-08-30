@@ -277,7 +277,8 @@ test("M1-E: bentuk caller legacy lewat batas runtime kanonik", () => {
     assert.equal(meta.missionId, "m-9");
 
     // Provenance/grant kanonik (symbol) SELAMAT — kontrak N2 utuh.
-    const grant = resolveDelegator(null, true, "watchdog:m1e");
+    const grant = require("../../src/ai/tools/internalGrant")
+        .mintCanonicalInternalGrant({ provenance: "watchdog:m1e" });
     const grantCanon = canonicalRequestExec({ exec: grant });
     assert.equal(isCanonicalInternalGrant(grantCanon), true,
         "INTERNAL_GRANT_TOKEN tidak boleh dicabut kanonisasi");
@@ -286,7 +287,8 @@ test("M1-E: bentuk caller legacy lewat batas runtime kanonik", () => {
 
 test("M1-F: serialized/copied identity — restriction ikut, token tidak dipalsukan", () => {
 
-    const grant = resolveDelegator(null, true, "watchdog:m1");
+    const grant = require("../../src/ai/tools/internalGrant")
+        .mintCanonicalInternalGrant({ provenance: "watchdog:m1" });
     assert.equal(isCanonicalInternalGrant(grant), true);
 
     const throughJson = JSON.parse(JSON.stringify(grant));

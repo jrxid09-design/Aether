@@ -74,7 +74,8 @@ test("call-site titik kanonik: inisiator diwarisi, superadmin TIDAK diam-diam ja
     assert.equal(agentHub.delegatedRoleOf(null), "user");
 
     // batas otonom eksplisit → satu-satunya jalur menuju system
-    const dInt = resolveDelegator(null, true, "goal:g1");
+    const dInt = require("../../src/ai/tools/internalGrant")
+        .mintCanonicalInternalGrant({ provenance: "goal:g1" });
     assert.equal(isCanonicalInternalGrant(dInt), true);
     assert.match(dInt.source, /^autonomous:/);
     assert.equal(agentHub.delegatedRoleOf(dInt), "system");

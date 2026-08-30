@@ -223,7 +223,8 @@ test("C: eskalasi watchdog membawa capability set sampai ke pemulihan", async ()
 
 test("D: grant kanonik ber-token symbol; JSON/objek palsu tidak dipercaya", () => {
 
-    const grant = resolveDelegator(null, true, "watchdog:test");
+    const grant = require("../../src/ai/tools/internalGrant")
+        .mintCanonicalInternalGrant({ provenance: "watchdog:test" });
 
     assert.equal(isCanonicalInternalGrant(grant), true);
 

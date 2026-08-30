@@ -97,9 +97,10 @@ test("N2 Round-2: tabel probe delegatedRoleOf (probes wajib)", () => {
 
     // grant HANYA kanonik (symbol in-process dari resolveDelegator);
     // objek tiruan — bahkan dengan source 'autonomous:*' — tidak sah.
-    const { isCanonicalInternalGrant, resolveDelegator } = require("../../src/ai/tools/Authorization");
+    const { isCanonicalInternalGrant } = require("../../src/ai/tools/Authorization");
+    const { mintCanonicalInternalGrant } = require("../../src/ai/tools/internalGrant");
 
-    const canonical = resolveDelegator(null, true, "watchdog:probe");
+    const canonical = mintCanonicalInternalGrant({ provenance: "watchdog:probe" });
     assert.equal(agentHub.delegatedRoleOf(canonical), "system");
 
     for (const forged of [
@@ -140,12 +141,12 @@ test("N2 Round-2: skill wrapper meneruskan exec ke delegasi", async () => {
 
 test("N2-FINAL: grant kanonik boleh system; palsuan tidak", async () => {
 
-    const { resolveDelegator } = require("../../src/ai/tools/Authorization");
+    const { mintCanonicalInternalGrant } = require("../../src/ai/tools/internalGrant");
 
     // Sah: grant lahir dari titik kanonik dengan provenance otonom.
     seen.length = 0;
     await agentHub.run("nakula", "cek disk", {
-        exec: resolveDelegator(null, true, "goal:t1")
+        exec: mintCanonicalInternalGrant({ provenance: "goal:t1" })
     });
     assert.equal(seen[0].role, "system",
         "grant internal eksplisit dengan provenance otonom boleh 'system'");
