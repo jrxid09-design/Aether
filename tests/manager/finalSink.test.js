@@ -172,3 +172,19 @@ test("public boolean delegation metadata cannot mint an execution grant", () => 
     assert.equal(Authorization.isCanonicalInternalGrant(candidate), false);
     assert.equal(Authorization.isToolAuthorizedByGrant(candidate, "tool-A"), false);
 });
+
+test("caller-selected grant domain cannot bind the production registry", () => {
+    const attackerDomain = require("../../src/ai/tools/internalGrant")
+        .createInternalGrantDomain();
+    const executor = new RuntimeExecutor({ chat: async () => ({ toolCalls: [] }) }, {
+        grantDomain: attackerDomain
+    });
+    const { AIToolRegistry } = require("../../src/ai/tools");
+    assert.throws(() => executor.setToolRegistry(new AIToolRegistry()), /production registry/);
+});
+
+test("registry binding is immutable after first bootstrap binding", () => {
+    const executor = new RuntimeExecutor({ chat: async () => ({ toolCalls: [] }) });
+    executor.setToolRegistry({ get: () => null });
+    assert.throws(() => executor.setToolRegistry({ get: () => null }), /already bound/);
+});
