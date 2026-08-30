@@ -119,3 +119,130 @@ test("legacy API agent chat cannot reach PlanExecutor plugin execution", () => {
     assert.match(source, /rejectLegacyActionMiddleware\("legacy agent chat"\)/);
     assert.doesNotMatch(source, /chatController\.chat\s*\n\s*\)/);
 });
+
+test("shared external AI runtime boundary strips tool execution for every external channel", async () => {
+    const ai = require("../../src/services/aiRuntimeService");
+    const originalEnsure = ai.ensure;
+    const originalAssemble = ai.assemble;
+    const originalResolveModel = ai.resolveModel;
+    const originalRecordUsage = ai._recordUsage;
+    const observed = [];
+    ai.assemble = async ({ messages }) => ({ messages, diagnostics: {} });
+    ai.resolveModel = () => "test-model";
+    ai._recordUsage = () => {};
+    ai.ensure = () => ({
+        chat: async options => { observed.push(options); return { content: "ok" }; },
+        stream: async function* () { yield { delta: "ok" }; }
+    });
+    try {
+        for (const channel of ["console", "telegram", "whatsapp", "device", "companion", "api", "voice"]) {
+            await ai.chat({ messages: [{ role: "user", content: "run it" }], channel, tools: [{ name: "dangerous" }] });
+        }
+    } finally {
+        ai.ensure = originalEnsure;
+        ai.assemble = originalAssemble;
+        ai.resolveModel = originalResolveModel;
+        ai._recordUsage = originalRecordUsage;
+    }
+    assert.equal(observed.length, 7);
+    assert.ok(observed.every(options => Array.isArray(options.tools) && options.tools.length === 0));
+});
+
+test("shared external AI streaming boundary also strips tool execution", async () => {
+    const ai = require("../../src/services/aiRuntimeService");
+    const originalEnsure = ai.ensure;
+    const originalAssemble = ai.assemble;
+    const originalResolveModel = ai.resolveModel;
+    const observed = [];
+    ai.assemble = async ({ messages }) => ({ messages, diagnostics: {} });
+    ai.resolveModel = () => "test-model";
+    ai.ensure = () => ({
+        stream: async function* streamStub(options) {
+            observed.push(options);
+            yield { delta: "ok", done: true };
+        }
+    });
+    try {
+        const chunks = [];
+        for await (const chunk of ai.stream({
+            messages: [{ role: "user", content: "run it" }],
+            channel: "console",
+            tools: [{ name: "dangerous" }]
+        })) chunks.push(chunk);
+        assert.equal(chunks.length, 1);
+    } finally {
+        ai.ensure = originalEnsure;
+        ai.assemble = originalAssemble;
+        ai.resolveModel = originalResolveModel;
+    }
+    assert.equal(observed.length, 1);
+    assert.deepEqual(observed[0].tools, []);
+});
+
+test("production AI controller feeds channel context into the fenced runtime", async () => {
+    const controller = require("../../src/controllers/aiController");
+    const ai = require("../../src/services/aiRuntimeService");
+    const originalChat = ai.chat;
+    const calls = [];
+    ai.chat = async options => {
+        calls.push(options);
+        return { content: "cognition-only" };
+    };
+    const response = {
+        status() { return this; },
+        json(body) { this.body = body; return body; }
+    };
+    try {
+        await controller.chat({
+            body: { messages: [{ role: "user", content: "propose a tool" }], channel: "telegram" },
+            get() { return undefined; },
+            authIdentity: { role: "superadmin", sessionId: "telegram:test" }
+        }, response);
+    } finally {
+        ai.chat = originalChat;
+    }
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].channel, "telegram");
+    assert.equal(response.body.data.content, "cognition-only");
+});
+
+test("external API role clamp rejects privileged environment roles", () => {
+    const { clampExternalRole } = require("../../src/core/auth/tokenCompare");
+    for (const role of ["system", "internal", "root", "unknown", "SUPERUSER"]) {
+        assert.equal(clampExternalRole(role, "user"), "user", role);
+    }
+    assert.equal(clampExternalRole("superadmin", "user"), "superadmin");
+});
+
+test("safety stop is the only documented fail-safe exception; release requires Manager control", () => {
+    const controller = require("../../src/controllers/safetyController");
+    const response = { statusCode: null, body: null, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return body; } };
+    controller.release({ body: { actor: "system" } }, response);
+    assert.equal(response.statusCode, 503);
+    assert.match(response.body.message, /canonical Manager/i);
+});
+
+test("Authorization capability normalization rejects hostile objects before reflection", () => {
+    const Authorization = require("../../src/ai/tools/Authorization");
+    let traps = 0;
+    const hostile = new Proxy({}, {
+        get() { traps++; throw new Error("get"); },
+        has() { traps++; throw new Error("has"); },
+        ownKeys() { traps++; throw new Error("keys"); },
+        getPrototypeOf() { traps++; throw new Error("proto"); },
+        getOwnPropertyDescriptor() { traps++; throw new Error("descriptor"); }
+    });
+    assert.throws(() => Authorization.toCapabilitySet(hostile));
+    assert.equal(traps, 0);
+
+    const accessor = {};
+    Object.defineProperty(accessor, Symbol.iterator, { get() { traps++; throw new Error("iterator"); } });
+    Object.defineProperty(accessor, "constructor", { get() { traps++; throw new Error("constructor"); } });
+    assert.throws(() => Authorization.toCapabilitySet(accessor));
+    assert.equal(traps, 0);
+
+    const array = [];
+    Object.defineProperty(array, "0", { get() { traps++; throw new Error("element"); } });
+    assert.throws(() => Authorization.toCapabilitySet(array));
+    assert.equal(traps, 0);
+});

@@ -46,8 +46,10 @@ flowchart LR
 ```
 
 Adapters never authorize, execute, verify, compensate, or mint branded
-objects. Model-only and read-only channel requests remain outside the action
-fabric when no action request is formed.
+objects. External AI requests are forced to `tools: []` at the shared
+AI-runtime boundary. A model-generated tool call is therefore advisory only;
+an action-capable request must be normalized into a Manager request and pass
+Lane 2 before any Lane 3 execution.
 
 ## Planner boundary
 
@@ -130,7 +132,9 @@ plugin, or device executor.
 
 | Route family | Old behavior | Class | Final disposition | Manager | Lane 2 | Lane 3 | Lane 4 |
 |---|---|---:|---|---:|---:|---:|---:|
-| Console/CLI/channel model chat | Cognition via `aiRuntime.chat`, tools not exposed by these handlers | A | Retained as model-only/read-only | No | No | No | No |
+| Console AI chat/stream, Telegram, WhatsApp, Companion | AI runtime entrypoints | A | Cognition-only: shared runtime strips all external tools | No | No | No | No |
+| OpenAI `/v1/chat/completions` | External model chat | A | Authenticated, role-clamped, `tools: []`, channel fixed to `api` | No | No | No | No |
+| Internal AI/agent/autonomy channels | Trusted internal cognition/action plumbing | A | Retained; must carry canonical internal provenance | As designed | As designed | As designed | As designed |
 | Legacy `POST /api/v1/chat` | Agent plan executor could invoke plugins directly | C | Fail-closed before `chatService`/`PlanExecutor` | Required | Required | Required | Where applicable |
 | Status, health, list, discovery, memory retrieval | Read-only inspection | A | Retained | No | No | No | No |
 | Console plugin execute | Direct `ToolRegistry.execute` | C | Fail-closed before lookup | Required | Required | Required | Where applicable |
@@ -145,9 +149,18 @@ plugin, or device executor.
 | Memory/config/channel/companion mutation | Direct persistence/control-plane mutation | B | Fail-closed at external console/device ingress | Required | Required | Where applicable | Where observable |
 | Internal ToolBus / Lane 3 implementation | Trusted internal execution plumbing | A | Retained; not an external ingress | Via authorized path | Yes | Yes | As designed |
 
+Safety stop is a fail-safe exception: it disables execution and may be
+invoked by the existing safety control. Safety release is not an exception;
+the external Console route and direct controller call require canonical
+Manager control and otherwise return `503`. This Lane 5 build has no external
+release capability because production Lane 2 authentication remains
+fail-closed.
+
 The fail-closed dispositions are intentional security boundaries, not
 authority grants. A future lane may add narrow capability adapters without
-exposing Manager composition or weakening Lane 2 authentication.
+exposing Manager composition or weakening Lane 2 authentication. Duplicate
+suppression remains process/composition-local and is not durable distributed
+idempotency.
 
 ## Production surface
 
