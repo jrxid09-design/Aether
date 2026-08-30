@@ -45,3 +45,54 @@ test("production Manager modules do not import test harnesses", () => {
         assert.equal(/(?:require|import)[^\n]*tests[\\/]/.test(source), false, path.relative(ROOT, file));
     }
 });
+
+test("legacy Console plugin ingress fails before ToolRegistry execution", async () => {
+    const controller = require("../../src/controllers/pluginController");
+    const { ToolRegistry } = require("../../src/core/tools");
+    const original = ToolRegistry.execute;
+    let invoked = 0;
+    ToolRegistry.execute = async () => { invoked++; return {}; };
+    const response = { statusCode: null, body: null, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return body; } };
+    await controller.execute({ params: { id: "arbitrary.tool" }, body: { args: {} } }, response);
+    ToolRegistry.execute = original;
+    assert.equal(invoked, 0);
+    assert.equal(response.statusCode, 400);
+    assert.equal(response.body.error, null);
+    assert.match(response.body.message, /canonical Damar Manager/i);
+});
+
+test("legacy Console terminal mutators fail before TerminalRuntime", async () => {
+    const controller = require("../../src/controllers/terminalController");
+    const terminals = require("../../src/runtime/terminal/TerminalRuntime");
+    const original = terminals.execute;
+    let invoked = 0;
+    terminals.execute = async () => { invoked++; return {}; };
+    const response = { statusCode: null, body: null, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return body; } };
+    await controller.execute({ params: { id: "t1" }, body: { command: "touch forbidden" } }, response);
+    terminals.execute = original;
+    assert.equal(invoked, 0);
+    assert.equal(response.statusCode, 400);
+    assert.match(response.body.message, /canonical Damar Manager/i);
+});
+
+test("production MCP tools/call is fail-closed before legacy registry execution", () => {
+    const source = fs.readFileSync(path.join(ROOT, "src/mcp/index.js"), "utf8");
+    assert.match(source, /rejectLegacyActionRoute\("MCP tool"\)/);
+    assert.doesNotMatch(source, /ToolRegistry\.execute\(/);
+});
+
+test("runtime restart and terminal WebSocket ingress are fail-closed", () => {
+    const runtimeSource = fs.readFileSync(path.join(ROOT, "src/controllers/runtimeController.js"), "utf8");
+    const wsSource = fs.readFileSync(path.join(ROOT, "src/ws/terminalGateway.js"), "utf8");
+    assert.match(runtimeSource, /rejectLegacyActionRoute\("Console runtime"\)/);
+    assert.match(wsSource, /LEGACY_ACTION_ROUTE_DISABLED/);
+    assert.match(wsSource, /return reject\(socket, 403/);
+});
+
+test("external action ingress guard has no authority or executor surface", () => {
+    const boundary = require("../../src/manager/legacyBoundary");
+    assert.deepEqual(Object.keys(boundary).sort(), ["LEGACY_ACTION_ROUTE_DISABLED", "rejectLegacyActionRoute"]);
+    assert.throws(() => boundary.rejectLegacyActionRoute("test"), error =>
+        error.code === boundary.LEGACY_ACTION_ROUTE_DISABLED &&
+        /canonical Damar Manager/.test(error.message));
+});
