@@ -246,3 +246,100 @@ test("Authorization capability normalization rejects hostile objects before refl
     assert.throws(() => Authorization.toCapabilitySet(array));
     assert.equal(traps, 0);
 });
+
+test("Context Brief production service uses cognition-only runtime and reaches no tool sink", async () => {
+    const context = require("../../src/services/contextService");
+    const ai = require("../../src/services/aiRuntimeService");
+    const originalSnapshot = context.snapshot;
+    const originalEnsure = ai.ensure;
+    const originalAssemble = ai.assemble;
+    const originalResolveModel = ai.resolveModel;
+    const originalRecordUsage = ai._recordUsage;
+    const calls = [];
+    context.snapshot = async () => ({ system: { cpu: 1, memory: 1, host: "test" } });
+    ai.assemble = async ({ messages }) => ({ messages, diagnostics: {} });
+    ai.resolveModel = () => "test-model";
+    ai._recordUsage = () => {};
+    ai.ensure = () => ({
+        chat: async options => { calls.push(options); return { content: "brief" }; }
+    });
+    try {
+        const result = await context.brief(null);
+        assert.equal(result.brief, "brief");
+    } finally {
+        context.snapshot = originalSnapshot;
+        ai.ensure = originalEnsure;
+        ai.assemble = originalAssemble;
+        ai.resolveModel = originalResolveModel;
+        ai._recordUsage = originalRecordUsage;
+    }
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0].tools, []);
+    assert.equal(calls[0].channel, "external");
+    assert.equal(calls[0].role, "user");
+});
+
+test("Vision Analyze production service uses cognition-only runtime and reaches no tool sink", async () => {
+    const vision = require("../../src/services/visionService");
+    const ai = require("../../src/services/aiRuntimeService");
+    const originalModel = vision.model;
+    const originalGeminiKey = vision.geminiKey;
+    const originalEnsure = ai.ensure;
+    const originalAssemble = ai.assemble;
+    const originalRecordUsage = ai._recordUsage;
+    const calls = [];
+    vision.model = () => "test-vision-model";
+    vision.geminiKey = () => null;
+    ai.assemble = async ({ messages }) => ({ messages, diagnostics: {} });
+    ai._recordUsage = () => {};
+    ai.ensure = () => ({
+        chat: async options => { calls.push(options); return { content: "description" }; }
+    });
+    try {
+        const result = await vision.analyze({
+            imageBase64: "aW1hZ2U=",
+            mimeType: "image/jpeg",
+            prompt: "describe only"
+        });
+        assert.equal(result.text, "description");
+    } finally {
+        vision.model = originalModel;
+        vision.geminiKey = originalGeminiKey;
+        ai.ensure = originalEnsure;
+        ai.assemble = originalAssemble;
+        ai._recordUsage = originalRecordUsage;
+    }
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0].tools, []);
+    assert.equal(calls[0].channel, "external");
+});
+
+test("external AI inventory has explicit dispositions and no direct ensure bypass", () => {
+    const expected = [
+        ["Console chat", "COGNITION_ONLY"],
+        ["Console stream", "COGNITION_ONLY"],
+        ["Context Brief", "COGNITION_ONLY"],
+        ["Vision Analyze", "COGNITION_ONLY"],
+        ["Telegram", "COGNITION_ONLY"],
+        ["WhatsApp", "COGNITION_ONLY"],
+        ["Companion", "COGNITION_ONLY"],
+        ["Voice", "COGNITION_ONLY"],
+        ["OpenAI API", "COGNITION_ONLY"],
+        ["MCP tools/call", "FAIL_CLOSED"],
+        ["Legacy API chat", "FAIL_CLOSED"]
+    ];
+    assert.deepEqual(expected.map(([, disposition]) => disposition), [
+        "COGNITION_ONLY", "COGNITION_ONLY", "COGNITION_ONLY", "COGNITION_ONLY",
+        "COGNITION_ONLY", "COGNITION_ONLY", "COGNITION_ONLY", "COGNITION_ONLY",
+        "COGNITION_ONLY", "FAIL_CLOSED", "FAIL_CLOSED"
+    ]);
+
+    const directEnsureCallers = [];
+    for (const file of jsFiles(path.join(ROOT, "src"))) {
+        const source = fs.readFileSync(file, "utf8");
+        if (/ensure\(\)\.(chat|stream)\s*\(/.test(source)) {
+            directEnsureCallers.push(path.relative(ROOT, file).replaceAll("\\", "/"));
+        }
+    }
+    assert.deepEqual(directEnsureCallers, ["src/services/aiRuntimeService.js"]);
+});

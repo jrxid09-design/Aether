@@ -134,6 +134,8 @@ plugin, or device executor.
 |---|---|---:|---|---:|---:|---:|---:|
 | Console AI chat/stream, Telegram, WhatsApp, Companion | AI runtime entrypoints | A | Cognition-only: shared runtime strips all external tools | No | No | No | No |
 | OpenAI `/v1/chat/completions` | External model chat | A | Authenticated, role-clamped, `tools: []`, channel fixed to `api` | No | No | No | No |
+| Console Context Brief | External context summarization | A | Cognition-only via `aiRuntime.cognition()`; fixed external channel and no tools | No | No | No | No |
+| Console Vision Analyze | External image/prompt analysis | A | Cognition-only via `aiRuntime.cognition()`; action proposals are not executed | No | No | No | No |
 | Internal AI/agent/autonomy channels | Trusted internal cognition/action plumbing | A | Retained; must carry canonical internal provenance | As designed | As designed | As designed | As designed |
 | Legacy `POST /api/v1/chat` | Agent plan executor could invoke plugins directly | C | Fail-closed before `chatService`/`PlanExecutor` | Required | Required | Required | Where applicable |
 | Status, health, list, discovery, memory retrieval | Read-only inspection | A | Retained | No | No | No | No |
@@ -160,7 +162,9 @@ The fail-closed dispositions are intentional security boundaries, not
 authority grants. A future lane may add narrow capability adapters without
 exposing Manager composition or weakening Lane 2 authentication. Duplicate
 suppression remains process/composition-local and is not durable distributed
-idempotency.
+idempotency. `aiRuntime.cognition()` is the shared external cognition boundary;
+direct `ensure().chat()` is reserved for trusted internal implementation paths
+and is not an external integration API.
 
 ## Production surface
 
