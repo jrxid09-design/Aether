@@ -5,7 +5,7 @@ const assert = require("node:assert/strict");
 
 const RuntimeExecutor = require("../../src/ai/executors/RuntimeExecutor");
 const Authorization = require("../../src/ai/tools/Authorization");
-const InternalGrant = require("../../src/ai/tools/internalGrant");
+const InternalGrant = require("../../src/ai/tools/internalGrant").createInternalGrantDomain();
 const loopGuard = require("../../src/core/safety/loopGuard");
 
 const toolCall = name => ({ id: `call-${name}`, name, arguments: {} });
@@ -32,7 +32,7 @@ test("RuntimeExecutor ignores unsolicited non-stream tool calls without trusted 
         const counter = { count: 0 };
         const executor = new RuntimeExecutor({
             chat: async () => ({ content: "advisory", toolCalls: [toolCall("system__time__currentTime")] })
-        }, { callTimeout: 1000 });
+        }, { callTimeout: 1000, grantDomain: InternalGrant });
         executor.setToolRegistry(registry(counter));
         const result = await executor.execute({
             messages: [{ role: "user", content: "run it" }],
@@ -51,7 +51,7 @@ test("RuntimeExecutor streaming ignores unsolicited tool calls without trusted e
         stream: async function* () {
             yield { toolCalls: [toolCall("system__time__currentTime")], finishReason: "tool_calls", done: true };
         }
-    }, { callTimeout: 1000 });
+    }, { callTimeout: 1000, grantDomain: InternalGrant });
     executor.setToolRegistry(registry(counter));
     const chunks = [];
     for await (const chunk of executor.stream({
@@ -71,7 +71,7 @@ test("RuntimeExecutor permits a tool only with canonical internal grant provenan
         chat: async request => request.messages.some(message => message.role === "tool")
             ? { content: "done", toolCalls: [] }
             : { content: "", toolCalls: [toolCall("system__time__currentTime")] }
-    }, { callTimeout: 1000 });
+    }, { callTimeout: 1000, grantDomain: InternalGrant });
     executor.setToolRegistry(registry(counter));
     const grant = InternalGrant.mintCanonicalInternalGrant({
         authorizedTools: ["system__time__currentTime"],
@@ -93,20 +93,20 @@ test("grant provenance is identity-based and scope is immutable", async () => {
     });
     sourceScope.push("tool-B");
     assert.equal(Object.isFrozen(grant), true);
-    assert.equal(Authorization.isCanonicalInternalGrant(grant), true);
+    assert.equal(InternalGrant.isCanonicalInternalGrant(grant), true);
     for (const copy of [
         { ...grant },
         Object.assign({}, grant),
         Object.create(grant),
         JSON.parse(JSON.stringify(grant)),
         { authorizedTools: ["tool-A"] }
-    ]) assert.equal(Authorization.isCanonicalInternalGrant(copy), false);
+    ]) assert.equal(InternalGrant.isCanonicalInternalGrant(copy), false);
     const traps = { get: 0 };
     const proxy = new Proxy(grant, { get() { traps.get++; return true; } });
-    assert.equal(Authorization.isCanonicalInternalGrant(proxy), false);
+    assert.equal(InternalGrant.isCanonicalInternalGrant(proxy), false);
     assert.equal(traps.get, 0);
-    assert.equal(Authorization.isToolAuthorizedByGrant(grant, "tool-A"), true);
-    assert.equal(Authorization.isToolAuthorizedByGrant(grant, "tool-B"), false);
+    assert.equal(InternalGrant.isToolAuthorizedByGrant(grant, "tool-A"), true);
+    assert.equal(InternalGrant.isToolAuthorizedByGrant(grant, "tool-B"), false);
     assert.throws(() => { grant.authorizedTools.push("tool-B"); }, TypeError);
 });
 
@@ -133,7 +133,7 @@ async function runScoped(scope, returnedNames, stream = false) {
         : { chat: async request => request.messages.some(m => m.role === "tool")
             ? { content: "done", toolCalls: [] }
             : { content: "", toolCalls: responses } };
-    const executor = new RuntimeExecutor(service, { callTimeout: 1000 });
+    const executor = new RuntimeExecutor(service, { callTimeout: 1000, grantDomain: InternalGrant });
     executor.setToolRegistry(registry);
     const request = {
         messages: [{ role: "user", content: "run" }],

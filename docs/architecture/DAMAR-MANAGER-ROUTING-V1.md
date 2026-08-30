@@ -193,3 +193,8 @@ and an immutable exact tool scope captured when that grant is minted.
 an out-of-scope or mixed batch is rejected as a whole, and copied/serialized
 grants are foreign. External cognition has no canonical grant; legitimate
 trusted internal compatibility paths receive only explicitly scoped grants.
+Grant domains are created per trusted runtime composition. The public
+`Authorization` surface contains no grant minter; importing the domain helper
+only creates an isolated foreign domain whose grants are not accepted by the
+canonical executor. Scope metadata is held in a private WeakMap, so visible
+copies and inherited objects cannot widen execution authority.
