@@ -51,6 +51,11 @@ AI-runtime boundary. A model-generated tool call is therefore advisory only;
 an action-capable request must be normalized into a Manager request and pass
 Lane 2 before any Lane 3 execution.
 
+The final AI execution sink independently checks for the canonical in-process
+internal execution grant. Advertised tools, role, channel, or a caller-shaped
+`exec` object never authorize provider-returned tool calls. Unknown or absent
+channel context is fail-closed for tool execution.
+
 ## Planner boundary
 
 ```mermaid
