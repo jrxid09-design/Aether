@@ -198,3 +198,9 @@ Grant domains are created per trusted runtime composition. The public
 only creates an isolated foreign domain whose grants are not accepted by the
 canonical executor. Scope metadata is held in a private WeakMap, so visible
 copies and inherited objects cannot widen execution authority.
+
+The AI registry has stable runtime identity and private atomic snapshots.
+Refreshes replace the snapshot through trusted runtime ownership; they do not
+rebind the executor. Raw registry objects and executable handlers are not
+returned by runtime/engine inspection APIs. `TYPE != PROVENANCE` and
+`REGISTRY SHAPE != AUTHORITY` remain enforced.
