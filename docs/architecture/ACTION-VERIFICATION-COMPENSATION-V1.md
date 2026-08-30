@@ -567,21 +567,29 @@ inside the trusted runtime.
 ## 20. CANONICAL BRAND / PROVENANCE MODEL
 
 ```
-VerificationRequest  -> closure-private WeakSet (REQUEST_BRAND4)
-VerificationResult   -> closure-private WeakSet (RESULT_BRAND4)
-CompensationPlan     -> closure-private WeakSet (PLAN_BRAND4)
+VerificationRequest  -> per-composition WeakSet (declared INSIDE createCanonicalVerificationComposition)
+VerificationResult   -> per-composition WeakSet (declared INSIDE createCanonicalVerificationComposition)
+CompensationPlan     -> per-composition WeakSet (declared INSIDE createCanonicalVerificationComposition)
 ```
 
-Applying the lessons from Lane 3:
+Applying the lessons from Lane 3 AND the Lane 2 first-binder rejection:
 
-* brand state is closure-private (declared inside `src/action/bootstrap.js`'s
-  lexical scope);
-* no mutable WeakSet is exported;
-* brand recognition is BRAND-FIRST — closure-only WeakSet membership decides
+* brand state is COMPOSITION-LOCAL — declared fresh inside
+  `createCanonicalVerificationComposition` (the trusted internal composition
+  module), so every composition instance owns an independent provenance
+  domain (TARGETED REPAIR 5);
+* no mutable WeakSet is exported; no module-global canonical membership
+  store exists (a structural test enforces this);
+* no brand Symbols carry authenticity — per-instance WeakSet membership is
+  the only authority-bearing provenance proof;
+* brand recognition is BRAND-FIRST — instance-local WeakSet membership decides
   before any property read;
 * zero hostile `Proxy` traps execute during recognition;
 * predicates recognize provenance only;
-* downstream cannot mint membership.
+* downstream cannot mint membership;
+* cross-composition artifacts are rejected: an artifact minted by
+  composition A is NOT canonical to composition B, regardless of creation
+  order.
 
 The brand predicates live as METHODS on the canonical verification facade
 returned by `createCanonicalVerificationFacade()`. They are NOT free
@@ -666,6 +674,43 @@ After the facade is constructed, NO caller — production or test — can
 register, inject, or mutate verifiers. There is NO public registrar, NO
 token, NO host capability. **AVAILABLE != AUTHORIZED**: test composition
 privilege does NOT become production-downstream privilege.
+
+### Composition == provenance domain (TARGETED REPAIR 5)
+
+**COMPOSITION INSTANCE != SHARED TRUST DOMAIN.** The brand WeakSets
+(`vRequestBrandSet4` / `vResultBrandSet4` / `vPlanBrandSet4`) are declared
+FRESH inside `createCanonicalVerificationComposition` — every composition
+instance owns an INDEPENDENT provenance domain:
+
+- a `VerificationRequest` minted by composition A is canonical ONLY to A;
+- a `VerificationResult` minted by composition A is canonical ONLY to A;
+- a `CompensationPlan` minted by composition A is canonical ONLY to A;
+- composition B (any other instance) rejects ALL of them;
+- cross-composition compensation is rejected BEFORE Lane 2 admission and
+  Lane 3 execution (zero calls for foreign-domain attempts);
+- creation order is irrelevant: the first composition created does NOT
+  establish shared/global trust (the Lane 2 first-binder bug class).
+
+**TRUSTED IMPLEMENTATION != SHARED TRUST DOMAIN.** The internal factory being
+available does NOT confer canonical application production provenance. An
+attacker-controlled composition built from the same factory (attacker deps +
+attacker verifier) produces artifacts that the canonical application
+composition rejects as foreign (`NOT_CANONICAL_EXECUTION_RESULT`), before any
+authority evaluation or actuation.
+
+**FACTORY AVAILABLE != CANONICAL PRODUCTION PROVENANCE.** The canonical
+application instance is created ONLY through the trusted
+`src/action/bootstrap.js`. Alternate/test compositions are FOREIGN domains;
+their artifacts are rejected by the canonical application facade.
+
+Brand Symbols carry ZERO authenticity: membership in the per-instance WeakSet
+is the ONLY authority-bearing provenance proof (the unused module-level brand
+Symbols were removed in R5). Module-level state in the internal module is
+classified as:
+- (A) immutable vocabulary (frozen key lists, bounds, pure functions) — allowed;
+- (B) process-global operational (Node builtins) — allowed;
+- (C) composition-local trust state (brand WeakSets, verifier registry,
+  idempotence Maps) — MUST live inside the composition closure.
 
 ### AVAILABLE != AUTHORIZED
 

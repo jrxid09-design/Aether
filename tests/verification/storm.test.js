@@ -36,6 +36,7 @@ const crypto = require("node:crypto");
 
 const { VERIFICATION_STATE, COMPENSATION_STATE, REASONS } = require("../../src/action/verification/errors");
 const { makeVerificationHarness } = require("./harness");
+const { makeActuationHarness } = require("../actuation/harness");
 
 const OP_TARGET = 12000;
 const CAP_POOL = 8;
@@ -75,6 +76,8 @@ async function runStorm(seed) {
         duplicateObservationCompletionAccepted: 0,
         // TARGETED REPAIR 3 — plain-thenable partial acceptance counter
         plainThenableEvidenceAccepted: 0,
+        // TARGETED REPAIR 5 — cross-composition provenance isolation counter
+        crossCompositionProvenanceAccepted: 0,
         callerVerifierAccepted: 0,
         staleVerifierIncarnationUsed: 0,
         verifierErrorCalledFailure: 0,
@@ -163,7 +166,7 @@ async function runStorm(seed) {
     }
 
     for (let round = 0; round < OP_TARGET; round++) {
-        const roll = Math.floor(rng() * 14);
+        const roll = Math.floor(rng() * 15);
         const capIdx = Math.floor(rng() * CAP_POOL);
         const subject = subjects[Math.floor(rng() * subjects.length)];
         const cap = CAPS[capIdx];
@@ -587,6 +590,63 @@ async function runStorm(seed) {
                         observe: (octx, sink) => sink.resolveEvidence({ world: { value: worldValues.get(hostileCap.idx) }, observedExecutionId: octx.executionId })
                     });
                     record("plain-thenable", true, v.verificationState);
+                    break;
+                }
+                case 14: { // TARGETED REPAIR 5: cross-composition provenance isolation
+                    // Build an INDEPENDENT composition (fresh trust domain)
+                    // over its own Lane 3 harness + verifier, and attempt to
+                    // have the MAIN harness (h) recognize its artifacts. Any
+                    // recognition increments the violation counter.
+                    const { createCanonicalVerificationComposition } = require("../../src/action/internal/verificationBootstrap");
+                    const foreignLane3 = await makeActuationHarness({
+                        authenticate: (e) => {
+                            const p = e && (e.claimedPrincipal ?? e.principal);
+                            return (typeof p === "string" && p.length > 0) ? { principal: p } : null;
+                        },
+                        scopeBindings: { "foreign.cap": { read: (a) => (a && a.target ? [a.target] : []) } }
+                    });
+                    const fCap = await foreignLane3.lane2.registerCapability({ id: "foreign.cap", operations: ["read"] });
+                    await foreignLane3.lane2.registry.observeAvailability("foreign.cap", "AVAILABLE", { generation: 1, incarnationId: fCap.incarnationId });
+                    await foreignLane3.lane2.grantAuthority({ capabilityId: "foreign.cap", subject: "alice", actions: ["read"], identityBinding: { principals: ["alice"] } });
+                    const foreign = createCanonicalVerificationComposition({
+                        deps: {
+                            createLane3Facade: () => ({
+                                execute: foreignLane3.execute,
+                                isCanonicalExecutionRequest: foreignLane3.isCanonicalExecutionRequest,
+                                isCanonicalExecutionResult: foreignLane3.isCanonicalExecutionResult
+                            }),
+                            createLane2Facade: () => ({ admit: foreignLane3.lane2.admit, evaluate: foreignLane3.lane2.evaluate, authenticate: foreignLane3.lane2.authDomain.authenticate, session: foreignLane3.lane2.session })
+                        },
+                        trustedVerifiers: [{
+                            capabilityId: "foreign.cap", operations: ["read"], capabilityIncarnationId: fCap.incarnationId,
+                            verifierId: "ver-foreign", observe: () => ({ world: { value: 0 } }) // failing world
+                        }]
+                    });
+                    // Mint artifacts in the FOREIGN composition:
+                    const fIntent = foreignLane3.lane2.admit(JSON.stringify({ schemaVersion: 1, capabilityId: "foreign.cap", operation: "read", arguments: { target: "t" } }));
+                    const fExec = await foreignLane3.execute({ intent: fIntent, authSession: foreignLane3.lane2.session("alice"), parameters: { target: "t" } });
+                    const fResult = await foreign.verify({ executionResult: fExec, expectedPostcondition: { expect: { "world.value": { op: "eq", value: 42 } } } });
+
+                    // CROSS-COMPOSITION RECOGNITION ATTEMPTS (both directions):
+                    if (h.isCanonicalVerificationResult(fResult)) C.crossCompositionProvenanceAccepted++;
+                    if (h.isCanonicalVerificationRequest(fResult)) C.crossCompositionProvenanceAccepted++;
+                    if (h.isCanonicalCompensationPlan(fResult)) C.crossCompositionProvenanceAccepted++;
+                    if (foreign.isCanonicalVerificationResult(fResult)) {
+                        // foreign's OWN result must be canonical ONLY to foreign
+                        // (this is the self-recognition baseline, not a violation)
+                    }
+                    // Cross-composition compensation attempt: main harness
+                    // compensate() with the foreign result must be rejected
+                    // as foreign provenance (BEFORE any authority/actuation):
+                    try {
+                        await h.compensate({ verification: fResult, capabilityId: "pool.restore", operation: "write", principal: subject, parameters: {}, reason: "cross" });
+                        C.crossCompositionProvenanceAccepted++;
+                    } catch (e) {
+                        if (e.reasonCode !== "NOT_CANONICAL_EXECUTION_RESULT") {
+                            C.crossCompositionProvenanceAccepted++;
+                        }
+                    }
+                    record("cross-composition", true, "isolated");
                     break;
                 }
             }

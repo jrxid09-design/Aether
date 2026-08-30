@@ -285,15 +285,28 @@ test("NEGATIVE CONTROL: same sibling evidence without `then` yields VERIFIED_SUC
 // PRODUCTION BRAND / DOMAIN PROOF
 // ---------------------------------------------------------------------------
 
-test("BRAND: own-then ERROR result passes production facade isCanonicalVerificationResult", async () => {
+test("BRAND: own-then ERROR result is canonical to ITS OWN composition (real production implementation)", async () => {
+    // TERMINOLOGY (TARGETED REPAIR 5): this test composition is a REAL
+    // PRODUCTION IMPLEMENTATION composition (same extracted code the
+    // canonical application uses), NOT the canonical APPLICATION production
+    // instance itself. The result minted here is canonical to THIS
+    // composition's provenance domain — proving real production-code
+    // execution, not mirror-harness execution. Cross-composition isolation
+    // (this result is NOT canonical to the canonical application instance)
+    // is proven separately in tests/verification/compositionIsolation.test.js.
     const obs = Object.defineProperty({ world: { value: 42 } }, "then", { get() { return undefined; } });
     const { v, facade } = await prodVerifyWithObservation(() => obs);
     assert.equal(v.verificationState, VERIFICATION_STATE.ERROR);
     assert.ok(facade.isCanonicalVerificationResult(v),
-        "the result must pass the PRODUCTION brand predicate — proving real production execution, not mirror");
+        "the result must pass ITS OWN composition's brand predicate — proving real production-implementation execution, not mirror");
     // A structural clone must NOT pass (proves brand-first, not shape-based).
     assert.ok(!facade.isCanonicalVerificationResult({ ...v }),
-        "a structural clone must fail the production brand check");
+        "a structural clone must fail the composition brand check");
+    // Cross-composition: the canonical application facade must NOT recognize
+    // this test composition's result (independent provenance domains).
+    const canonicalApp = bootstrap.createCanonicalVerificationFacade();
+    assert.ok(!canonicalApp.isCanonicalVerificationResult(v),
+        "the canonical APPLICATION composition must reject the test composition's result (foreign provenance domain)");
 });
 
 // ---------------------------------------------------------------------------
