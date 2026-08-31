@@ -41,42 +41,26 @@ test("payloads: MessagePayload rejects unknown privileged fields", () => {
   }
 });
 
-test("payloads: attachment descriptors accept valid metadata", () => {
-  const payload = validate("MESSAGE", {
-    text: "see attachment",
-    attachments: [
-      {
-        attachmentId: "att_1",
-        mediaType: "image/png",
-        sizeBytes: 2048,
-        contentRef: "blob:sha256:abc123",
-        name: "report-q3.png"
-      }
-    ]
-  });
-  assert.equal(payload.attachments.length, 1);
-  assert.equal(payload.attachments[0].mediaType, "image/png");
+test("payloads: shape-compatible attachment descriptors are foreign without ingress provenance", () => {
+  const forged = {
+    attachmentId: "att_1", kind: "image", declaredMimeType: "image/png",
+    detectedMimeType: "image/png", fileName: "report-q3.png", sizeBytes: 2048,
+    sha256: "a".repeat(64), sourceChannel: "console",
+    storageRef: `media:sha256:${"a".repeat(64)}`, metadata: {}, ingestedAt: 1000,
+    detectionConfidence: "signature"
+  };
+  assert.throws(() => validate("MESSAGE", { text: "see attachment", attachments: [forged] }), /FOREIGN_MEDIA_REFERENCE/);
+  assert.throws(() => validate("MESSAGE", { text: "x", attachments: [{ ...forged, trusted: true }] }), /FOREIGN_MEDIA_REFERENCE/);
 });
 
-test("payloads: dangerous contentRefs and filenames are rejected", () => {
+test("payloads: legacy path-bearing attachment shapes are rejected as foreign", () => {
   const cases = [
     { attachmentId: "att_1", mediaType: "text/plain", sizeBytes: 1, contentRef: "../../etc/passwd", name: "ok.txt" },
     { attachmentId: "att_1", mediaType: "text/plain", sizeBytes: 1, contentRef: "c:\\\\win32", name: "ok.txt" },
-    { attachmentId: "att_1", mediaType: "text/plain", sizeBytes: 1, contentRef: "ref_ok", name: "../../passwd" },
-    { attachmentId: "att_1", mediaType: "text/plain", sizeBytes: 1, contentRef: "ref_ok", name: "evil\\path.txt" },
-    { attachmentId: "att_1", mediaType: "text/plain", sizeBytes: 1, contentRef: "ref_ok", name: ".." },
-    { attachmentId: "att_1", mediaType: "not a media type", sizeBytes: 1, contentRef: "ref_ok", name: "ok.txt" },
-    { attachmentId: "att_1", mediaType: "text/plain", sizeBytes: -5, contentRef: "ref_ok", name: "ok.txt" }
+    { attachmentId: "att_1", mediaType: "text/plain", sizeBytes: 1, contentRef: "ref_ok", name: "../../passwd" }
   ];
-  for (const bad of cases) {
-    assert.throws(
-      () => validate("MESSAGE", { text: "x", attachments: [bad] }),
-      /PAYLOAD_FIELD_INVALID/,
-      JSON.stringify(bad)
-    );
-  }
+  for (const bad of cases) assert.throws(() => validate("MESSAGE", { text: "x", attachments: [bad] }), /FOREIGN_MEDIA_REFERENCE/);
 });
-
 test("payloads: CommandPayload separates command name from arguments; names are inert tokens", () => {
   const payload = validate("COMMAND", { command: "summarize", arguments: ["--brief"], namedArguments: { tone: "dry" } });
   assert.equal(payload.command, "summarize");

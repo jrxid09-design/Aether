@@ -42,34 +42,19 @@ test("manager ingress supports all five channels through one canonical bus bound
   assert.ok(calls.every((call) => Object.isFrozen(call.payload)));
 });
 
-test("ingress detaches content, attachments, reply targets, and metadata before Manager", async () => {
+test("manager ingress rejects raw attachments that bypass MediaIngress", async () => {
   const { ingress, calls } = makeIngress();
   const raw = {
-    text: "before",
-    userId: "user-1",
-    attachments: [{
-      attachmentId: "att_1",
-      mediaType: "text/plain",
-      sizeBytes: 1,
-      contentRef: "ref-1",
-      name: "note.txt"
-    }],
-    replyToInteractionId: "ix_previous",
-    metadata: { locale: "id", authority: "inert-claim" }
+    text: "before", userId: "user-1",
+    attachments: [{ attachmentId: "att_1", mediaType: "text/plain", sizeBytes: 1, contentRef: "ref-1", name: "note.txt" }],
+    metadata: { authority: "inert-claim" }
   };
-  assert.equal(ingress.ingest("console", raw).accepted, true);
-  raw.text = "after";
-  raw.attachments[0].name = "changed.txt";
-  raw.metadata.locale = "en";
+  const result = ingress.ingest("console", raw);
+  assert.equal(result.accepted, false);
+  assert.equal(result.code, "FOREIGN_MEDIA_REFERENCE");
   await tick();
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].payload.text, "before");
-  assert.equal(calls[0].payload.attachments[0].name, "note.txt");
-  assert.equal(calls[0].metadata.locale, "id");
-  assert.equal(calls[0].metadata.authority, "inert-claim");
-  assert.equal(Object.isFrozen(calls[0].payload.attachments[0]), true);
+  assert.equal(calls.length, 0);
 });
-
 test("invalid and hostile channel input fails closed without invoking Manager", async () => {
   const { ingress, calls } = makeIngress();
   assert.deepEqual(ingress.ingest("unknown", { text: "x" }), {
