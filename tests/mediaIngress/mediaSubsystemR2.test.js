@@ -52,11 +52,27 @@ test("default atomic domain constructs a usable isolated Bus and completes A/A i
   await domain.media.ready;
   assert.equal(typeof domain.bus.submit, "function");
   assert.deepEqual(Object.keys(domain).sort(), ["bus", "media"]);
+  const surface = (value) => [...Object.keys(value), ...Object.getOwnPropertyNames(value), ...Object.getOwnPropertySymbols(value).map(String), ...Object.getOwnPropertyNames(Object.getPrototypeOf(value))];
+  for (const value of [domain, domain.media, domain.bus]) for (const forbidden of ["runtimePortReceiver", "pairWithBus", "attachBus", "bindBus", "joinBus", "privatePorts", "mediaPorts", "capabilityPorts"]) assert.equal(surface(value).includes(forbidden), false);
   const authority = createMediaContextAuthority();
   const ingress = createManagerInteractionIngress({ bus: domain.bus, manager: fakeManager(), mediaSubsystem: domain.media, mediaContextMint: authority.mint });
   const result = await ingress.ingestAttachments("console", { text: "default", sessionId: "ses_r10_default" }, [spec(Buffer.from("DAMAR-R10-DEFAULT"))]);
   assert.equal(result.accepted, true);
   await delay();
+});
+
+test("default same-root domains remain isolated without a post-construction join", async (t) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "damar-r10-same-root-"));
+  t.after(() => fsp.rm(root, { recursive: true, force: true }));
+  const a = createMediaSubsystem({ storageRoot: root, atomicDomain: true });
+  const b = createMediaSubsystem({ storageRoot: root, atomicDomain: true });
+  await Promise.all([a.media.ready, b.media.ready]);
+  const aa = createManagerInteractionIngress({ bus: a.bus, manager: fakeManager(), mediaSubsystem: a.media, mediaContextMint: createMediaContextAuthority().mint });
+  const bb = createManagerInteractionIngress({ bus: b.bus, manager: fakeManager(), mediaSubsystem: b.media, mediaContextMint: createMediaContextAuthority().mint });
+  assert.equal((await aa.ingestAttachments("console", { text: "A", sessionId: "ses_r10_a" }, [spec(Buffer.from("A"))])).accepted, true);
+  assert.equal((await bb.ingestAttachments("console", { text: "B", sessionId: "ses_r10_b" }, [spec(Buffer.from("B"))])).accepted, true);
+  assert.equal(typeof a.media.pairWithBus, "undefined");
+  assert.equal(typeof b.media.pairWithBus, "undefined");
 });
 
 test("canonical reference is inert and fabricated envelope cannot bind", async (t) => {
