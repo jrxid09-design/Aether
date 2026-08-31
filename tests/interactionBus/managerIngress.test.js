@@ -127,12 +127,9 @@ test("routing projection cannot become execution authority", () => {
   assert.equal(Object.isFrozen(projection), true);
 });
 
-test("production ingress uses the canonical Manager surface and fails closed on auth", async () => {
-  const ingress = ib.createProductionManagerInteractionIngress();
-  const accepted = ingress.ingest("console", { text: "hello", userId: "external" });
-  assert.equal(accepted.accepted, true);
-  await tick();
-  const snapshot = ingress.transportSnapshot();
-  assert.equal(snapshot.length, 5);
-  assert.equal(snapshot.reduce((sum, entry) => sum + entry.counters.accepted, 0), 1);
+test("production ingress cannot create a second media ownership domain", () => {
+  assert.throws(
+    () => ib.createProductionManagerInteractionIngress(),
+    /owned by createRuntimeHost/
+  );
 });

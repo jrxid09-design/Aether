@@ -11,7 +11,7 @@ async function fixture(t, limits) {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), "damar-media-"));
   t.after(() => fsp.rm(root, { recursive: true, force: true }));
   let id = 0;
-  const ingress = ib.createMediaIngress({ storageRoot: root, limits, clock: () => 1000, idFactory: () => `fixture_${++id}` });
+  const ingress = ib.createMediaIngress({ storageRoot: root, limits, clock: () => 1000, idFactory: () => `fixture_${++id}`, testMode: true });
   return { root, ingress };
 }
 function spec(source, extra) {
@@ -77,7 +77,7 @@ test("media ingress: hostile metadata getters and proxies reject before access",
 test("media ingress: partial stream leaves no published reference", async (t) => {
   const { root, ingress } = await fixture(t);
   async function* broken() { yield Buffer.from("part"); throw new Error("transport stopped"); }
-  const source = ingress.createTrustedByteSource(broken());
+  const source = ingress.testOnly.createTrustedByteSource(broken());
   await assert.rejects(ingress.ingest(spec(source)), (e) => e.code === "MEDIA_PARTIAL_READ");
   assert.deepEqual(await fsp.readdir(path.join(root, "staging")), []);
 });
