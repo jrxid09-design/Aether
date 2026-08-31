@@ -126,7 +126,7 @@ test("terminal success revokes reader while durable relation remains", async (t)
   assert.equal(accepted.accepted, true); await delay(); await assert.rejects(reader(), (error) => error.code === CODES.FOREIGN_REFERENCE); assert.equal((await fsp.readdir(path.join(root, "relations"))).length, 1);
 });
 
-for (const terminal of ["throw", "timeout", "cancel"]) test(`terminal ${terminal} revokes transient reader`, async (t) => {
+for (const terminal of ["throw", "timeout", "cancel"]) test(`${terminal === "timeout" ? "delayed terminal" : terminal === "cancel" ? "CANCELLED-result" : "throwing terminal"} revokes transient reader`, async (t) => {
   const { media } = await fixture(t); let reader;
   const manager = fakeManager(async (_input, context) => { reader = context.mediaContext.attachments[0].read; if (terminal === "throw") throw new Error("processor failed"); if (terminal === "timeout") await delay(); return { managerRequestId: "r", outcome: terminal === "cancel" ? "CANCELLED" : "COMPLETED", lifecycleState: terminal === "cancel" ? "CANCELLED" : "COMPLETED", detail: terminal }; });
   const { ingress } = composeIngress(media, manager);
