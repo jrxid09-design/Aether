@@ -23,6 +23,7 @@
  */
 
 const { createDamarManagerComposition } = require("../../src/manager/internal/managerBootstrap");
+const { createMediaContextAuthority } = require("../../src/manager/internal/mediaContext");
 const { makeActuationHarness } = require("../actuation/harness");
 const { makeVerificationHarness } = require("../verification/harness");
 const { CHANNEL_ADAPTERS } = require("../../src/manager/channels");
@@ -57,6 +58,7 @@ async function makeManagerHarness({
     const lane4h = await makeVerificationHarness({ scopeBindings, trustedVerifiers, ...(authenticate ? { authenticate } : {}) });
 
     // The REAL production Manager composition with test-supplied deps.
+    const mediaContextAuthority = createMediaContextAuthority();
     const manager = createDamarManagerComposition({
         deps: {
             lane2: {
@@ -70,14 +72,16 @@ async function makeManagerHarness({
             planner
         },
         trustedChannelAdapters: withAdapters ? CHANNEL_ADAPTERS.slice() : [],
-        mediaProcessor
+        mediaProcessor,
+        mediaContextAuthority
     });
 
     return {
         manager,
         lane3: lane3h,
         lane4: lane4h,
-        adapters: withAdapters ? CHANNEL_ADAPTERS : []
+        adapters: withAdapters ? CHANNEL_ADAPTERS : [],
+        mediaContextMint: mediaContextAuthority.mint
     };
 }
 

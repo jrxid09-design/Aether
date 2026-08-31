@@ -5,37 +5,44 @@ const assert = require("node:assert/strict");
 const os = require("node:os");
 const path = require("node:path");
 const fsp = require("node:fs/promises");
+const crypto = require("node:crypto");
 const ib = require("../../src/runtime/interactionBus");
 const { createRuntimeHost } = require("../../src/runtime/host/runtimeHost");
-const { createMediaSubsystem, takePrivatePorts, CODES } = require("../../src/runtime/mediaIngress/subsystem");
+const { createMediaSubsystem, CODES } = require("../../src/runtime/mediaIngress/subsystem");
 const { createManagerInteractionIngress } = require("../../src/runtime/interactionBus/managerIngressInternal");
 const { makeManagerHarness } = require("../manager/productionHarness");
-const { createCanonicalMediaContext } = require("../../src/manager/internal/mediaContext");
+const { createMediaContextAuthority } = require("../../src/manager/internal/mediaContext");
 
 const CHANNELS = ["console", "cli", "telegram", "whatsapp", "companion"];
+const TEST_RUNTIME_PAIRS = new WeakMap();
+const TEST_CONTEXT_AUTHORITIES = new WeakMap();
 const spec = (source, extra = {}) => ({ source, fileName: "item.bin", declaredMimeType: "application/octet-stream", sourceChannel: "console", ...extra });
 const delay = () => new Promise((resolve) => setTimeout(resolve, 25));
 
 async function fixture(t, limits = {}) {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), "damar-lane2-"));
   t.after(() => fsp.rm(root, { recursive: true, force: true }));
-  const media = createMediaSubsystem({ storageRoot: root, limits, testMode: true });
+  let runtimePair = null;
+  const media = createMediaSubsystem({ storageRoot: root, limits, testMode: true, runtimePortReceiver: (pair) => { runtimePair = pair; } });
   await media.ready;
+  TEST_RUNTIME_PAIRS.set(media, runtimePair);
+  TEST_CONTEXT_AUTHORITIES.set(media, createMediaContextAuthority());
   return { root, media };
 }
 
-function composeIngress(media, manager) {
-  const privatePorts = takePrivatePorts(media);
+function composeIngress(media, manager, mediaRuntimePair = TEST_RUNTIME_PAIRS.get(media), mediaContextMint = TEST_CONTEXT_AUTHORITIES.get(media).mint) {
   let bus;
+  let boundEnvelope = null;
   const mediaPorts = Object.freeze({
-    bindAcceptedInteraction: (envelope) => privatePorts.bindAcceptedInteraction(bus, envelope),
-    issueScopedAccess: privatePorts.issueScopedAccess,
-    readScopedAccess: privatePorts.readScopedAccess,
-    releaseScopedAccess: privatePorts.releaseScopedAccess,
-    releaseTransient: privatePorts.releaseTransient
+    bindAcceptedInteraction: (envelope) => { boundEnvelope = envelope; return privatePorts.bindAcceptedInteraction(envelope); },
+    issueScopedAccess: (...args) => privatePorts.issueScopedAccess(...args),
+    readScopedAccess: (...args) => privatePorts.readScopedAccess(...args),
+    releaseScopedAccess: (...args) => privatePorts.releaseScopedAccess(...args),
+    releaseTransient: (...args) => privatePorts.releaseTransient(...args)
   });
   bus = ib.createInteractionBus({ clock: () => 1_000, idFactory: ib.createSequentialIdFactory(), mediaIngress: media, mediaPorts });
-  return { bus, ingress: createManagerInteractionIngress({ bus, manager, mediaSubsystem: media }) };
+  const privatePorts = mediaRuntimePair.pairWithBus(bus);
+  return { bus, ingress: createManagerInteractionIngress({ bus, manager, mediaSubsystem: media, mediaContextMint }), privatePorts, boundEnvelope: () => boundEnvelope };
 }
 
 const fakeManager = (onHandle = async () => ({ managerRequestId: "r", outcome: "COMPLETED", lifecycleState: "COMPLETED", detail: "ok" })) => Object.freeze({ handle: onHandle });
@@ -53,8 +60,8 @@ test("canonical reference is inert and fabricated envelope cannot bind", async (
   const descriptor = await media.ingest(spec(Buffer.from("inert")));
   assert.equal(media.isCanonicalMediaReference(descriptor), true);
   assert.equal(media.isCanonicalMediaReference({ ...descriptor }), false);
-  const { bus } = composeIngress(media, fakeManager());
-  assert.throws(() => takePrivatePorts(media).bindAcceptedInteraction(bus, { interactionId: "ix_forged", accepted: true, trusted: true, payload: { attachments: [descriptor] } }), (error) => error.code === CODES.FOREIGN_REFERENCE);
+  composeIngress(media, fakeManager());
+  assert.equal(typeof require("../../src/runtime/mediaIngress/subsystem").takePrivatePorts, "undefined");
   assert.deepEqual(await fsp.readdir(path.join(root, "relations")), []);
 });
 
@@ -71,7 +78,7 @@ test("accepted active processing gets a scoped lazy reader and exact bytes", asy
 test("real Manager composition consumes branded lazy mediaContext after test-only authentication", async (t) => {
   const { media } = await fixture(t); const seen = [];
   const harness = await makeManagerHarness({ authenticate: (e) => e && e.sessionId === "ses_contract" ? { principal: "lane2-contract" } : null, mediaProcessor: async ({ mediaContext }) => seen.push((await mediaContext.attachments[0].read()).bytes) });
-  const { ingress } = composeIngress(media, harness.manager);
+  const { ingress } = composeIngress(media, harness.manager, undefined, harness.mediaContextMint);
   const accepted = await ingress.ingestAttachments("console", { text: "media", sessionId: "ses_contract" }, [spec(Buffer.from("DAMAR-LANE2-MEDIA-CONTRACT"))]);
   assert.equal(accepted.accepted, true); await delay(); assert.deepEqual(seen, [Buffer.from("DAMAR-LANE2-MEDIA-CONTRACT")]);
 });
@@ -79,7 +86,7 @@ test("real Manager composition consumes branded lazy mediaContext after test-onl
 test("lazy hook does not read media unless it requests attachment.read", async (t) => {
   const { media } = await fixture(t); let hooks = 0;
   const harness = await makeManagerHarness({ authenticate: () => ({ principal: "lane2-contract" }), mediaProcessor: async () => { hooks += 1; } });
-  const { ingress } = composeIngress(media, harness.manager);
+  const { ingress } = composeIngress(media, harness.manager, undefined, harness.mediaContextMint);
   const accepted = await ingress.ingestAttachments("console", { text: "no-read", sessionId: "ses_contract" }, [spec(Buffer.from("not-read"))]);
   assert.equal(accepted.accepted, true); await delay(); assert.equal(hooks, 1);
 });
@@ -87,14 +94,16 @@ test("lazy hook does not read media unless it requests attachment.read", async (
 test("foreign mediaContext shapes fail before traversal", async () => {
   const harness = await makeManagerHarness({ authenticate: () => ({ principal: "lane2-contract" }) });
   const base = { channelType: "console", channelId: "console", sessionId: "ses_context", payload: { text: "x" } };
-  for (const context of [{}, new Proxy({}, {}), Object.create(createCanonicalMediaContext(Object.freeze([]))), { attachments: [{ attachmentId: "att_x", read: () => Buffer.from("x") }] }]) await assert.rejects(harness.manager.handle({ ...base, correlationId: `ctx-${Math.random()}` }, { mediaContext: context }), /MEDIA_CONTEXT_INVALID/);
+  const foreign = createMediaContextAuthority().mint(Object.freeze([]));
+  for (const context of [{}, new Proxy({}, {}), Object.create(foreign), { attachments: [{ attachmentId: "att_x", read: () => Buffer.from("x") }] }]) await assert.rejects(harness.manager.handle({ ...base, correlationId: `ctx-${Math.random()}` }, { mediaContext: context }), /MEDIA_CONTEXT_INVALID/);
 });
 
 test("terminal success revokes reader while durable relation remains", async (t) => {
   const { root, media } = await fixture(t); let reader;
-  const { ingress } = composeIngress(media, fakeManager(async (_input, context) => { reader = context.mediaContext.attachments[0].read; await reader(); return { managerRequestId: "r", outcome: "COMPLETED", lifecycleState: "COMPLETED", detail: "ok" }; }));
+  const composed = composeIngress(media, fakeManager(async (_input, context) => { reader = context.mediaContext.attachments[0].read; await reader(); return { managerRequestId: "r", outcome: "COMPLETED", lifecycleState: "COMPLETED", detail: "ok" }; }));
+  const { ingress } = composed;
   const accepted = await ingress.ingestAttachments("console", { text: "terminal", sessionId: "ses_terminal" }, [spec(Buffer.from("terminal"))]);
-  assert.equal(accepted.accepted, true); await delay(); await assert.rejects(reader(), (error) => error.code === CODES.FOREIGN_REFERENCE); assert.equal((await fsp.readdir(path.join(root, "relations"))).length, 1);
+  assert.equal(accepted.accepted, true); await delay(); await assert.rejects(reader(), (error) => error.code === CODES.FOREIGN_REFERENCE); assert.throws(() => composed.privatePorts.issueScopedAccess(composed.boundEnvelope(), accepted.attachmentIds[0], "manager-processing"), (error) => error.code === CODES.FOREIGN_REFERENCE); assert.equal((await fsp.readdir(path.join(root, "relations"))).length, 1);
 });
 
 for (const terminal of ["throw", "timeout", "cancel"]) test(`terminal ${terminal} revokes transient reader`, async (t) => {
@@ -140,4 +149,42 @@ test("runtime host preserves five channel ingestion while production Manager sta
   await delay(); assert.equal((await fsp.readdir(path.join(root, "relations"))).length, 5);
   const { createDamarManager } = require("../../src/manager/bootstrap"); const manager = createDamarManager();
   for (const payload of [{ authenticated: true }, { trusted: true }, { role: "admin" }, { testMode: true }, { session: { principal: "admin" } }]) assert.equal((await manager.handle({ channelType: "console", channelId: "console", sessionId: "ses_auth", correlationId: `auth-${Math.random()}`, payload: { text: "x", ...payload } })).outcome, "AUTHENTICATION_REQUIRED");
+});
+
+test("R8 exported media module cannot extract ports and rejects fake Bus pairing", async (t) => {
+  const mod = require("../../src/runtime/mediaIngress/subsystem");
+  for (const name of ["takePrivatePorts", "getPrivatePorts", "createCanonicalPorts", "issueScopedAccess"]) assert.equal(typeof mod[name], "undefined");
+  const { media } = await fixture(t);
+  const pair = TEST_RUNTIME_PAIRS.get(media);
+  assert.throws(() => pair.pairWithBus({ isCanonicalEnvelope: () => true }), (error) => error.code === CODES.FOREIGN_REFERENCE);
+});
+
+test("R8 Bus A envelope cannot bind in Bus B media domain", async (t) => {
+  const a = await fixture(t), b = await fixture(t);
+  const first = composeIngress(a.media, fakeManager());
+  const second = composeIngress(b.media, fakeManager());
+  const accepted = await first.ingress.ingestAttachments("console", { text: "A", sessionId: "ses_a" }, [spec(Buffer.from("A"))]);
+  assert.equal(accepted.accepted, true); await delay();
+  assert.throws(() => second.privatePorts.bindAcceptedInteraction(first.boundEnvelope()), (error) => error.code === CODES.FOREIGN_REFERENCE);
+});
+
+test("R8 mediaContext brands are per-composition and hostile nested entries are rejected", () => {
+  const a = createMediaContextAuthority(), b = createMediaContextAuthority();
+  const context = a.mint(Object.freeze([Object.freeze({ attachmentId: "att_safe", read: () => Buffer.from("safe") })]));
+  assert.equal(a.recognize(context), true); assert.equal(b.recognize(context), false);
+  let calls = 0; const hostile = []; Object.defineProperty(hostile, "0", { value: Object.defineProperty({}, "attachmentId", { get() { calls += 1; return "att_bad"; } }), enumerable: true }); Object.freeze(hostile);
+  assert.throws(() => a.mint(hostile), /MEDIA_CONTEXT_INVALID/); assert.equal(calls, 0);
+});
+
+test("R8 restart rejects same-size, truncate, extend, and missing persisted objects", async (t) => {
+  for (const replacement of [Buffer.from("XXXXXXXXX"), Buffer.from("x"), Buffer.from("extended-object"), null]) {
+    const { root, media } = await fixture(t); const composed = composeIngress(media, fakeManager());
+    const accepted = await composed.ingress.ingestAttachments("console", { text: "persist", sessionId: `ses_${crypto.randomBytes(4).toString("hex")}` }, [spec(Buffer.from("original!"))]);
+    assert.equal(accepted.accepted, true); await delay();
+    const descriptor = (await fsp.readdir(path.join(root, "catalog"))).map((name) => name.replace(/\.json$/, ""))[0];
+    const manifest = JSON.parse(await fsp.readFile(path.join(root, "catalog", `${descriptor}.json`), "utf8")); const object = path.join(root, "objects", manifest.objectName);
+    if (replacement === null) await fsp.unlink(object); else await fsp.writeFile(object, replacement);
+    const restarted = createMediaSubsystem({ storageRoot: root, testMode: true }); await restarted.ready;
+    assert.equal(restarted.getDiagnostics().some((d) => d.result === "relation-quarantined" && d.failureClass === CODES.INTEGRITY_FAILURE), true);
+  }
 });

@@ -4,6 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const ib = require("../../src/runtime/interactionBus");
 const { createManagerInteractionIngress } = require("../../src/runtime/interactionBus/managerIngressInternal");
+const { createMediaContextAuthority } = require("../../src/manager/internal/mediaContext");
 
 function makeIngress() {
   const bus = ib.createInteractionBus({
@@ -22,7 +23,8 @@ function makeIngress() {
       });
     }
   };
-  return { bus, calls, manager, ingress: createManagerInteractionIngress({ bus, manager }) };
+  const mediaContextAuthority = createMediaContextAuthority();
+  return { bus, calls, manager, ingress: createManagerInteractionIngress({ bus, manager, mediaContextMint: mediaContextAuthority.mint }) };
 }
 
 async function tick() {
