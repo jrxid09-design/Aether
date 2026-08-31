@@ -14,7 +14,7 @@ const { makeManagerHarness } = require("../manager/productionHarness");
 const { createMediaContextAuthority } = require("../../src/manager/internal/mediaContext");
 
 const CHANNELS = ["console", "cli", "telegram", "whatsapp", "companion"];
-const TEST_RUNTIME_PAIRS = new WeakMap();
+const TEST_DOMAINS = new WeakMap();
 const TEST_CONTEXT_AUTHORITIES = new WeakMap();
 const spec = (source, extra = {}) => ({ source, fileName: "item.bin", declaredMimeType: "application/octet-stream", sourceChannel: "console", ...extra });
 const delay = () => new Promise((resolve) => setTimeout(resolve, 25));
@@ -22,27 +22,17 @@ const delay = () => new Promise((resolve) => setTimeout(resolve, 25));
 async function fixture(t, limits = {}) {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), "damar-lane2-"));
   t.after(() => fsp.rm(root, { recursive: true, force: true }));
-  let runtimePair = null;
-  const media = createMediaSubsystem({ storageRoot: root, limits, testMode: true, runtimePortReceiver: (pair) => { runtimePair = pair; } });
+  const domain = createMediaSubsystem({ storageRoot: root, limits, testMode: true, atomicDomain: true, busOptions: { clock: () => 1_000, idFactory: ib.createSequentialIdFactory() } });
+  const media = domain.media;
   await media.ready;
-  TEST_RUNTIME_PAIRS.set(media, runtimePair);
+  TEST_DOMAINS.set(media, domain);
   TEST_CONTEXT_AUTHORITIES.set(media, createMediaContextAuthority());
   return { root, media };
 }
 
-function composeIngress(media, manager, mediaRuntimePair = TEST_RUNTIME_PAIRS.get(media), mediaContextMint = TEST_CONTEXT_AUTHORITIES.get(media).mint) {
-  let bus;
-  let boundEnvelope = null;
-  const mediaPorts = Object.freeze({
-    bindAcceptedInteraction: (envelope) => { boundEnvelope = envelope; return privatePorts.bindAcceptedInteraction(envelope); },
-    issueScopedAccess: (...args) => privatePorts.issueScopedAccess(...args),
-    readScopedAccess: (...args) => privatePorts.readScopedAccess(...args),
-    releaseScopedAccess: (...args) => privatePorts.releaseScopedAccess(...args),
-    releaseTransient: (...args) => privatePorts.releaseTransient(...args)
-  });
-  bus = ib.createInteractionBus({ clock: () => 1_000, idFactory: ib.createSequentialIdFactory(), mediaIngress: media, mediaPorts });
-  const privatePorts = mediaRuntimePair.pairWithBus(bus);
-  return { bus, ingress: createManagerInteractionIngress({ bus, manager, mediaSubsystem: media, mediaContextMint }), privatePorts, boundEnvelope: () => boundEnvelope };
+function composeIngress(media, manager, mediaRuntimePair = TEST_DOMAINS.get(media), mediaContextMint = TEST_CONTEXT_AUTHORITIES.get(media).mint) {
+  const bus = mediaRuntimePair.bus;
+  return { bus, ingress: createManagerInteractionIngress({ bus, manager, mediaSubsystem: media, mediaContextMint }) };
 }
 
 const fakeManager = (onHandle = async () => ({ managerRequestId: "r", outcome: "COMPLETED", lifecycleState: "COMPLETED", detail: "ok" })) => Object.freeze({ handle: onHandle });
@@ -103,7 +93,7 @@ test("terminal success revokes reader while durable relation remains", async (t)
   const composed = composeIngress(media, fakeManager(async (_input, context) => { reader = context.mediaContext.attachments[0].read; await reader(); return { managerRequestId: "r", outcome: "COMPLETED", lifecycleState: "COMPLETED", detail: "ok" }; }));
   const { ingress } = composed;
   const accepted = await ingress.ingestAttachments("console", { text: "terminal", sessionId: "ses_terminal" }, [spec(Buffer.from("terminal"))]);
-  assert.equal(accepted.accepted, true); await delay(); await assert.rejects(reader(), (error) => error.code === CODES.FOREIGN_REFERENCE); assert.throws(() => composed.privatePorts.issueScopedAccess(composed.boundEnvelope(), accepted.attachmentIds[0], "manager-processing"), (error) => error.code === CODES.FOREIGN_REFERENCE); assert.equal((await fsp.readdir(path.join(root, "relations"))).length, 1);
+  assert.equal(accepted.accepted, true); await delay(); await assert.rejects(reader(), (error) => error.code === CODES.FOREIGN_REFERENCE); assert.equal((await fsp.readdir(path.join(root, "relations"))).length, 1);
 });
 
 for (const terminal of ["throw", "timeout", "cancel"]) test(`terminal ${terminal} revokes transient reader`, async (t) => {
@@ -153,19 +143,27 @@ test("runtime host preserves five channel ingestion while production Manager sta
 
 test("R8 exported media module cannot extract ports and rejects fake Bus pairing", async (t) => {
   const mod = require("../../src/runtime/mediaIngress/subsystem");
-  for (const name of ["takePrivatePorts", "getPrivatePorts", "createCanonicalPorts", "issueScopedAccess"]) assert.equal(typeof mod[name], "undefined");
-  const { media } = await fixture(t);
-  const pair = TEST_RUNTIME_PAIRS.get(media);
-  assert.throws(() => pair.pairWithBus({ isCanonicalEnvelope: () => true }), (error) => error.code === CODES.FOREIGN_REFERENCE);
+  for (const name of ["takePrivatePorts", "getPrivatePorts", "createCanonicalPorts", "issueScopedAccess", "runtimePortReceiver", "pairWithBus", "attachBus", "bindBus"]) assert.equal(typeof mod[name], "undefined");
+  let called = false;
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "damar-r9-foreign-")); t.after(() => fsp.rm(root, { recursive: true, force: true }));
+  const foreign = createMediaSubsystem({ storageRoot: root, runtimePortReceiver: () => { called = true; }, testMode: true });
+  await foreign.ready;
+  assert.equal(called, false);
+  assert.equal(Object.getOwnPropertyNames(foreign).some((name) => /port|pair|bind|restart/i.test(name)), false);
 });
 
 test("R8 Bus A envelope cannot bind in Bus B media domain", async (t) => {
   const a = await fixture(t), b = await fixture(t);
-  const first = composeIngress(a.media, fakeManager());
-  const second = composeIngress(b.media, fakeManager());
-  const accepted = await first.ingress.ingestAttachments("console", { text: "A", sessionId: "ses_a" }, [spec(Buffer.from("A"))]);
+  const domainA = TEST_DOMAINS.get(a.media), domainB = TEST_DOMAINS.get(b.media);
+  let envelopeA = null;
+  domainA.bus.registerTransport({ transportId: "console", origin: "CONSOLE", capabilities: { acceptsText: true } });
+  domainA.bus.registerHandler({ route: "CONVERSATION", supportedKinds: ["MESSAGE"], handler: (env) => { envelopeA = env; } });
+  const accepted = domainA.bus.submit({ transportId: "console", sessionId: "ses_a", kind: "MESSAGE", payload: { text: "A" } });
   assert.equal(accepted.accepted, true); await delay();
-  assert.throws(() => second.privatePorts.bindAcceptedInteraction(first.boundEnvelope()), (error) => error.code === CODES.FOREIGN_REFERENCE);
+  assert.ok(envelopeA);
+  assert.equal(domainA.bus.isCanonicalEnvelope(envelopeA), true);
+  assert.equal(domainB.bus.isCanonicalEnvelope(envelopeA), false);
+  assert.equal(typeof domainB.media?.pairWithBus, "undefined");
 });
 
 test("R8 mediaContext brands are per-composition and hostile nested entries are rejected", () => {
