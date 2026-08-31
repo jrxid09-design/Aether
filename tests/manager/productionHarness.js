@@ -45,6 +45,7 @@ async function makeManagerHarness({
     scopeBindings,
     trustedVerifiers = [],
     planner = null,
+    mediaProcessor = null,
     withAdapters = true
 } = {}) {
     // Lane 3 actuation harness (canonical execution results for this domain)
@@ -65,7 +66,8 @@ async function makeManagerHarness({
             lane4: { verify: lane4h.verify, compensate: lane4h.compensate },
             planner
         },
-        trustedChannelAdapters: withAdapters ? CHANNEL_ADAPTERS.slice() : []
+        trustedChannelAdapters: withAdapters ? CHANNEL_ADAPTERS.slice() : [],
+        mediaProcessor
     });
 
     return {
