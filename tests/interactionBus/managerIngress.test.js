@@ -3,6 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const ib = require("../../src/runtime/interactionBus");
+const { createManagerInteractionIngress } = require("../../src/runtime/interactionBus/managerIngressInternal");
 
 function makeIngress() {
   const bus = ib.createInteractionBus({
@@ -21,7 +22,7 @@ function makeIngress() {
       });
     }
   };
-  return { bus, calls, manager, ingress: ib.createManagerInteractionIngress({ bus, manager }) };
+  return { bus, calls, manager, ingress: createManagerInteractionIngress({ bus, manager }) };
 }
 
 async function tick() {
@@ -129,7 +130,7 @@ test("routing projection cannot become execution authority", () => {
 
 test("production ingress cannot create a second media ownership domain", () => {
   assert.throws(
-    () => ib.createProductionManagerInteractionIngress(),
+    () => require("../../src/runtime/interactionBus/managerIngressInternal").createProductionManagerInteractionIngress(),
     /owned by createRuntimeHost/
   );
 });

@@ -6,12 +6,13 @@ const os = require("node:os");
 const path = require("node:path");
 const fsp = require("node:fs/promises");
 const ib = require("../../src/runtime/interactionBus");
+const { createMediaIngress } = require("../../src/runtime/mediaIngress/subsystem");
 
 async function fixture(t, limits) {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), "damar-media-"));
   t.after(() => fsp.rm(root, { recursive: true, force: true }));
   let id = 0;
-  const ingress = ib.createMediaIngress({ storageRoot: root, limits, clock: () => 1000, idFactory: () => `fixture_${++id}`, testMode: true });
+  const ingress = createMediaIngress({ storageRoot: root, limits, clock: () => 1000, idFactory: () => `fixture_${++id}`, testMode: true });
   return { root, ingress };
 }
 function spec(source, extra) {
