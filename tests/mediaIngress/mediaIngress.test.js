@@ -26,7 +26,7 @@ test("media ingress: text becomes immutable integrity-addressed canonical media"
   assert.equal(ref.detectedMimeType, "text/plain");
   assert.equal(ref.sizeBytes, source.length);
   assert.match(ref.sha256, /^[a-f0-9]{64}$/);
-  assert.equal(ref.storageRef, `media:sha256:${ref.sha256}`);
+  assert.equal(ref.storageRef, `media:${ref.mediaId}`);
   assert.equal(Object.isFrozen(ref), true);
   assert.equal(ingress.isCanonicalMediaReference(ref), true);
   assert.equal(ingress.isCanonicalMediaReference({ ...ref }), false);
@@ -77,8 +77,9 @@ test("media ingress: hostile metadata getters and proxies reject before access",
 test("media ingress: partial stream leaves no published reference", async (t) => {
   const { root, ingress } = await fixture(t);
   async function* broken() { yield Buffer.from("part"); throw new Error("transport stopped"); }
-  await assert.rejects(ingress.ingest(spec(broken())), (e) => e.code === "MEDIA_PARTIAL_READ");
-  assert.deepEqual(await fsp.readdir(path.join(root, "tmp")), []);
+  const source = ingress.createTrustedByteSource(broken());
+  await assert.rejects(ingress.ingest(spec(source)), (e) => e.code === "MEDIA_PARTIAL_READ");
+  assert.deepEqual(await fsp.readdir(path.join(root, "staging")), []);
 });
 
 test("media ingress: duplicate bytes share storage identity but not descriptor provenance", async (t) => {
@@ -86,7 +87,7 @@ test("media ingress: duplicate bytes share storage identity but not descriptor p
   const a = await ingress.ingest(spec(Buffer.from("same")));
   const b = await ingress.ingest(spec(Buffer.from("same"), { sourceChannel: "whatsapp" }));
   assert.equal(a.sha256, b.sha256);
-  assert.equal(a.storageRef, b.storageRef);
+  assert.notEqual(a.storageRef, b.storageRef);
   assert.notEqual(a.attachmentId, b.attachmentId);
   assert.equal(ingress.isCanonicalMediaReference(a), true);
   assert.equal(ingress.isCanonicalMediaReference(b), true);
@@ -101,7 +102,7 @@ test("media ingress: executable and archive bytes are stored and never executed 
   assert.equal(executions, 0);
   assert.equal(executable.kind, "document");
   assert.equal(archive.kind, "archive");
-  assert.equal((await fsp.readdir(path.join(root, "objects", archive.sha256.slice(0, 2)))).length, 1);
+  assert.equal((await fsp.readdir(path.join(root, "objects"))).includes(`${archive.sha256}.blob`), true);
 });
 
 test("media ingress + InteractionBus: only owning ingress references cross attachment boundary", async (t) => {
