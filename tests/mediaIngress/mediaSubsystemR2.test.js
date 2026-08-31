@@ -45,6 +45,20 @@ test("Lane 2 general media facade has no active processing authority", async (t)
   assert.equal(typeof media.isCanonicalMediaReference, "function");
 });
 
+test("default atomic domain constructs a usable isolated Bus and completes A/A ingestion", async (t) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "damar-r10-default-"));
+  t.after(() => fsp.rm(root, { recursive: true, force: true }));
+  const domain = createMediaSubsystem({ storageRoot: root, testMode: true, atomicDomain: true });
+  await domain.media.ready;
+  assert.equal(typeof domain.bus.submit, "function");
+  assert.deepEqual(Object.keys(domain).sort(), ["bus", "media"]);
+  const authority = createMediaContextAuthority();
+  const ingress = createManagerInteractionIngress({ bus: domain.bus, manager: fakeManager(), mediaSubsystem: domain.media, mediaContextMint: authority.mint });
+  const result = await ingress.ingestAttachments("console", { text: "default", sessionId: "ses_r10_default" }, [spec(Buffer.from("DAMAR-R10-DEFAULT"))]);
+  assert.equal(result.accepted, true);
+  await delay();
+});
+
 test("canonical reference is inert and fabricated envelope cannot bind", async (t) => {
   const { root, media } = await fixture(t);
   const descriptor = await media.ingest(spec(Buffer.from("inert")));
