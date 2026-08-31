@@ -46,12 +46,15 @@ async function makeManagerHarness({
     trustedVerifiers = [],
     planner = null,
     mediaProcessor = null,
+    // Contract tests may supply this at composition time only.  It is never
+    // forwarded from RuntimeHost, a channel adapter, or a Manager request.
+    authenticate = undefined,
     withAdapters = true
 } = {}) {
     // Lane 3 actuation harness (canonical execution results for this domain)
-    const lane3h = await makeActuationHarness({ scopeBindings });
+    const lane3h = await makeActuationHarness({ scopeBindings, ...(authenticate ? { authenticate } : {}) });
     // Lane 4 verification harness composed over the SAME Lane 3 domain
-    const lane4h = await makeVerificationHarness({ scopeBindings, trustedVerifiers });
+    const lane4h = await makeVerificationHarness({ scopeBindings, trustedVerifiers, ...(authenticate ? { authenticate } : {}) });
 
     // The REAL production Manager composition with test-supplied deps.
     const manager = createDamarManagerComposition({

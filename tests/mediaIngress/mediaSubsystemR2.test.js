@@ -1,40 +1,143 @@
 "use strict";
-const test=require("node:test"),assert=require("node:assert/strict"),os=require("node:os"),path=require("node:path"),fsp=require("node:fs/promises"),ib=require("../../src/runtime/interactionBus"),{createRuntimeHost}=require("../../src/runtime/host/runtimeHost"),{createMediaSubsystem}=require("../../src/runtime/mediaIngress/subsystem"),{createManagerInteractionIngress}=require("../../src/runtime/interactionBus/managerIngressInternal");
-async function fx(t,limits={}){const root=await fsp.mkdtemp(path.join(os.tmpdir(),"damar-r2-"));t.after(()=>fsp.rm(root,{recursive:true,force:true}));const media=createMediaSubsystem({storageRoot:root,limits,testMode:true});await media.ready;return{root,media}}
-const spec=(source,extra={})=>({source,fileName:"item.bin",declaredMimeType:"application/octet-stream",sourceChannel:"console",...extra});
-function composition(media){const calls=[],runtime=[],manager={async handle(input,ctx){calls.push(input);runtime.push(ctx);return{managerRequestId:"r",outcome:"COMPLETED",lifecycleState:"COMPLETED",detail:"ok"}}},bus=ib.createInteractionBus({clock:()=>1000,idFactory:ib.createSequentialIdFactory(),mediaIngress:media}),ingress=createManagerInteractionIngress({bus,manager,mediaSubsystem:media});return{bus,ingress,calls,runtime}}
-const tick=()=>new Promise(r=>setTimeout(r,20));
 
-test("R2 production child factories cannot create or substitute trust owners",()=>{assert.throws(()=>ib.createProductionBus(),/owned by createRuntimeHost/);assert.throws(()=>ib.createProductionBus({mediaIngress:{}}),/owned by createRuntimeHost/);assert.equal(typeof ib.createProductionManagerInteractionIngress,"undefined");assert.equal(typeof require("../../src/runtime/interactionBus/managerIngress").createManagerInteractionIngress,"undefined")});
-test("R2 descriptor and IDs cannot read; exact branded handle can",async t=>{const{media}=await fx(t),{ingress,runtime}=composition(media),r=await ingress.ingestAttachments("console",{text:"x",userId:"u"},[spec(Buffer.from("secret"))]);await tick();const handle=runtime[0].mediaAccess[0];assert.deepEqual((await runtime[0].readMediaAccess(handle)).bytes,Buffer.from("secret"));for(const fake of [{...handle},Object.create(handle),new Proxy(handle,{}),{mediaId:"med_"+"a".repeat(32)},r])await assert.rejects(media.readAccess(fake),e=>e.code==="MEDIA_FOREIGN_REFERENCE")});
-test("R2 conflicting interaction never replaces accepted binding",async t=>{const{media}=await fx(t),{bus,runtime}=composition(media),a=await media.ingest(spec(Buffer.from("A"))),b=await media.ingest(spec(Buffer.from("B")));const submit=x=>bus.submit({transportId:"channel.console",interactionId:"ix_conflict",sessionId:"ses_c",kind:"MESSAGE",payload:{text:x.fileName,attachments:[x]}});assert.equal(submit(a).accepted,true);await tick();const h=runtime[0].mediaAccess[0];assert.equal(submit(b).reason,"CONFLICTING_INTERACTION");assert.deepEqual((await media.readAccess(h)).bytes,Buffer.from("A"));assert.throws(()=>media.issueAccess({interactionId:"ix_conflict"},b.attachmentId,"manager-processing"),/MEDIA_FOREIGN_REFERENCE/)});
-test("R2 session rejection creates no binding and channel transaction rolls back",async t=>{const{root,media}=await fx(t),{ingress}=composition(media);const a=await ingress.ingestAttachments("console",{text:"a",sessionId:"ses_owned"},[spec(Buffer.from("A"))]);assert.equal(a.accepted,true);const before=(await fsp.readdir(path.join(root,"catalog"))).length,b=await ingress.ingestAttachments("telegram",{text:"b",sessionId:"ses_owned"},[spec(Buffer.from("B"),{sourceChannel:"console"})]);assert.equal(b.accepted,false);assert.equal((await fsp.readdir(path.join(root,"catalog"))).length,before);assert.deepEqual(await fsp.readdir(path.join(root,"staging")),[])});
-test("R2 invalid event is rejected before media publication",async t=>{const{root,media}=await fx(t),{ingress}=composition(media);const r=await ingress.ingestAttachments("console",{text:""},[spec(Buffer.from("never"))]);assert.equal(r.accepted,false);assert.deepEqual(await fsp.readdir(path.join(root,"catalog")),[]);assert.deepEqual(await fsp.readdir(path.join(root,"objects")),[])});
-test("R2 actual channel fixes sourceChannel to selected transport",async t=>{const{media}=await fx(t),{ingress,calls}=composition(media);await ingress.ingestAttachments("whatsapp",{text:"x"},[spec(Buffer.from("x"),{sourceChannel:"telegram"})]);await tick();assert.equal(calls[0].payload.attachments[0].sourceChannel,"whatsapp")});
-test("R2 restart issues new internal handle; old handle and copied descriptor fail",async t=>{const{root,media:a}=await fx(t),ca=composition(a),r=await ca.ingress.ingestAttachments("console",{text:"restart",sessionId:"ses_restart"},[spec(Buffer.from("persist"))]);await tick();const old=ca.runtime[0].mediaAccess[0],attachmentId=ca.calls[0].payload.attachments[0].attachmentId,copy={...ca.calls[0].payload.attachments[0]};const b=createMediaSubsystem({storageRoot:root,testMode:true});await b.ready;await assert.rejects(b.readAccess(old),e=>e.code==="MEDIA_FOREIGN_REFERENCE");assert.equal(b.isCanonicalMediaReference(copy),false);assert.equal(typeof b.testOnly.restoreAccess,"undefined")});
-test("R2 released and expired access handles fail without affecting authority",async t=>{let now=1000;const root=await fsp.mkdtemp(path.join(os.tmpdir(),"damar-lease-"));t.after(()=>fsp.rm(root,{recursive:true,force:true}));const media=createMediaSubsystem({storageRoot:root,clock:()=>now,limits:{accessTtlMs:5},testMode:true});await media.ready;const c=composition(media);await c.ingress.ingestAttachments("console",{text:"x"},[spec(Buffer.from("x"))]);await tick();const h=c.runtime[0].mediaAccess[0];now=2000;await assert.rejects(media.readAccess(h),/MEDIA_FOREIGN_REFERENCE/)});
-test("R2 same-handle verified read rejects pathname replacement/tamper",async t=>{const{root,media}=await fx(t),c=composition(media);await c.ingress.ingestAttachments("console",{text:"x"},[spec(Buffer.from("original"))]);await tick();const d=c.calls[0].payload.attachments[0],h=c.runtime[0].mediaAccess[0],file=path.join(root,"objects",`${d.sha256}.blob`),replacement=path.join(root,"objects","replacement.tmp");await fsp.writeFile(replacement,"XXXXXXXX");await fsp.rename(replacement,file);await assert.rejects(media.readAccess(h),e=>e.code==="MEDIA_INTEGRITY_FAILURE")});
-test("R2 catalog limit is enforced before second durable publication",async t=>{const{root,media}=await fx(t,{maxCatalogRecords:1});const a=await media.ingest(spec(Buffer.from("A")));await assert.rejects(media.ingest(spec(Buffer.from("B"))),e=>e.code==="MEDIA_CATALOG_FULL");assert.equal((await fsp.readdir(path.join(root,"catalog"))).length,1);assert.equal((await fsp.readdir(path.join(root,"objects"))).length,1);const b=createMediaSubsystem({storageRoot:root,testMode:true});await b.ready;assert.equal(b.isCanonicalMediaReference(a),false)});
-test("R2 concurrent identical commits serialize; failed transaction cannot remove success",async t=>{for(let run=0;run<5;run++){const{root,media}=await fx(t,{maxCatalogRecords:1});const results=await Promise.allSettled([media.ingest(spec(Buffer.from("same"),{fileName:"a.bin"})),media.ingest(spec(Buffer.from("same"),{fileName:"b.bin"}))]);assert.equal(results.filter(x=>x.status==="fulfilled").length,1);assert.equal(results.filter(x=>x.status==="rejected"&&x.reason.code==="MEDIA_CATALOG_FULL").length,1);assert.equal((await fsp.readdir(path.join(root,"objects"))).length,1);const restarted=createMediaSubsystem({storageRoot:root,testMode:true});await restarted.ready;assert.equal(restarted.getDiagnostics().filter(x=>x.result==="manifest-quarantined").length,0)}});
-test("R2 hostile attachment arrays execute zero callbacks",async t=>{const{media}=await fx(t);let calls=0;const good=spec(Buffer.from("x")),cases=[];cases.push(new Proxy([good],{get(){calls++;throw Error("trap")}}));const accessor=[];Object.defineProperty(accessor,"0",{get(){calls++;return good},enumerable:true});accessor.length=1;cases.push(accessor);const sparse=new Array(1);cases.push(sparse);const proto=[good];Object.setPrototypeOf(proto,{});cases.push(proto);const mapped=[good];mapped.map=()=>{calls++;return[]};cases.push(mapped);const iter=[good];iter[Symbol.iterator]=()=>{calls++;return[][Symbol.iterator]()};cases.push(iter);for(const x of cases)await assert.rejects(media.ingestMany(x));assert.equal(calls,0)});
-test("R2 hostile typed arrays and source Proxy execute zero callbacks",async t=>{const{media}=await fx(t);let calls=0;class Evil extends Uint8Array{get byteLength(){calls++;return 1}subarray(){calls++;return this}}const custom=new Uint8Array(1);Object.setPrototypeOf(custom,{});for(const source of [new Evil(1),custom,new Proxy(new Uint8Array(1),{get(){calls++;throw Error("trap")},getPrototypeOf(){calls++;throw Error("trap")}})])await assert.rejects(media.ingest(spec(source)),e=>e.code==="MEDIA_UNSUPPORTED_SOURCE");assert.equal(calls,0)});
-test("R2 trusted-source getter rejects without invocation",async t=>{const{media}=await fx(t);let calls=0;const x={};Object.defineProperty(x,Symbol.asyncIterator,{get(){calls++;throw Error("trap")}});assert.throws(()=>media.testOnly.createTrustedByteSource(x),/MEDIA_UNSUPPORTED_SOURCE/);assert.equal(calls,0)});
-test("R2 timeout settles despite forever return and cancel",async t=>{const{root,media}=await fx(t,{idleTimeoutMs:15,overallTimeoutMs:30,cleanupTimeoutMs:20});const iterable={[Symbol.asyncIterator](){return{next:()=>new Promise(()=>{}),return:()=>new Promise(()=>{})}}},source=media.testOnly.createTrustedByteSource(iterable,()=>new Promise(()=>{})),start=Date.now();await assert.rejects(media.ingest(spec(source)),e=>e.code==="MEDIA_TIMEOUT");assert.ok(Date.now()-start<250);assert.deepEqual(await fsp.readdir(path.join(root,"staging")),[])});
-test("R2 every poisoned manifest field isolates while valid media restarts",async t=>{const{root,media:a}=await fx(t),ca=composition(a);await ca.ingress.ingestAttachments("console",{text:"good"},[spec(Buffer.from("good"))]);await tick();const good=JSON.parse(await fsp.readFile(path.join(root,"catalog",`${ca.calls[0].payload.attachments[0].mediaId}.json`),"utf8")),mutations=[x=>x.schemaVersion=9,x=>x.objectName="../escape",x=>x.sha256="x",x=>x.sizeBytes=-1,x=>x.kind="executable",x=>x.declaredMimeType={},x=>x.detectedMimeType="bad",x=>x.detectionConfidence="certain",x=>x.fileName="C:evil",x=>x.sourceChannel="root",x=>x.metadata={nested:{}},x=>x.ingestedAt="now",x=>x.unexpected=true];for(let i=0;i<mutations.length;i++){const hex=(i+1).toString(16).padStart(32,"0"),bad={...good,metadata:{...good.metadata},mediaId:`med_${hex}`,attachmentId:`att_${hex}`};mutations[i](bad);await fsp.writeFile(path.join(root,"catalog",`${bad.mediaId}.json`),JSON.stringify(bad))}const b=createMediaSubsystem({storageRoot:root,testMode:true});await b.ready;assert.equal(b.getDiagnostics().filter(x=>x.result==="manifest-quarantined").length,mutations.length)});
-test("R2 actual runtime host owns one five-channel media path",async t=>{const root=await fsp.mkdtemp(path.join(os.tmpdir(),"damar-host-r2-"));t.after(()=>fsp.rm(root,{recursive:true,force:true}));const host=await createRuntimeHost({coreOptions:{mediaStorageRoot:root}});t.after(()=>host.shutdown("test"));assert.ok(host.channels);for(const channel of host.channels.channels){const r=await host.channels.ingestAttachments(channel,{text:`host-${channel}`,userId:channel},[spec(Buffer.from(channel),{sourceChannel:"fake"})]);assert.equal(r.accepted,true)}await tick();const manifests=[];for(const name of await fsp.readdir(path.join(root,"catalog")))manifests.push(JSON.parse(await fsp.readFile(path.join(root,"catalog",name),"utf8")));assert.deepEqual(manifests.map(x=>x.sourceChannel).sort(),[...host.channels.channels].sort());assert.equal((await fsp.readdir(path.join(root,"relations"))).length,5);assert.equal(host.core.media.getDiagnostics().some(x=>x.failureClass),false)});
-test("R2 oversized manifest is isolated before content allocation",async t=>{const{root}=await fx(t),name=`med_${"f".repeat(32)}.json`;await fsp.writeFile(path.join(root,"catalog",name),Buffer.alloc(10000,0x20));const media=createMediaSubsystem({storageRoot:root,limits:{maxMetadataBytes:64},testMode:true});await media.ready;assert.equal(media.getDiagnostics().some(x=>x.result==="manifest-quarantined"),true)});
-test("R2 exact attachment size boundaries use accepted bytes",async t=>{const{media}=await fx(t,{maxAttachmentBytes:4,maxChunkBytes:4});for(const n of [0,3,4])assert.equal((await media.ingest(spec(Buffer.alloc(n),{fileName:`f${n}.bin`}))).sizeBytes,n);await assert.rejects(media.ingest(spec(Buffer.alloc(5))),e=>e.code==="MEDIA_OVERSIZE")});
-test("R2 read-time integrity rejects truncate, extend, and same-size mutation",async t=>{for(const bytes of [Buffer.from("x"),Buffer.from("tampered-more"),Buffer.from("XXXXXXXX")]){const{root,media}=await fx(t),c=composition(media);await c.ingress.ingestAttachments("console",{text:"integrity"},[spec(Buffer.from("original"))]);await tick();const d=c.calls[0].payload.attachments[0],h=c.runtime[0].mediaAccess[0];await fsp.writeFile(path.join(root,"objects",`${d.sha256}.blob`),bytes);await assert.rejects(media.readAccess(h),e=>e.code==="MEDIA_INTEGRITY_FAILURE")}});
-test("R2 corrupted dedup target is never reused or overwritten",async t=>{const{root,media}=await fx(t),ref=await media.ingest(spec(Buffer.from("same"))),file=path.join(root,"objects",`${ref.sha256}.blob`);await fsp.writeFile(file,"evil");await assert.rejects(media.ingest(spec(Buffer.from("same"),{fileName:"again.bin"})),e=>e.code==="MEDIA_INTEGRITY_FAILURE");assert.equal((await fsp.readFile(file,"utf8")),"evil")});
-test("R2 startup scavenging is bounded to generated stale staging names",async t=>{const root=await fsp.mkdtemp(path.join(os.tmpdir(),"damar-scavenge-r2-"));t.after(()=>fsp.rm(root,{recursive:true,force:true}));for(const name of ["staging","objects","catalog","relations"])await fsp.mkdir(path.join(root,name),{recursive:true});const stale=path.join(root,"staging","stage_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.partial"),foreign=path.join(root,"staging","foreign.tmp");await fsp.writeFile(stale,"x");await fsp.writeFile(foreign,"x");await fsp.utimes(stale,new Date(0),new Date(0));const media=createMediaSubsystem({storageRoot:root,limits:{stagingMaxAgeMs:1},testMode:true});await media.ready;assert.equal(await fsp.stat(stale).then(()=>true,()=>false),false);assert.equal(await fsp.stat(foreign).then(()=>true,()=>false),true)});
-test("R2 Windows junction replacement fails closed",{skip:process.platform!=="win32"},async t=>{const{root,media}=await fx(t),outside=await fsp.mkdtemp(path.join(os.tmpdir(),"damar-outside-r2-"));t.after(()=>fsp.rm(outside,{recursive:true,force:true}));await fsp.rmdir(path.join(root,"objects"));await fsp.symlink(outside,path.join(root,"objects"),"junction");await assert.rejects(media.ingest(spec(Buffer.from("escape"))),e=>e.code==="MEDIA_STORAGE_ESCAPE");assert.deepEqual(await fsp.readdir(outside),[])});
-test("R3 production export surface contains no media constructors or durable readers",()=>{assert.deepEqual(Object.keys(require("../../src/runtime/mediaIngress")),["CODES","MediaIngressError"]);assert.deepEqual(Object.keys(require("../../src/runtime/interactionBus/managerIngress")),[]);assert.equal(typeof ib.createMediaSubsystem,"undefined");assert.equal(typeof ib.createMediaIngress,"undefined");assert.equal(typeof ib.createManagerInteractionIngress,"undefined")});
-test("R3 catalog cap is atomic for 100 concurrent distinct-hash commits",async t=>{for(let run=0;run<100;run++){const{root,media}=await fx(t,{maxCatalogRecords:1});const results=await Promise.allSettled([media.ingest(spec(Buffer.from(`A-${run}`))),media.ingest(spec(Buffer.from(`B-${run}`)))]);assert.equal(results.filter(x=>x.status==="fulfilled").length,1);assert.equal(results.filter(x=>x.status==="rejected"&&x.reason.code==="MEDIA_CATALOG_FULL").length,1);assert.ok((await fsp.readdir(path.join(root,"catalog"))).length<=1);const restarted=createMediaSubsystem({storageRoot:root,testMode:true});await restarted.ready}});
-test("R3 malformed relation duplicates are isolated",async t=>{const{root,media}=await fx(t),r=await media.ingest(spec(Buffer.from("relation")));const relation={schemaVersion:1,interactionId:"ix_poison",attachments:[{attachmentId:r.attachmentId,mediaId:r.mediaId},{attachmentId:r.attachmentId,mediaId:r.mediaId}]};await fsp.writeFile(path.join(root,"relations","ix_poison.json"),JSON.stringify(relation));const fresh=createMediaSubsystem({storageRoot:root,testMode:true});await fresh.ready;assert.equal(fresh.getDiagnostics().some(x=>x.result==="relation-quarantined"),true);assert.equal(typeof fresh.testOnly.restoreAccess,"undefined")});
-test("R4 foreign direct-import subsystem cannot restore canonical media",async t=>{const root=await fsp.mkdtemp(path.join(os.tmpdir(),"damar-foreign-r4-"));t.after(()=>fsp.rm(root,{recursive:true,force:true}));const canonical=createMediaSubsystem({storageRoot:root,canonicalOwner:Object.freeze({})});await canonical.ready;const ingress=createManagerInteractionIngress({bus:ib.createInteractionBus({clock:()=>1000,idFactory:ib.createSequentialIdFactory(),mediaIngress:canonical}),manager:{async handle(){return{managerRequestId:"r",outcome:"COMPLETED",lifecycleState:"COMPLETED",detail:"ok"}}},mediaSubsystem:canonical});const accepted=await ingress.ingestAttachments("console",{text:"secret",sessionId:"ses_foreign"},[spec(Buffer.from("secret"))]);assert.equal(accepted.accepted,true);await tick();const foreign=createMediaSubsystem({storageRoot:root,testMode:true});await foreign.ready;assert.equal(typeof foreign.restoreAccess,"undefined");assert.equal(typeof foreign.testOnly.restoreAccess,"undefined");await assert.rejects(foreign.readAccess({mediaId:accepted.attachmentIds[0]}),e=>e.code==="MEDIA_FOREIGN_REFERENCE");canonical.__internalRelease()});
-test("R4 relation junction replacement fails closed and writes nothing outside",{skip:process.platform!=="win32"},async t=>{const root=await fsp.mkdtemp(path.join(os.tmpdir(),"damar-rel-junction-r4-")),outside=await fsp.mkdtemp(path.join(os.tmpdir(),"damar-rel-outside-r4-"));t.after(()=>fsp.rm(root,{recursive:true,force:true}));t.after(()=>fsp.rm(outside,{recursive:true,force:true}));const host=await createRuntimeHost({coreOptions:{mediaStorageRoot:root}});t.after(()=>host.shutdown("test"));await fsp.rename(path.join(root,"relations"),path.join(root,"relations-backup"));await fsp.symlink(outside,path.join(root,"relations"),"junction");await assert.rejects(host.channels.ingestAttachments("console",{text:"junction",sessionId:"ses_junction"},[spec(Buffer.from("junction"))]),e=>e.code==="MEDIA_STORAGE_ESCAPE");assert.deepEqual(await fsp.readdir(outside),[])});
-test("R4 restart rejects a relation-store reparse replacement",{skip:process.platform!=="win32"},async t=>{const root=await fsp.mkdtemp(path.join(os.tmpdir(),"damar-rel-restart-r4-")),outside=await fsp.mkdtemp(path.join(os.tmpdir(),"damar-rel-restart-outside-r4-"));t.after(()=>fsp.rm(root,{recursive:true,force:true}));t.after(()=>fsp.rm(outside,{recursive:true,force:true}));const a=createMediaSubsystem({storageRoot:root,canonicalOwner:Object.freeze({})});await a.ready;const c=composition(a);await c.ingress.ingestAttachments("console",{text:"persist",sessionId:"ses_restart_rel"},[spec(Buffer.from("persist"))]);await tick();a.__internalRelease();await fsp.rename(path.join(root,"relations"),path.join(root,"relations-backup"));await fsp.symlink(outside,path.join(root,"relations"),"junction");await assert.rejects(async()=>{const b=createMediaSubsystem({storageRoot:root,canonicalOwner:Object.freeze({})});await b.ready},e=>e.code==="MEDIA_STORAGE_ESCAPE");assert.deepEqual(await fsp.readdir(outside),[])});
-test("R4 canonical owner continuation survives a fresh owner instance",async t=>{const root=await fsp.mkdtemp(path.join(os.tmpdir(),"damar-owner-r4-"));t.after(()=>fsp.rm(root,{recursive:true,force:true}));const ownerA=Object.freeze({}),a=createMediaSubsystem({storageRoot:root,canonicalOwner:ownerA});await a.ready;const c=composition(a);const r=await c.ingress.ingestAttachments("console",{text:"owner",sessionId:"ses_owner"},[spec(Buffer.from("owner"))]);await tick();const aid=c.calls[0].payload.attachments[0].attachmentId;a.__internalRelease();const b=createMediaSubsystem({storageRoot:root,canonicalOwner:Object.freeze({})});await b.ready;const h=b.__internalRestore(r.interactionId,aid,"restart-processing");assert.deepEqual((await b.readAccess(h,"restart-processing")).bytes,Buffer.from("owner"));b.__internalRelease()});
-test("R5 direct-import and require-cache eviction cannot expose canonical restore",async t=>{const root=await fsp.mkdtemp(path.join(os.tmpdir(),"damar-cache-r5-"));t.after(()=>fsp.rm(root,{recursive:true,force:true}));const host=await createRuntimeHost({coreOptions:{mediaStorageRoot:root}});t.after(()=>host.shutdown("test"));const first=require("../../src/runtime/mediaIngress/subsystem");delete require.cache[require.resolve("../../src/runtime/mediaIngress/subsystem")];const fresh=require("../../src/runtime/mediaIngress/subsystem");for(const mod of [first,fresh]){assert.equal(typeof mod.createCanonicalMediaSubsystem,"undefined");const foreign=mod.createMediaSubsystem({storageRoot:root,testMode:true});await foreign.ready;assert.equal(typeof foreign.testOnly.restoreAccess,"undefined")}host.shutdown("done");delete require.cache[require.resolve("../../src/runtime/mediaIngress/subsystem")];const after=require("../../src/runtime/mediaIngress/subsystem");assert.equal(typeof after.createCanonicalMediaSubsystem,"undefined");const foreign=after.createMediaSubsystem({storageRoot:root,testMode:true});await foreign.ready;assert.equal(typeof foreign.testOnly.restoreAccess,"undefined")});
-test("R5 runtime maxRelations rejects concurrent relation publication at the bound",async t=>{for(let run=0;run<100;run++){const{root,media}=await fx(t,{maxRelations:1});const content=await media.ingest(spec(Buffer.from(`shared-${run}`)));const c=composition(media);const [a,b]=await Promise.all([c.ingress.ingestAttachments("console",{text:"a",sessionId:`ses_a${run}`},[spec(Buffer.from(`shared-${run}`))]),c.ingress.ingestAttachments("console",{text:"b",sessionId:`ses_b${run}`},[spec(Buffer.from(`shared-${run}`))])]);assert.equal([a.accepted,b.accepted].filter(Boolean).length,1);assert.ok([a,b].some(x=>x.accepted===false));assert.ok((await fsp.readdir(path.join(root,"relations"))).length<=1)}});
-test("R4 Manager processing context consumes exact bytes on every channel",async t=>{const{media}=await fx(t),seen=[],manager={async handle(input,ctx){assert.ok(Object.isFrozen(ctx.mediaAccess));assert.equal(ctx.mediaAccess.length,1);seen.push({channel:input.channelType,bytes:(await ctx.readMediaAccess(ctx.mediaAccess[0])).bytes});return{managerRequestId:"r",outcome:"COMPLETED",lifecycleState:"COMPLETED",detail:"ok"}}},bus=ib.createInteractionBus({clock:()=>1000,idFactory:ib.createCryptoIdFactory(),mediaIngress:media}),ingress=createManagerInteractionIngress({bus,manager,mediaSubsystem:media});for(const channel of ingress.channels)assert.equal((await ingress.ingestAttachments(channel,{text:`read-${channel}`,sessionId:`ses_${channel}`},[spec(Buffer.from(channel))])).accepted,true);await tick();assert.deepEqual(seen.map(x=>x.channel).sort(),ingress.channels.slice().sort());for(const x of seen)assert.deepEqual(x.bytes,Buffer.from(x.channel))});
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const os = require("node:os");
+const path = require("node:path");
+const fsp = require("node:fs/promises");
+const ib = require("../../src/runtime/interactionBus");
+const { createRuntimeHost } = require("../../src/runtime/host/runtimeHost");
+const { createMediaSubsystem, takePrivatePorts, CODES } = require("../../src/runtime/mediaIngress/subsystem");
+const { createManagerInteractionIngress } = require("../../src/runtime/interactionBus/managerIngressInternal");
+const { makeManagerHarness } = require("../manager/productionHarness");
+const { createCanonicalMediaContext } = require("../../src/manager/internal/mediaContext");
+
+const CHANNELS = ["console", "cli", "telegram", "whatsapp", "companion"];
+const spec = (source, extra = {}) => ({ source, fileName: "item.bin", declaredMimeType: "application/octet-stream", sourceChannel: "console", ...extra });
+const delay = () => new Promise((resolve) => setTimeout(resolve, 25));
+
+async function fixture(t, limits = {}) {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "damar-lane2-"));
+  t.after(() => fsp.rm(root, { recursive: true, force: true }));
+  const media = createMediaSubsystem({ storageRoot: root, limits, testMode: true });
+  await media.ready;
+  return { root, media };
+}
+
+function composeIngress(media, manager) {
+  const privatePorts = takePrivatePorts(media);
+  let bus;
+  const mediaPorts = Object.freeze({
+    bindAcceptedInteraction: (envelope) => privatePorts.bindAcceptedInteraction(bus, envelope),
+    issueScopedAccess: privatePorts.issueScopedAccess,
+    readScopedAccess: privatePorts.readScopedAccess,
+    releaseScopedAccess: privatePorts.releaseScopedAccess,
+    releaseTransient: privatePorts.releaseTransient
+  });
+  bus = ib.createInteractionBus({ clock: () => 1_000, idFactory: ib.createSequentialIdFactory(), mediaIngress: media, mediaPorts });
+  return { bus, ingress: createManagerInteractionIngress({ bus, manager, mediaSubsystem: media }) };
+}
+
+const fakeManager = (onHandle = async () => ({ managerRequestId: "r", outcome: "COMPLETED", lifecycleState: "COMPLETED", detail: "ok" })) => Object.freeze({ handle: onHandle });
+
+test("Lane 2 general media facade has no active processing authority", async (t) => {
+  const { media } = await fixture(t);
+  const names = [...Object.keys(media), ...Object.getOwnPropertyNames(media), ...Object.getOwnPropertySymbols(media).map(String), ...Object.getOwnPropertyNames(Object.getPrototypeOf(media))];
+  for (const forbidden of ["bindAcceptedInteraction", "issueAccess", "issueScopedAccess", "readAccess", "readScopedAccess", "restore", "resume", "restart", "continuation", "privatePorts", "canonicalOwner"]) assert.equal(names.includes(forbidden), false, `${forbidden} leaked`);
+  assert.equal(typeof media.ingest, "function");
+  assert.equal(typeof media.isCanonicalMediaReference, "function");
+});
+
+test("canonical reference is inert and fabricated envelope cannot bind", async (t) => {
+  const { root, media } = await fixture(t);
+  const descriptor = await media.ingest(spec(Buffer.from("inert")));
+  assert.equal(media.isCanonicalMediaReference(descriptor), true);
+  assert.equal(media.isCanonicalMediaReference({ ...descriptor }), false);
+  const { bus } = composeIngress(media, fakeManager());
+  assert.throws(() => takePrivatePorts(media).bindAcceptedInteraction(bus, { interactionId: "ix_forged", accepted: true, trusted: true, payload: { attachments: [descriptor] } }), (error) => error.code === CODES.FOREIGN_REFERENCE);
+  assert.deepEqual(await fsp.readdir(path.join(root, "relations")), []);
+});
+
+test("accepted active processing gets a scoped lazy reader and exact bytes", async (t) => {
+  const { media } = await fixture(t); let reads = 0; let bytes = null;
+  const { ingress } = composeIngress(media, fakeManager(async (_input, context) => {
+    reads += 1; bytes = (await context.mediaContext.attachments[0].read()).bytes;
+    return { managerRequestId: "r", outcome: "COMPLETED", lifecycleState: "COMPLETED", detail: "ok" };
+  }));
+  const result = await ingress.ingestAttachments("console", { text: "read", sessionId: "ses_lane2" }, [spec(Buffer.from("DAMAR-LANE2-MEDIA-CONTRACT"))]);
+  assert.equal(result.accepted, true); await delay(); assert.equal(reads, 1); assert.deepEqual(bytes, Buffer.from("DAMAR-LANE2-MEDIA-CONTRACT"));
+});
+
+test("real Manager composition consumes branded lazy mediaContext after test-only authentication", async (t) => {
+  const { media } = await fixture(t); const seen = [];
+  const harness = await makeManagerHarness({ authenticate: (e) => e && e.sessionId === "ses_contract" ? { principal: "lane2-contract" } : null, mediaProcessor: async ({ mediaContext }) => seen.push((await mediaContext.attachments[0].read()).bytes) });
+  const { ingress } = composeIngress(media, harness.manager);
+  const accepted = await ingress.ingestAttachments("console", { text: "media", sessionId: "ses_contract" }, [spec(Buffer.from("DAMAR-LANE2-MEDIA-CONTRACT"))]);
+  assert.equal(accepted.accepted, true); await delay(); assert.deepEqual(seen, [Buffer.from("DAMAR-LANE2-MEDIA-CONTRACT")]);
+});
+
+test("lazy hook does not read media unless it requests attachment.read", async (t) => {
+  const { media } = await fixture(t); let hooks = 0;
+  const harness = await makeManagerHarness({ authenticate: () => ({ principal: "lane2-contract" }), mediaProcessor: async () => { hooks += 1; } });
+  const { ingress } = composeIngress(media, harness.manager);
+  const accepted = await ingress.ingestAttachments("console", { text: "no-read", sessionId: "ses_contract" }, [spec(Buffer.from("not-read"))]);
+  assert.equal(accepted.accepted, true); await delay(); assert.equal(hooks, 1);
+});
+
+test("foreign mediaContext shapes fail before traversal", async () => {
+  const harness = await makeManagerHarness({ authenticate: () => ({ principal: "lane2-contract" }) });
+  const base = { channelType: "console", channelId: "console", sessionId: "ses_context", payload: { text: "x" } };
+  for (const context of [{}, new Proxy({}, {}), Object.create(createCanonicalMediaContext(Object.freeze([]))), { attachments: [{ attachmentId: "att_x", read: () => Buffer.from("x") }] }]) await assert.rejects(harness.manager.handle({ ...base, correlationId: `ctx-${Math.random()}` }, { mediaContext: context }), /MEDIA_CONTEXT_INVALID/);
+});
+
+test("terminal success revokes reader while durable relation remains", async (t) => {
+  const { root, media } = await fixture(t); let reader;
+  const { ingress } = composeIngress(media, fakeManager(async (_input, context) => { reader = context.mediaContext.attachments[0].read; await reader(); return { managerRequestId: "r", outcome: "COMPLETED", lifecycleState: "COMPLETED", detail: "ok" }; }));
+  const accepted = await ingress.ingestAttachments("console", { text: "terminal", sessionId: "ses_terminal" }, [spec(Buffer.from("terminal"))]);
+  assert.equal(accepted.accepted, true); await delay(); await assert.rejects(reader(), (error) => error.code === CODES.FOREIGN_REFERENCE); assert.equal((await fsp.readdir(path.join(root, "relations"))).length, 1);
+});
+
+for (const terminal of ["throw", "timeout", "cancel"]) test(`terminal ${terminal} revokes transient reader`, async (t) => {
+  const { media } = await fixture(t); let reader;
+  const manager = fakeManager(async (_input, context) => { reader = context.mediaContext.attachments[0].read; if (terminal === "throw") throw new Error("processor failed"); if (terminal === "timeout") await delay(); return { managerRequestId: "r", outcome: terminal === "cancel" ? "CANCELLED" : "COMPLETED", lifecycleState: terminal === "cancel" ? "CANCELLED" : "COMPLETED", detail: terminal }; });
+  const { ingress } = composeIngress(media, manager);
+  const result = await ingress.ingestAttachments("console", { text: terminal, sessionId: `ses_${terminal}` }, [spec(Buffer.from(terminal))]);
+  assert.equal(result.accepted, true); await delay(); await assert.rejects(reader(), (error) => error.code === CODES.FOREIGN_REFERENCE);
+});
+
+test("restart reloads validated durable evidence without reader or Manager dispatch", async (t) => {
+  const { root, media } = await fixture(t); let managerCalls = 0;
+  const { ingress } = composeIngress(media, fakeManager(async () => { managerCalls += 1; return { managerRequestId: "r", outcome: "COMPLETED", lifecycleState: "COMPLETED", detail: "ok" }; }));
+  const accepted = await ingress.ingestAttachments("console", { text: "restart", sessionId: "ses_restart" }, [spec(Buffer.from("persisted"))]);
+  assert.equal(accepted.accepted, true); await delay(); const restarted = createMediaSubsystem({ storageRoot: root, testMode: true }); await restarted.ready;
+  assert.equal((await fsp.readdir(path.join(root, "relations"))).length, 1); assert.equal(restarted.getDiagnostics().some((d) => d.result === "relation-quarantined"), false); assert.equal(typeof restarted.readAccess, "undefined"); assert.equal(managerCalls, 1);
+});
+
+test("restart isolates malformed relation and orphan catalog media remains inert", async (t) => {
+  const { root, media } = await fixture(t); const descriptor = await media.ingest(spec(Buffer.from("orphan")));
+  await fsp.writeFile(path.join(root, "relations", "ix_bad.json"), JSON.stringify({ schemaVersion: 1, interactionId: "ix_bad", attachments: [{ attachmentId: descriptor.attachmentId, mediaId: "med_ffffffffffffffffffffffffffffffff" }] }));
+  const restarted = createMediaSubsystem({ storageRoot: root, testMode: true }); await restarted.ready;
+  assert.equal(restarted.getDiagnostics().some((d) => d.result === "relation-quarantined"), true); assert.equal(restarted.isCanonicalMediaReference(descriptor), false); assert.equal(typeof restarted.readAccess, "undefined");
+});
+
+test("integrity rejects tampered object through legitimate active reader", async (t) => {
+  const { root, media } = await fixture(t);
+  const { ingress } = composeIngress(media, fakeManager(async (input, context) => { const d = input.payload.attachments[0]; await fsp.writeFile(path.join(root, "objects", `${d.sha256}.blob`), "tampered"); await assert.rejects(context.mediaContext.attachments[0].read(), (error) => error.code === CODES.INTEGRITY_FAILURE); return { managerRequestId: "r", outcome: "COMPLETED", lifecycleState: "COMPLETED", detail: "ok" }; }));
+  const accepted = await ingress.ingestAttachments("console", { text: "integrity", sessionId: "ses_integrity" }, [spec(Buffer.from("original"))]); assert.equal(accepted.accepted, true); await delay();
+});
+
+test("maxRelations is durable capacity and catalog capacity stays atomic", async (t) => {
+  const { root, media } = await fixture(t, { maxRelations: 1, maxBindings: 2 }); const { ingress } = composeIngress(media, fakeManager());
+  const results = await Promise.all([ingress.ingestAttachments("console", { text: "a", sessionId: "ses_a" }, [spec(Buffer.from("a"))]), ingress.ingestAttachments("console", { text: "b", sessionId: "ses_b" }, [spec(Buffer.from("b"))])]);
+  assert.equal(results.filter((x) => x.accepted).length, 1); assert.ok((await fsp.readdir(path.join(root, "relations"))).length <= 1);
+  for (let run = 0; run < 100; run += 1) { const local = await fixture(t, { maxCatalogRecords: 1 }); const outcomes = await Promise.allSettled([local.media.ingest(spec(Buffer.from(`a-${run}`))), local.media.ingest(spec(Buffer.from(`b-${run}`)))]); assert.equal(outcomes.filter((x) => x.status === "fulfilled").length, 1); }
+});
+
+test("runtime host preserves five channel ingestion while production Manager stays fail closed", async (t) => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), "damar-host-lane2-")); t.after(() => fsp.rm(root, { recursive: true, force: true }));
+  const host = await createRuntimeHost({ coreOptions: { mediaStorageRoot: root } }); t.after(() => host.shutdown("test"));
+  for (const channel of CHANNELS) assert.equal((await host.channels.ingestAttachments(channel, { text: channel, sessionId: `ses_${channel}` }, [spec(Buffer.from(channel), { sourceChannel: "forged" })])).accepted, true);
+  await delay(); assert.equal((await fsp.readdir(path.join(root, "relations"))).length, 5);
+  const { createDamarManager } = require("../../src/manager/bootstrap"); const manager = createDamarManager();
+  for (const payload of [{ authenticated: true }, { trusted: true }, { role: "admin" }, { testMode: true }, { session: { principal: "admin" } }]) assert.equal((await manager.handle({ channelType: "console", channelId: "console", sessionId: "ses_auth", correlationId: `auth-${Math.random()}`, payload: { text: "x", ...payload } })).outcome, "AUTHENTICATION_REQUIRED");
+});
