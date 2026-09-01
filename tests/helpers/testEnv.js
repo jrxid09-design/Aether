@@ -40,15 +40,26 @@ if (!process.env.DAMAR_CHANNEL_DB) {
     );
 }
 
+// Snapshot kontinuitas sesi (Wave 5 Lane 4) juga diisolasi — tes host
+// mana pun yang membangun komposisi produksi tidak boleh menulis ke
+// ~/.damar/continuity-v1.json milik pengguna sungguhan.
+if (!process.env.DAMAR_CONTINUITY_STATE) {
+    process.env.DAMAR_CONTINUITY_STATE = path.join(
+        fs.mkdtempSync(path.join(os.tmpdir(), "damar-cont-test-")),
+        "continuity.json"
+    );
+}
+
 process.on("exit", () => {
 
     for (const jalur of [
         process.env.DAMAR_AUDIT_DIR,
         process.env.DAMAR_MEMORY_DB && path.dirname(process.env.DAMAR_MEMORY_DB),
-        process.env.DAMAR_CHANNEL_DB && path.dirname(process.env.DAMAR_CHANNEL_DB)
+        process.env.DAMAR_CHANNEL_DB && path.dirname(process.env.DAMAR_CHANNEL_DB),
+        process.env.DAMAR_CONTINUITY_STATE && path.dirname(process.env.DAMAR_CONTINUITY_STATE)
     ]) {
         try {
-            if (jalur && /damar-(audit|memdb|chandb)-test-/.test(jalur)) {
+            if (jalur && /damar-(audit|memdb|chandb|cont)-test-/.test(jalur)) {
                 fs.rmSync(jalur, { recursive: true, force: true });
             }
         }
