@@ -37,3 +37,45 @@ test("canonical local-only STT rejects remote endpoint before network", async ()
         global.fetch = oldFetch;
     }
 });
+
+test("failed local TTS deterministically clears its request timeout", async () => {
+    const voice = require("../../src/services/voiceService");
+    const savedCfg = voice.cfg;
+    const oldFetch = global.fetch;
+    const oldSetTimeout = global.setTimeout;
+    const oldClearTimeout = global.clearTimeout;
+    const live = new Set();
+    global.setTimeout = (fn, ms, ...args) => { const h = oldSetTimeout(fn, ms, ...args); live.add(h); return h; };
+    global.clearTimeout = h => { live.delete(h); return oldClearTimeout(h); };
+    voice.cfg = () => ({ stt: {}, tts: { url: "http://127.0.0.1:8880/v1/audio/speech", voice: "af_heart" } });
+    global.fetch = async () => { throw new TypeError("local offline"); };
+    try {
+        await assert.rejects(voice.speak("hello", { localOnly: true }), (error) => error.code === "TTS_ALL_FAILED");
+        assert.equal(live.size, 0);
+    } finally {
+        voice.cfg = savedCfg;
+        global.fetch = oldFetch; global.setTimeout = oldSetTimeout; global.clearTimeout = oldClearTimeout;
+        for (const handle of live) oldClearTimeout(handle);
+    }
+});
+
+test("failed local STT deterministically clears its request timeout", async () => {
+    const voice = require("../../src/services/voiceService");
+    const savedCfg = voice.cfg;
+    const oldFetch = global.fetch;
+    const oldSetTimeout = global.setTimeout;
+    const oldClearTimeout = global.clearTimeout;
+    const live = new Set();
+    global.setTimeout = (fn, ms, ...args) => { const h = oldSetTimeout(fn, ms, ...args); live.add(h); return h; };
+    global.clearTimeout = h => { live.delete(h); return oldClearTimeout(h); };
+    voice.cfg = () => ({ stt: { url: "http://127.0.0.1:8000/v1/audio/transcriptions" }, tts: {} });
+    global.fetch = async () => { throw new TypeError("local offline"); };
+    try {
+        await assert.rejects(voice.transcribe(Buffer.from("audio"), { localOnly: true }));
+        assert.equal(live.size, 0);
+    } finally {
+        voice.cfg = savedCfg;
+        global.fetch = oldFetch; global.setTimeout = oldSetTimeout; global.clearTimeout = oldClearTimeout;
+        for (const handle of live) oldClearTimeout(handle);
+    }
+});

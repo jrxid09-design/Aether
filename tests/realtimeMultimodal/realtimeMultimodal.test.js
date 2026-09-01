@@ -93,6 +93,56 @@ test("cancellation interrupts a pending scoped read", async () => {
     await assert.rejects(run, (error) => error.code === "MULTIMODAL_CANCELLED");
 });
 
+test("never-resolving processor is bounded and copied bytes are zeroed", async () => {
+    const bytes = Buffer.from("%PDF-1.7\nsecret");
+    const d = descriptor("document", "application/pdf", bytes);
+    let retained;
+    const processor = createRealtimeMultimodalProcessor({
+        processors: { document: ({ bytes: copy }) => { retained = copy; return new Promise(() => {}); } },
+        limits: { processorTimeoutMs: 15 }
+    });
+    await assert.rejects(processor({ mediaContext: context([{ descriptor: d, bytes }]) }),
+        (error) => error.code === "MULTIMODAL_TIMEOUT");
+    assert.equal(retained.every(byte => byte === 0), true);
+});
+
+test("cancellation bounds an AbortSignal-ignoring processor and zeroes bytes", async () => {
+    const bytes = Buffer.from("%PDF-1.7\nsecret");
+    const d = descriptor("document", "application/pdf", bytes);
+    const controller = new AbortController();
+    let retained;
+    const processor = createRealtimeMultimodalProcessor({ processors: {
+        document: ({ bytes: copy }) => { retained = copy; return new Promise(() => {}); }
+    }});
+    const run = processor({ mediaContext: context([{ descriptor: d, bytes }]), signal: controller.signal });
+    await new Promise(resolve => setImmediate(resolve));
+    controller.abort();
+    await assert.rejects(run, (error) => error.code === "MULTIMODAL_CANCELLED");
+    assert.equal(retained.every(byte => byte === 0), true);
+});
+
+for (const mode of ["resolve", "reject"]) test(`late processor ${mode} after timeout is observed and cannot alter terminal result`, async () => {
+    const bytes = Buffer.from("%PDF-1.7\nsecret");
+    const d = descriptor("document", "application/pdf", bytes);
+    let settle;
+    let retained;
+    const late = new Promise((resolve, reject) => { settle = mode === "resolve" ? resolve : reject; });
+    const processor = createRealtimeMultimodalProcessor({
+        processors: { document: ({ bytes: copy }) => { retained = copy; return late; } },
+        limits: { processorTimeoutMs: 10 }
+    });
+    const unhandled = [];
+    const listener = error => unhandled.push(error);
+    process.on("unhandledRejection", listener);
+    await assert.rejects(processor({ mediaContext: context([{ descriptor: d, bytes }]) }),
+        (error) => error.code === "MULTIMODAL_TIMEOUT");
+    settle(mode === "resolve" ? "late" : new Error("late rejection"));
+    await new Promise(resolve => setImmediate(resolve));
+    process.removeListener("unhandledRejection", listener);
+    assert.equal(unhandled.length, 0);
+    assert.equal(retained.every(byte => byte === 0), true);
+});
+
 test("reader revocation is preserved and no global resolver exists", async () => {
     const bytes = Buffer.from("text");
     const d = descriptor("document", "text/plain", bytes);

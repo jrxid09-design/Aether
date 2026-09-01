@@ -45,6 +45,15 @@ test("manager ingress supports the five existing channels plus voice through one
   assert.ok(calls.every((call) => Object.isFrozen(call.payload)));
 });
 
+test("request facade awaits the same bus-routed Manager result", async () => {
+  const { ingress, calls } = makeIngress();
+  const result = await ingress.request("voice", { text: "canonical", userId: "claimed", sessionId: "ses_voice_request" });
+  assert.equal(result.detail, "cognition");
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].channelType, "voice");
+  assert.equal(calls[0].channelId, "channel.voice");
+});
+
 test("manager ingress rejects raw attachments that bypass MediaIngress", async () => {
   const { ingress, calls } = makeIngress();
   const raw = {
@@ -135,4 +144,12 @@ test("production ingress cannot create a second media ownership domain", () => {
     () => require("../../src/runtime/interactionBus/managerIngressInternal").createProductionManagerInteractionIngress(),
     /owned by createRuntimeHost/
   );
+});
+
+test("production bootstrap contains only one Manager composition site", () => {
+  const fs = require("node:fs");
+  const source = fs.readFileSync(require.resolve("../../src/manager/bootstrap"), "utf8");
+  assert.equal((source.match(/createDamarManagerComposition\s*\(\s*\{/g) || []).length, 1);
+  const { createDamarManager } = require("../../src/manager/bootstrap");
+  assert.equal(createDamarManager(), createDamarManager());
 });

@@ -289,6 +289,7 @@ test("AudioInput._levelArgs: arecord stream raw ke stdout", () => {
 
 function makeRuntime(overrides = {}) {
     return new VoiceRuntime({
+        interactionIngress: { request: async () => ({ detail: "jawaban lokal", outcomeLabel: "selesai" }) },
         config: () => ({
             enabled: true,
             wakeWord: "damar",
@@ -422,39 +423,39 @@ test("VoiceRuntime: TTS/speaker gagal TIDAK melempar (daemon tetap hidup)", asyn
 
 // ---- VoiceSession (jalur AI yang sama) ----
 
-test("VoiceSession.think memakai aiRuntime yang di-inject (bukan loop kedua)", async () => {
-    // Mock aiRuntime: pastikan dipanggil dengan channel "voice" + tools undefined.
+test("VoiceSession.think memakai ingress kanonik (bukan cognition paralel)", async () => {
     let captured = null;
-    const fakeRuntime = {
-        cognition: async (req) => {
-            captured = req;
-            return { content: "Suhu 27 derajat." };
+    const ingress = {
+        request: async (channel, event) => {
+            captured = { channel, event };
+            return { detail: "Suhu 27 derajat.", outcomeLabel: "selesai" };
         }
     };
 
-    const session = new VoiceSession({ aiRuntime: fakeRuntime });
+    const session = new VoiceSession({ interactionIngress: ingress });
     const { answer } = await session.think("Berapa suhu kamar?");
 
     assert.equal(answer, "Suhu 27 derajat.");
-    assert.equal(captured.sessionId, "voice:owner");
-    assert.equal(captured.tools, undefined, "tools undefined → ToolSelector otomatis");
+    assert.equal(captured.channel, "voice");
+    assert.equal(captured.event.sessionId, "ses_voice-owner");
+    assert.equal(captured.event.userId, "owner");
 
     // Riwayat persisten tercatat.
     const history = await session.history();
-    assert.equal(history.length, 2);
-    assert.equal(history[0].role, "user");
-    assert.equal(history[1].role, "assistant");
+    assert.ok(history.length >= 2);
+    assert.equal(history.at(-2).role, "user");
+    assert.equal(history.at(-1).role, "assistant");
 });
 
 // ---- Graceful degradation lanjutan ----
 
 test("VoiceRuntime.handleTranscript: model gagal → reset, tidak throw", async () => {
-    const failingRuntime = {
-        cognition: async () => { throw new Error("model offline"); }
+    const failingIngress = {
+        request: async () => { throw new Error("model offline"); }
     };
 
     const rt = makeRuntime();
-    rt.session = new VoiceSession({ aiRuntime: failingRuntime });
+    rt.session = new VoiceSession({ interactionIngress: failingIngress });
 
     const res = await rt.handleTranscript("halo");
 
@@ -474,6 +475,63 @@ test("VoiceRuntime.handleTranscript rejects hostile coercion without callback", 
     await rt.stop();
 });
 
+test("barge-in aborts active TTS and prevents stale audio playback", async () => {
+    const rt = makeRuntime();
+    const voice = require("../../src/services/voiceService");
+    const originalSpeak = voice.speak;
+    let release;
+    let signal;
+    let played = 0;
+    voice.speak = (_text, options) => { signal = options.signal; return new Promise(resolve => { release = resolve; }); };
+    rt.output.play = async () => { played += 1; };
+    rt.machine.transit(STATES.WAKE_DETECTED);
+    rt.machine.transit(STATES.LISTENING);
+    rt.machine.transit(STATES.TRANSCRIBING);
+    rt.machine.transit(STATES.THINKING);
+    rt.machine.transit(STATES.SPEAKING);
+    const controller = new AbortController();
+    rt._turnController = controller;
+    const generation = rt._turnGeneration;
+    const speaking = rt.speak("old", { signal: controller.signal, generation });
+    await new Promise(resolve => setImmediate(resolve));
+    await rt.interrupt();
+    assert.equal(signal.aborted, true);
+    release({ audio: Buffer.from("stale") });
+    await speaking;
+    assert.equal(played, 0);
+    voice.speak = originalSpeak;
+    await rt.stop();
+});
+
+test("stop supersedes cognition and late result cannot re-enter speaking", async () => {
+    let resolveThinking;
+    const rt = makeRuntime();
+    rt.session = { think: () => new Promise(resolve => { resolveThinking = resolve; }) };
+    let spoken = 0;
+    rt.speak = async () => { spoken += 1; };
+    const turn = rt.handleTranscript("old turn");
+    await new Promise(resolve => setImmediate(resolve));
+    await rt.stop();
+    resolveThinking({ answer: "late" });
+    const result = await turn;
+    assert.equal(result.cancelled, true);
+    assert.equal(spoken, 0);
+    assert.equal(rt.machine.current, STATES.IDLE);
+});
+
+test("barge-in stops active capture owned by the superseded turn", async () => {
+    const rt = makeRuntime();
+    let stops = 0;
+    rt._activeCapture = { stop: async () => { stops += 1; return Buffer.alloc(0); } };
+    rt._turnController = new AbortController();
+    const signal = rt._turnController.signal;
+    await rt.interrupt();
+    assert.equal(signal.aborted, true);
+    assert.equal(stops, 1);
+    assert.equal(rt._activeCapture, null);
+    await rt.stop();
+});
+
 test("VoiceRuntime: input/mic unavailable tidak memblokir status", async () => {
     const rt = makeRuntime();
     await rt.start(); // backend none → probe false, tapi start tetap sukses
@@ -490,4 +548,16 @@ test("VoiceRuntime.stop: bersih tanpa error (daemon shutdown aman)", async () =>
     await rt.stop();
     assert.equal(rt.running, false);
     assert.equal(rt.machine.current, STATES.IDLE);
+});
+
+test("actual VoiceRuntime lazily binds canonical RuntimeHost Manager ingress", async () => {
+    const rt = makeRuntime();
+    rt.session = new VoiceSession();
+    await rt.start();
+    assert.equal(typeof rt.session.interactionIngress.request, "function");
+    const result = await rt.handleTranscript("status aman");
+    assert.equal(typeof result.answer, "string");
+    assert.match(result.answer, /authentication|autentikasi/i);
+    assert.equal(rt._interactionHost.channels, rt.session.interactionIngress);
+    await rt.stop();
 });

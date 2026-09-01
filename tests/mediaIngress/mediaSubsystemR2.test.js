@@ -126,6 +126,49 @@ test("terminal success revokes reader while durable relation remains", async (t)
   assert.equal(accepted.accepted, true); await delay(); await assert.rejects(reader(), (error) => error.code === CODES.FOREIGN_REFERENCE); assert.equal((await fsp.readdir(path.join(root, "relations"))).length, 1);
 });
 
+test("voice attachment crosses actual MediaIngress and terminal handling revokes its scoped reader", async (t) => {
+  const { media } = await fixture(t); let reader; let observed;
+  const { ingress } = composeIngress(media, fakeManager(async (input, context) => {
+    reader = context.mediaContext.attachments[0].read;
+    observed = await reader();
+    assert.equal(input.channelType, "voice");
+    assert.equal(input.payload.authority, undefined);
+    return { managerRequestId: "r", outcome: "COMPLETED", lifecycleState: "COMPLETED", detail: "voice-media" };
+  }));
+  const accepted = await ingress.ingestAttachments("voice", {
+    text: "describe", sessionId: "ses_voice_media", userId: "claimed-owner",
+    metadata: { authority: "ALLOW", trusted: true }
+  }, [spec(Buffer.from("voice attachment"), { sourceChannel: "forged" })]);
+  assert.equal(accepted.accepted, true);
+  await delay();
+  assert.equal(observed.descriptor.sourceChannel, "voice");
+  assert.deepEqual(observed.bytes, Buffer.from("voice attachment"));
+  await assert.rejects(reader(), (error) => error.code === CODES.FOREIGN_REFERENCE);
+});
+
+test("voice MediaIngress reader reaches realtime multimodal processing then is terminally revoked", async (t) => {
+  const { createRealtimeMultimodalProcessor } = require("../../src/runtime/realtimeMultimodal");
+  const { media } = await fixture(t); let reader; let processed = 0;
+  const realtime = createRealtimeMultimodalProcessor({ processors: {
+    document: async ({ bytes }) => { processed += 1; assert.deepEqual(bytes, Buffer.from("voice realtime")); }
+  }});
+  const harness = await makeManagerHarness({
+    authenticate: () => ({ principal: "voice-owner" }),
+    mediaProcessor: async (args) => {
+      reader = args.mediaContext.attachments[0].read;
+      return realtime(args);
+    }
+  });
+  const { ingress } = composeIngress(media, harness.manager, undefined, harness.mediaContextMint);
+  const accepted = await ingress.ingestAttachments("voice", {
+    text: "understand", sessionId: "ses_voice_realtime", userId: "owner"
+  }, [spec(Buffer.from("voice realtime"), { fileName: "note.txt", declaredMimeType: "text/plain" })]);
+  assert.equal(accepted.accepted, true);
+  await delay();
+  assert.equal(processed, 1);
+  await assert.rejects(reader(), (error) => error.code === CODES.FOREIGN_REFERENCE);
+});
+
 for (const terminal of ["throw", "timeout", "cancel"]) test(`${terminal === "timeout" ? "delayed terminal" : terminal === "cancel" ? "CANCELLED-result" : "throwing terminal"} revokes transient reader`, async (t) => {
   const { media } = await fixture(t); let reader;
   const manager = fakeManager(async (_input, context) => { reader = context.mediaContext.attachments[0].read; if (terminal === "throw") throw new Error("processor failed"); if (terminal === "timeout") await delay(); return { managerRequestId: "r", outcome: terminal === "cancel" ? "CANCELLED" : "COMPLETED", lifecycleState: terminal === "cancel" ? "CANCELLED" : "COMPLETED", detail: terminal }; });
