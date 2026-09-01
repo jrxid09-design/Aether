@@ -532,6 +532,116 @@ test("barge-in stops active capture owned by the superseded turn", async () => {
     await rt.stop();
 });
 
+test("stale turn finally cannot reset or clear the newer turn", async () => {
+    const rt = makeRuntime();
+    rt.machine.transit(STATES.WAKE_DETECTED);
+    rt.machine.transit(STATES.LISTENING);
+    rt.machine.transit(STATES.TRANSCRIBING);
+    rt.machine.transit(STATES.THINKING);
+    const pending = [];
+    rt.session = { think: () => new Promise((resolve, reject) => pending.push({ resolve, reject })) };
+    rt.speak = async () => {};
+    let idleTransitions = 0;
+    rt.on("state", ({ to }) => { if (to === STATES.IDLE) idleTransitions += 1; });
+
+    const oldTurn = rt.handleTranscript("old");
+    await new Promise(resolve => setImmediate(resolve));
+    const newTurn = rt.handleTranscript("new");
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(rt.machine.current, STATES.THINKING);
+    const newController = rt._turnController;
+
+    pending[0].resolve({ answer: "late old" });
+    const oldResult = await oldTurn;
+    assert.equal(oldResult.cancelled, true);
+    assert.equal(rt.machine.current, STATES.THINKING);
+    assert.equal(rt._turnController, newController, "stale finally cannot clear newer controller");
+
+    pending[1].resolve({ answer: "new answer" });
+    const newResult = await newTurn;
+    assert.equal(newResult.answer, "new answer");
+    assert.equal(rt.machine.current, STATES.IDLE);
+    assert.equal(idleTransitions, 1, "only the owning turn performs terminal reset");
+    await rt.stop();
+});
+
+test("late rejected old turn cannot mutate newer state", async () => {
+    const rt = makeRuntime();
+    rt.machine.transit(STATES.WAKE_DETECTED);
+    rt.machine.transit(STATES.LISTENING);
+    rt.machine.transit(STATES.TRANSCRIBING);
+    rt.machine.transit(STATES.THINKING);
+    const pending = [];
+    rt.session = { think: () => new Promise((resolve, reject) => pending.push({ resolve, reject })) };
+    const oldTurn = rt.handleTranscript("old");
+    await new Promise(resolve => setImmediate(resolve));
+    const newTurn = rt.handleTranscript("new");
+    await new Promise(resolve => setImmediate(resolve));
+    pending[0].reject(new Error("late abort"));
+    assert.equal((await oldTurn).cancelled, true);
+    assert.equal(rt.machine.current, STATES.THINKING);
+    pending[1].resolve({ answer: "ok" });
+    assert.equal((await newTurn).answer, "ok");
+    assert.equal(rt.machine.current, STATES.IDLE);
+    await rt.stop();
+});
+
+async function captureRace({ action, abortAndInterrupt = false, normal = false } = {}) {
+    const rt = makeRuntime();
+    let stops = 0;
+    let releaseStop;
+    const stopDone = new Promise(resolve => { releaseStop = resolve; });
+    rt.input.startCapture = async () => ({
+        stop: async () => { stops += 1; releaseStop(); return Buffer.alloc(20000); }
+    });
+    const controller = new AbortController();
+    rt._turnController = controller;
+    const capturePromise = rt._captureUtterance(1000, { signal: controller.signal, generation: rt._turnGeneration });
+    await new Promise(resolve => setImmediate(resolve));
+    if (normal) await rt._finalizeCapture(rt._activeCapture);
+    else if (abortAndInterrupt) {
+        controller.abort();
+        await rt.interrupt();
+    } else if (action === "abort") controller.abort();
+    else if (action === "interrupt") await rt.interrupt();
+    else if (action === "stop") await rt.stop();
+    await Promise.race([capturePromise, stopDone]);
+    await capturePromise;
+    assert.equal(stops, 1);
+    await rt.stop();
+}
+
+test("capture cleanup stops exactly once on abort", () => captureRace({ action: "abort" }));
+test("capture cleanup stops exactly once on barge-in", () => captureRace({ action: "interrupt" }));
+test("capture cleanup stops exactly once on stop", () => captureRace({ action: "stop" }));
+test("capture abort and interrupt race stops exactly once", () => captureRace({ abortAndInterrupt: true }));
+test("normal capture completion has no duplicate terminal cleanup", () => captureRace({ normal: true }));
+
+test("stale capture cleanup cannot stop a newer capture", async () => {
+    const rt = makeRuntime();
+    const stops = [];
+    let calls = 0;
+    rt.input.startCapture = async () => {
+        calls += 1;
+        const id = calls;
+        return { stop: async () => { stops.push(id); return Buffer.alloc(20000); } };
+    };
+    const firstController = new AbortController();
+    const secondController = new AbortController();
+    const first = rt._captureUtterance(1000, { signal: firstController.signal, generation: 1 });
+    await new Promise(resolve => setImmediate(resolve));
+    const second = rt._captureUtterance(1000, { signal: secondController.signal, generation: 2 });
+    await new Promise(resolve => setImmediate(resolve));
+    firstController.abort();
+    await first;
+    assert.deepEqual(stops, [1]);
+    assert.notEqual(rt._activeCapture, null);
+    secondController.abort();
+    await second;
+    assert.deepEqual(stops, [1, 2]);
+    await rt.stop();
+});
+
 test("VoiceRuntime: input/mic unavailable tidak memblokir status", async () => {
     const rt = makeRuntime();
     await rt.start(); // backend none → probe false, tapi start tetap sukses
