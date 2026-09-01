@@ -5,11 +5,11 @@ const assert = require("node:assert/strict");
 const { CHANNEL_ADAPTERS } = require("../../src/manager/channels");
 const { CHANNEL_TYPES } = require("../../src/manager/schema");
 
-test("five built-in channel adapters normalize and render only", () => {
+test("built-in channel adapters normalize and render only", () => {
     assert.equal(Object.isFrozen(CHANNEL_ADAPTERS), true);
     assert.deepEqual(CHANNEL_ADAPTERS.map(a => a.channelType).sort(), [
         CHANNEL_TYPES.CLI, CHANNEL_TYPES.COMPANION, CHANNEL_TYPES.CONSOLE,
-        CHANNEL_TYPES.TELEGRAM, CHANNEL_TYPES.WHATSAPP
+        CHANNEL_TYPES.TELEGRAM, CHANNEL_TYPES.VOICE, CHANNEL_TYPES.WHATSAPP
     ].sort());
     for (const adapter of CHANNEL_ADAPTERS) {
         const normalized = adapter.normalizeInbound({

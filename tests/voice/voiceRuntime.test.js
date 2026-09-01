@@ -426,7 +426,7 @@ test("VoiceSession.think memakai aiRuntime yang di-inject (bukan loop kedua)", a
     // Mock aiRuntime: pastikan dipanggil dengan channel "voice" + tools undefined.
     let captured = null;
     const fakeRuntime = {
-        chat: async (req) => {
+        cognition: async (req) => {
             captured = req;
             return { content: "Suhu 27 derajat." };
         }
@@ -436,7 +436,7 @@ test("VoiceSession.think memakai aiRuntime yang di-inject (bukan loop kedua)", a
     const { answer } = await session.think("Berapa suhu kamar?");
 
     assert.equal(answer, "Suhu 27 derajat.");
-    assert.equal(captured.channel, "voice");
+    assert.equal(captured.sessionId, "voice:owner");
     assert.equal(captured.tools, undefined, "tools undefined → ToolSelector otomatis");
 
     // Riwayat persisten tercatat.
@@ -450,7 +450,7 @@ test("VoiceSession.think memakai aiRuntime yang di-inject (bukan loop kedua)", a
 
 test("VoiceRuntime.handleTranscript: model gagal → reset, tidak throw", async () => {
     const failingRuntime = {
-        chat: async () => { throw new Error("model offline"); }
+        cognition: async () => { throw new Error("model offline"); }
     };
 
     const rt = makeRuntime();
@@ -462,6 +462,15 @@ test("VoiceRuntime.handleTranscript: model gagal → reset, tidak throw", async 
     assert.equal(rt.machine.current, STATES.IDLE, "harus reset ke IDLE setelah gagal");
     assert.equal(rt.lastError, "model offline");
 
+    await rt.stop();
+});
+
+test("VoiceRuntime.handleTranscript rejects hostile coercion without callback", async () => {
+    const rt = makeRuntime();
+    let callbacks = 0;
+    const result = await rt.handleTranscript({ toString() { callbacks += 1; return "execute"; } });
+    assert.equal(result.skipped, true);
+    assert.equal(callbacks, 0);
     await rt.stop();
 });
 

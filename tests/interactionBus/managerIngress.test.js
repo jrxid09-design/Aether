@@ -31,15 +31,15 @@ async function tick() {
   await new Promise((resolve) => setImmediate(resolve));
 }
 
-test("manager ingress supports all five channels through one canonical bus boundary", async () => {
+test("manager ingress supports the five existing channels plus voice through one canonical bus boundary", async () => {
   const { ingress, calls } = makeIngress();
-  assert.deepEqual(ingress.channels, ["console", "cli", "telegram", "whatsapp", "companion"]);
+  assert.deepEqual(ingress.channels, ["console", "cli", "telegram", "whatsapp", "companion", "voice"]);
   for (const channel of ingress.channels) {
     const accepted = ingress.ingest(channel, { text: `hello-${channel}`, userId: `${channel}-user` });
     assert.equal(accepted.accepted, true, channel);
   }
   await tick();
-  assert.equal(calls.length, 5);
+  assert.equal(calls.length, 6);
   assert.deepEqual(calls.map((call) => call.channelType), ingress.channels);
   assert.ok(calls.every((call) => call.sessionId.startsWith("ses_")));
   assert.ok(calls.every((call) => Object.isFrozen(call.payload)));
