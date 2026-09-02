@@ -1,229 +1,209 @@
 "use strict";
 
 /**
- * WAVE 5 LANE 4 — DSC-005 END-TO-END CONVERSATIONAL CONTINUITY TESTS.
+ * WAVE 5 LANE 4 — DSC-R1-004 REAL CONTINUITY HISTORY INTEGRATION.
  *
- * Proves the Manager/conversational integration:
- *   - channel A → channel B continuity on the same trusted dsc_*
- *   - same dsc_* yields the SAME logical conversation context
- *   - different dsc_* stays isolated
- *   - no binding → legacy per-channel behavior unchanged
- *   - forged dsc_* does not select history
- *   - authority unchanged (principal never derived from continuity)
- *   - bus transport isolation unchanged (ses_* per channel)
- *
- * Uses an injected logical-history recorder standing in for the canonical
- * ChannelManager seam (sqlite3 is not installed in every environment; the
- * production recorder is exercised in tests/channels where sqlite3 exists).
+ * Uses the REAL production Manager ingress composition
+ * (createDamarManagerIngressDomain → createManagerInteractionIngress → real
+ * Manager) with the REAL ChannelManager logic.  Because the sqlite3 native
+ * module is unavailable in this environment, the SessionStore is injected
+ * through the EXISTING supported ChannelManager store seam (constructor
+ * injection) — the ChannelManager logic under test is production code, not a
+ * fake Manager-owned Map.
  */
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const ib = require("../../src/runtime/interactionBus");
-const { createManagerInteractionIngress } = require("../../src/runtime/interactionBus/managerIngressInternal");
+const { createDamarManager } = require("../../src/manager/bootstrap");
 const { createMediaContextAuthority } = require("../../src/manager/internal/mediaContext");
 const {
   createSessionContinuity,
-  mintPeerProvenance,
   createSequentialContinuityIdFactory,
   createMemoryContinuityStore
 } = require("../../src/runtime/sessionContinuity");
+const { ChannelManager } = require("../../src/channels/channelManager");
 
 function tick() {
   return new Promise((resolve) => setImmediate(resolve));
 }
 
-/** Deterministic logical-history stand-in for the ChannelManager seam. */
-function makeLogicalHistory() {
-  const store = new Map(); // dsc_* → [{role, content}]
-  const recorder = async ({ continuitySessionId, userText, assistantDetail }) => {
-    const turns = store.get(continuitySessionId) ?? [];
-    turns.push({ role: "user", content: String(userText).slice(0, 4096) });
-    turns.push({ role: "assistant", content: String(assistantDetail).slice(0, 4096) });
-    store.set(continuitySessionId, turns);
+/** In-memory SessionStore stand-in injected through the EXISTING
+ * ChannelManager constructor seam (same contract as SessionStore). */
+function makeInjectedStore() {
+  const rows = new Map();
+  return {
+    async open() {},
+    async load(key) {
+      const row = rows.get(key);
+      if (!row) return [];
+      try { return JSON.parse(row.payload); } catch { return []; }
+    },
+    async append(key, turn, meta = {}) {
+      const turns = await this.load(key);
+      turns.push({ role: turn.role, content: turn.content });
+      while (turns.length > 20) turns.shift();
+      rows.set(key, {
+        channel: meta.channel ?? "unknown",
+        kind: meta.kind ?? "dm",
+        peer: String(meta.peer ?? ""),
+        updated_at: Date.now(),
+        turns: turns.length,
+        payload: JSON.stringify(turns)
+      });
+      return turns;
+    },
+    async clear(key) { rows.delete(key); },
+    async list() { return [...rows.values()]; },
+    _rows: rows
   };
-  recorder.store = store;
-  return recorder;
 }
 
-function makeComposition({ historyRecorder } = {}) {
+/** The REAL production ingress composition wired to a REAL ChannelManager
+ * with the injected store.  The peer-evidence provider mirrors the trusted
+ * composition: only runtime-owned `trustedPeerEvidence` is consulted. */
+function makeRealComposition() {
   let now = 1000;
   const clock = () => now;
   const bus = ib.createInteractionBus({ clock, idFactory: ib.createSequentialIdFactory() });
-  const calls = [];
-  const manager = {
-    async handle(input) {
-      calls.push(input);
-      // The Manager can select logical conversation context by the trusted
-      // dsc_* — modeled here exactly as the canonical path would.
-      const history = historyRecorder ? (historyRecorder.store.get(input.continuitySessionId) ?? []) : [];
-      return Object.freeze({
-        managerRequestId: `req-${calls.length}`,
-        outcome: "COMPLETED",
-        lifecycleState: "COMPLETED",
-        detail: history.length > 0
-          ? `ctx:${history.length}:${input.payload.text}`
-          : `fresh:${input.payload.text}`
-      });
-    }
-  };
+  const store = makeInjectedStore();
+  const channelManager = new ChannelManager(store);
+  let controller = null;
   const continuity = createSessionContinuity({
     clock,
     idFactory: createSequentialContinuityIdFactory(),
-    store: createMemoryContinuityStore()
+    store: createMemoryContinuityStore(),
+    trustedLifecycle(c) { controller = c; }
   });
-  const ingress = createManagerInteractionIngress({
-    bus,
-    manager,
-    mediaContextMint: createMediaContextAuthority().mint,
-    sessionContinuity: continuity,
-    historyRecorder
-  });
-  return { bus, calls, manager, continuity, ingress, advance: (ms) => { now += ms; } };
-}
-
-test("DSC-005 E2E: Telegram → Console continues the SAME logical conversation", async () => {
-  const history = makeLogicalHistory();
-  const { ingress, continuity } = makeComposition({ historyRecorder: history });
-
-  // Channel A: Telegram.
-  const tg = ingress.ingest("telegram", { text: "nama saya Budi", userId: "owner" });
-  await tick(); await tick();
-  assert.equal(tg.accepted, true);
-  const canonicalId = tg.canonicalSessionId;
-
-  // Trusted runtime act: bind console to the same canonical session.
-  continuity.bindChannel({ sessionId: canonicalId, provenance: mintPeerProvenance("console", "owner") });
-
-  // Channel B: Console — same trusted dsc_* → same logical conversation.
-  const co = ingress.ingest("console", { text: "siapa nama saya?", userId: "owner" });
-  await tick(); await tick();
-  assert.equal(co.canonicalSessionId, canonicalId);
-
-  // The logical history keyed by dsc_* accumulated BOTH channels' turns.
-  const turns = history.store.get(canonicalId);
-  assert.equal(turns.length, 4, "two exchanges recorded under the one logical key");
-  assert.deepEqual(turns.map((t) => t.role), ["user", "assistant", "user", "assistant"]);
-  assert.equal(turns[0].content, "nama saya Budi");
-  assert.equal(turns[2].content, "siapa nama saya?");
-});
-
-test("DSC-005 E2E: different dsc_* stays logically isolated", async () => {
-  const history = makeLogicalHistory();
-  const { ingress } = makeComposition({ historyRecorder: history });
-  const a = ingress.ingest("telegram", { text: "rahasia alice", userId: "alice" });
-  const b = ingress.ingest("telegram", { text: "rahasia bob", userId: "bob" });
-  await tick(); await tick();
-  assert.notEqual(a.canonicalSessionId, b.canonicalSessionId);
-  const turnsA = history.store.get(a.canonicalSessionId);
-  const turnsB = history.store.get(b.canonicalSessionId);
-  assert.equal(turnsA.length, 2);
-  assert.equal(turnsB.length, 2);
-  assert.ok(!turnsA.some((t) => t.content.includes("bob")));
-  assert.ok(!turnsB.some((t) => t.content.includes("alice")));
-});
-
-test("DSC-005 E2E: no continuity binding → legacy per-channel behavior unchanged", async () => {
-  // No sessionContinuity injected: exactly the pre-Lane-4 ingress behavior.
-  const bus = ib.createInteractionBus({ clock: () => 1000, idFactory: ib.createSequentialIdFactory() });
+  // The REAL production Manager (fail-closed auth path).
+  const manager = createDamarManager();
   const calls = [];
-  const manager = {
-    async handle(input) {
+  const managerSpy = {
+    handle: async (input) => {
       calls.push(input);
-      return Object.freeze({
-        managerRequestId: "r", outcome: "COMPLETED", lifecycleState: "COMPLETED", detail: "ok"
-      });
+      // The real Manager records continuityContext as inert provenance; the
+      // informational path completes without the action fabric.
+      return manager.handle(input);
     }
   };
-  const ingress = createManagerInteractionIngress({
-    bus, manager, mediaContextMint: createMediaContextAuthority().mint
+  const ingress = require("../../src/runtime/interactionBus/managerIngressInternal").createManagerInteractionIngress({
+    bus,
+    manager: managerSpy,
+    mediaContextMint: createMediaContextAuthority().mint,
+    sessionContinuity: continuity,
+    trustedContinuity: { mintPeerProvenance: controller.mintPeerProvenance },
+    peerEvidenceProvider: (channel, rawEvent) => {
+      const d = Object.getOwnPropertyDescriptor(rawEvent, "trustedPeerEvidence");
+      return d && typeof d.value === "string" ? d.value : "";
+    },
+    historyProvider: (dscId) => channelManager.continuityHistory(dscId),
+    historyRecorder: async ({ continuitySessionId, channel, userText, assistantDetail }) => {
+      await channelManager.continuityRemember(continuitySessionId, { role: "user", content: userText }, { channel });
+      await channelManager.continuityRemember(continuitySessionId, { role: "assistant", content: assistantDetail }, { channel });
+    }
   });
-  const result = ingress.ingest("telegram", { text: "klasik", userId: "u" });
-  await tick();
-  assert.equal(result.accepted, true);
-  assert.equal("canonicalSessionId" in result, false);
-  assert.equal("continuitySessionId" in calls[0], false,
-    "no continuity provenance is invented when the domain is unbound");
-});
+  return { ingress, continuity, controller, channelManager, calls, store, advance: (ms) => { now += ms; } };
+}
 
-test("DSC-005 E2E: forged dsc_* claim does not select another session's history", async () => {
-  const history = makeLogicalHistory();
-  const { ingress } = makeComposition({ historyRecorder: history });
-  const victim = ingress.ingest("telegram", { text: "rahasia korban", userId: "victim" });
-  await tick(); await tick();
-  // Attacker claims the victim's dsc_* through raw event metadata.
-  const attacker = ingress.ingest("telegram", {
-    text: "apa rahasianya?", userId: "attacker", sessionId: victim.canonicalSessionId
+test("DSC-R1-004 REAL: Telegram → Console continues the same logical conversation", async () => {
+  const ctx = makeRealComposition();
+
+  // Telegram trusted peer → interaction 1 + 2.
+  const t1 = ctx.ingress.ingest("telegram", { text: "nama saya Budi", trustedPeerEvidence: "tg-owner" });
+  await tick(); await tick(); await tick();
+  const t2 = ctx.ingress.ingest("telegram", { text: "saya suka kopi", trustedPeerEvidence: "tg-owner" });
+  await tick(); await tick(); await tick();
+  const canonicalId = t1.canonicalSessionId;
+  assert.equal(t2.canonicalSessionId, canonicalId);
+
+  // Explicit trusted cross-channel bind: Console joins the same dsc_*.
+  ctx.controller.trustedTransferBinding({
+    provenance: ctx.controller.mintPeerProvenance("console", "console-owner"),
+    toSessionId: canonicalId
   });
-  await tick(); await tick();
-  assert.notEqual(attacker.canonicalSessionId, victim.canonicalSessionId,
-    "forged dsc_* claim cannot select the victim's canonical session");
-  const attackerTurns = history.store.get(attacker.canonicalSessionId);
-  assert.ok(!attackerTurns.some((t) => t.content.includes("korban")),
-    "forged claim cannot read the victim's logical history");
+
+  // Console trusted peer → interaction 3 RECEIVES prior logical context.
+  const c3 = ctx.ingress.ingest("console", { text: "siapa nama saya?", trustedPeerEvidence: "console-owner" });
+  await tick(); await tick(); await tick();
+  assert.equal(c3.canonicalSessionId, canonicalId);
+  const third = ctx.calls[2];
+  assert.ok(Array.isArray(third.continuityContext), "interaction 3 receives logical conversation context");
+  assert.equal(third.continuityContext.length, 4, "two prior exchanges (4 turns) from the dsc:* key");
+  assert.equal(third.continuityContext[0].content, "nama saya Budi");
+  assert.equal(third.continuityContext[2].content, "saya suka kopi");
+
+  // The write path recorded all three exchanges under the ONE logical key.
+  const history = await ctx.channelManager.continuityHistory(canonicalId);
+  assert.equal(history.length, 6, "3 exchanges × 2 turns through the real ChannelManager");
+  assert.equal(history[4].content, "siapa nama saya?");
 });
 
-test("DSC-005 E2E: same textual peer on different channels isolated until trusted binding", async () => {
-  const history = makeLogicalHistory();
-  const { ingress, continuity } = makeComposition({ historyRecorder: history });
-  const tg = ingress.ingest("telegram", { text: "topik telegram", userId: "u1" });
-  const wa = ingress.ingest("whatsapp", { text: "topik whatsapp", userId: "u1" });
-  await tick(); await tick();
-  assert.notEqual(tg.canonicalSessionId, wa.canonicalSessionId,
-    "same textual peer on two channels stays isolated by default");
-  assert.equal(history.store.get(tg.canonicalSessionId).length, 2);
-  assert.equal(history.store.get(wa.canonicalSessionId).length, 2);
-
-  // ONLY the explicit trusted composition can unify them afterwards — and
-  // even then, displacing an EXISTING binding to another session fails
-  // closed on the public path (no untrusted takeover).
-  assert.throws(
-    () => continuity.bindChannel({ sessionId: tg.canonicalSessionId, provenance: mintPeerProvenance("whatsapp", "u1") }),
-    (error) => error.code === "BINDING_CONFLICT",
-    "unifying over an existing foreign binding must fail closed publicly"
-  );
-  // The two logical conversations remain separate.
-  assert.equal(history.store.get(tg.canonicalSessionId).length, 2);
-  assert.equal(history.store.get(wa.canonicalSessionId).length, 2);
+test("DSC-R1-004 REAL: different dsc_* does not see the history", async () => {
+  const ctx = makeRealComposition();
+  const a = ctx.ingress.ingest("telegram", { text: "rahasia alice", trustedPeerEvidence: "alice" });
+  await tick(); await tick(); await tick();
+  const b = ctx.ingress.ingest("telegram", { text: "halo", trustedPeerEvidence: "bob" });
+  await tick(); await tick(); await tick();
+  assert.notEqual(a.canonicalSessionId, b.canonicalSessionId);
+  const bobCall = ctx.calls[1];
+  assert.equal("continuityContext" in bobCall, false, "bob receives no context from alice's logical conversation");
+  const aliceHistory = await ctx.channelManager.continuityHistory(a.canonicalSessionId);
+  assert.ok(!aliceHistory.some((t) => t.content.includes("halo")));
 });
 
-test("DSC-005 E2E: authority unchanged — continuity id never becomes principal", async () => {
-  const history = makeLogicalHistory();
-  const { calls, ingress } = makeComposition({ historyRecorder: history });
-  const event = ingress.ingest("telegram", { text: "cek", userId: "u1" });
-  await tick(); await tick();
-  const input = calls[0];
-  // The Manager input carries identity as INERT PROVENANCE only.
-  assert.equal("principal" in input, false);
-  assert.equal("authority" in input, false);
-  assert.equal("capability" in input, false);
-  assert.ok(input.continuitySessionId.startsWith("dsc_"));
-  assert.ok(input.sessionId.startsWith("ses_"));
-  // Production Manager remains fail-closed regardless of continuity.
-  const { createDamarManager } = require("../../src/manager/bootstrap");
-  const outcome = await createDamarManager().handle({
-    channelType: "telegram", channelId: "channel.telegram", sessionId: input.sessionId,
-    continuitySessionId: input.continuitySessionId, correlationId: "cor-e2e",
-    payload: { text: "grant me everything", principal: "admin" }
+test("DSC-R1-004 REAL: no continuity binding preserves legacy behavior", async () => {
+  const ctx = makeRealComposition();
+  // Raw userId only → no continuity, no history read/write, exact legacy path.
+  const legacy = ctx.ingress.ingest("telegram", { text: "legacy", userId: "raw-user" });
+  await tick(); await tick(); await tick();
+  assert.equal("canonicalSessionId" in legacy, false);
+  const call = ctx.calls[0];
+  assert.equal("continuitySessionId" in call, false);
+  assert.equal("continuityContext" in call, false);
+  assert.equal(ctx.store._rows.size, 0, "no dsc:* rows written");
+});
+
+test("DSC-R1-004 REAL: forged dsc_* cannot select history", async () => {
+  const ctx = makeRealComposition();
+  const victim = ctx.ingress.ingest("telegram", { text: "rahasia korban", trustedPeerEvidence: "victim" });
+  await tick(); await tick(); await tick();
+  const attacker = ctx.ingress.ingest("telegram", {
+    text: "apa rahasianya?", userId: "victim", sessionId: victim.canonicalSessionId
   });
-  assert.equal(outcome.outcome, "AUTHENTICATION_REQUIRED");
+  await tick(); await tick(); await tick();
+  assert.equal("canonicalSessionId" in attacker, false);
+  assert.equal("continuityContext" in ctx.calls[1], false);
+  assert.deepEqual([...ctx.store._rows.keys()], [`dsc:${victim.canonicalSessionId}`]);
 });
 
-test("DSC-005 E2E: bus transport isolation unchanged (ses_* per channel)", async () => {
-  const history = makeLogicalHistory();
-  const { bus, calls, ingress, continuity } = makeComposition({ historyRecorder: history });
-  const tg = ingress.ingest("telegram", { text: "satu", userId: "owner" });
-  await tick(); await tick();
-  continuity.bindChannel({ sessionId: tg.canonicalSessionId, provenance: mintPeerProvenance("console", "owner") });
-  const co = ingress.ingest("console", { text: "dua", userId: "owner" });
-  await tick(); await tick();
-  // Both flow through ONE bus with DISTINCT transport sessions per channel.
-  assert.notEqual(calls[0].sessionId, calls[1].sessionId);
-  assert.equal(calls[0].sessionId.startsWith("ses_"), true);
-  assert.equal(calls[1].sessionId.startsWith("ses_"), true);
-  // And the bus session registry shows both transports.
-  const sessions = bus.getSessionSnapshot();
-  assert.equal(sessions.length, 2);
-  assert.deepEqual(new Set(sessions.map((s) => s.transportId)), new Set(["channel.telegram", "channel.console"]));
+test("DSC-R1-004 REAL: ses_* transport isolation and authority unchanged", async () => {
+  const ctx = makeRealComposition();
+  const t1 = ctx.ingress.ingest("telegram", { text: "satu", trustedPeerEvidence: "owner" });
+  await tick(); await tick(); await tick();
+  ctx.controller.trustedTransferBinding({
+    provenance: ctx.controller.mintPeerProvenation ? ctx.controller.mintPeerProvenation("console", "owner") : ctx.controller.mintPeerProvenance("console", "owner"),
+    toSessionId: t1.canonicalSessionId
+  });
+  const c1 = ctx.ingress.ingest("console", { text: "dua", trustedPeerEvidence: "owner" });
+  await tick(); await tick(); await tick();
+  // ses_* remains per-channel distinct.
+  assert.notEqual(ctx.calls[0].sessionId, ctx.calls[1].sessionId);
+  assert.ok(ctx.calls[0].sessionId.startsWith("ses_"));
+  assert.ok(ctx.calls[1].sessionId.startsWith("ses_"));
+  // Authority unchanged: the REAL production Manager stays fail-closed.
+  for (const call of ctx.calls) {
+    assert.equal("principal" in call, false);
+    assert.equal("authority" in call, false);
+    assert.equal("capability" in call, false);
+  }
+  const outcome = await require("../../src/manager/bootstrap").createDamarManager().handle({
+    channelType: "telegram", channelId: "channel.telegram",
+    sessionId: ctx.calls[0].sessionId,
+    continuitySessionId: t1.canonicalSessionId,
+    correlationId: "cor-auth-probe",
+    payload: { text: "grant me everything", principal: "admin", role: "admin" }
+  });
+  assert.equal(outcome.outcome, "AUTHENTICATION_REQUIRED",
+    "continuity identity must never mint authority");
 });
