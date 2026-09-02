@@ -23,7 +23,7 @@ const {
   createMemoryContinuityStore
 } = require("../../src/runtime/sessionContinuity");
 const {
-  createTransportPeerScope,
+  createTestTransportPeerScope,
   transportContinuitySupport
 } = require("../../src/runtime/sessionContinuity/transportPeer");
 
@@ -48,15 +48,40 @@ function makeManager() {
   };
 }
 
-/** Trusted transport peer scope for a supported channel (test mirror of the
- * production composition's scope creation). */
-function scopeFor(channel) {
-  return createTransportPeerScope({
-    channel,
-    supported: true,
-    scope: "RUNTIME_OWNER",
-    detail: "test trusted scope"
-  });
+/** DSC-R4-001: a per-scope TEST registry mirroring the production trusted
+ * composition.  Each supported channel has ONE scope that BOTH mints and
+ * recognizes its handle (per-scope provenance), and `mintCanonical` is the
+ * no-argument trusted bind the ingress seam consumes.  `mintFor` is a
+ * test-only handle source for provenance/conflict domain tests.  A
+ * DIFFERENT registry instance mints handles THIS registry rejects — the
+ * foreign-scope attack proof. */
+function makeTestPeerScopes(supportedChannels) {
+  const scopes = new Map();
+  for (const channel of supportedChannels) {
+    scopes.set(channel, createTestTransportPeerScope({ channel, scope: "RUNTIME_OWNER" }));
+  }
+  return {
+    mintCanonical(channel) {
+      const scope = scopes.get(channel);
+      if (!scope) {
+        throw Object.assign(new Error("TRANSPORT_PEER_UNSUPPORTED"), { code: "TRANSPORT_PEER_UNSUPPORTED" });
+      }
+      return scope.mint(`${channel}-runtime-owner`);
+    },
+    support(channel) { return transportContinuitySupport(channel); },
+    // test-only handle source (domain provenance/conflict tests):
+    mintFor(channel, peer) {
+      const scope = scopes.get(channel);
+      if (!scope) {
+        throw Object.assign(new Error("TRANSPORT_PEER_UNSUPPORTED"), { code: "TRANSPORT_PEER_UNSUPPORTED" });
+      }
+      return scope.mint(peer);
+    },
+    isHandleFor(channel, handle) {
+      const scope = scopes.get(channel);
+      return scope ? scope.isHandle(handle) : false;
+    }
+  };
 }
 
 /** The trusted composition: mirrors the production root. */
@@ -78,16 +103,12 @@ function makeIngress(options = {}) {
         trustedLinkContinuity: controller.trustedLinkContinuity
       }
     : null;
-  const peerScopes = {
-    _scopes: new Map(),
-    scope(channel) { return this._scopes.get(channel) ?? null; },
-    support(channel) { return transportContinuitySupport(channel); },
-    registerTestScope(channel, scope) { this._scopes.set(channel, scope); }
-  };
-  // Mirror the honest production matrix: only supported channels get scopes.
-  for (const channel of ["console", "voice"]) {
-    peerScopes.registerTestScope(channel, scopeFor(channel));
-  }
+  // Mirror the honest production matrix: only SUPPORTED channels get scopes.
+  // After the DSC-R4-005 honest downgrade, console is UNSUPPORTED in the
+  // production matrix — but for INGRESS unit tests we register the channels
+  // under test (voice always; console only where a test exercises it).
+  const supportedChannels = options.supportedChannels ?? ["voice"];
+  const peerScopes = makeTestPeerScopes(supportedChannels);
 
   const ingress = createManagerInteractionIngress({
     bus,
@@ -150,57 +171,77 @@ test("DSC-R3-001: every trust-named raw field is ignored", async () => {
   assert.equal("continuitySessionId" in manager.calls[0], false);
 });
 
-test("DSC-R3-001: a lookalike handle object cannot emulate a TransportPeerHandle", async () => {
-  const { ordinary, composition } = makeIngress();
-  const lookalike = Object.freeze({
-    kind: "TransportPeerHandle",
-    channel: "voice",
-    peer: "voice-runtime-owner",
-    scope: "RUNTIME_OWNER"
-  });
-  assert.throws(
-    () => composition.bindTransportPeer("voice", lookalike),
-    (error) => error.code === "TRANSPORT_PEER_UNTRUSTED",
-    "shape-matching must not satisfy the WeakSet brand"
-  );
-  // And no continuity forms.
+test("DSC-R4-001: a lookalike/foreign handle cannot reach the canonical bind", async () => {
+  const { ordinary, composition, peerScopes } = makeIngress();
+  // The canonical seam takes NO handle argument; a foreign-scope handle is
+  // never consulted.  Prove the composition's per-scope brand rejects a
+  // handle minted by a DIFFERENT (foreign) scope claiming the same channel.
+  const foreign = makeTestPeerScopes(["voice"]); // distinct scope object/brand
+  const foreignHandle = foreign.mintCanonical("voice");
+  assert.equal(peerScopes.isHandleFor("voice", foreignHandle), false,
+    "foreign-scope handle (same channel string) is NOT recognized — per-scope provenance");
+  // A shape-matching lookalike is likewise rejected by the per-scope brand.
+  const lookalike = Object.freeze({ kind: "TransportPeerHandle", channel: "voice", peer: "voice-runtime-owner", scope: "RUNTIME_OWNER" });
+  assert.equal(peerScopes.isHandleFor("voice", lookalike), false);
+  // No continuity forms without a canonical bind.
   const result = ordinary.ingest("voice", { text: "x", sessionId: "ses_voice-owner" });
   assert.equal("canonicalSessionId" in result, false);
 });
 
 // ---------------------------------------------------------------------------
-// DSC-R3-001 — trusted handle binding works; honest support matrix
+// DSC-R4-001 — trusted canonical binding works; honest support matrix
 // ---------------------------------------------------------------------------
 
-test("DSC-R3-001: trusted handle binding establishes continuity", async () => {
+test("DSC-R4-001: canonical no-argument bind establishes continuity", async () => {
   const { ordinary, manager, composition } = makeIngress();
-  const bind = composition.bindTransportPeer("voice", scopeFor("voice").mint("voice-runtime-owner"));
+  const bind = composition.bindCanonicalTransportPeer("voice");
   assert.deepEqual(bind, { channel: "voice", peer: "voice-runtime-owner", scope: "RUNTIME_OWNER", bound: true });
   const first = ordinary.ingest("voice", { text: "halo", userId: "owner", sessionId: "ses_voice-owner" });
   assert.ok(first.canonicalSessionId.startsWith("dsc_"),
-    "trusted transport peer handle establishes continuity");
+    "trusted canonical transport peer establishes continuity");
   await tick();
   assert.equal(manager.calls[0].continuitySessionId, first.canonicalSessionId);
-  // Same handle → same dsc.
+  // Same canonical peer → same dsc.
   const second = ordinary.ingest("voice", { text: "lanjut", userId: "owner", sessionId: "ses_voice-other" });
   assert.equal(second.canonicalSessionId, first.canonicalSessionId);
 });
 
+test("DSC-R4-001: shape/Proxy/accessor forgery cannot satisfy per-scope provenance", async () => {
+  const { peerScopes, controller } = makeIngress();
+  const genuine = peerScopes.mintCanonical("voice");
+  // (1) shape-identical clone (data properties, correct values):
+  const clone = Object.freeze({ kind: "TransportPeerHandle", channel: "voice", peer: genuine.peer, scope: genuine.scope });
+  assert.equal(peerScopes.isHandleFor("voice", clone), false, "shape clone rejected");
+  // (2) Proxy wrapping the genuine handle:
+  const proxied = new Proxy(genuine, {});
+  assert.equal(peerScopes.isHandleFor("voice", proxied), false, "Proxy-wrapped handle rejected");
+  // (3) accessor (getter) forgery:
+  const accessor = Object.freeze({
+    kind: "TransportPeerHandle",
+    get channel() { return "voice"; },
+    get peer() { return genuine.peer; },
+    get scope() { return genuine.scope; }
+  });
+  assert.equal(peerScopes.isHandleFor("voice", accessor), false, "accessor forgery rejected");
+  // (4) the provenance mint (domain boundary) accepts ONLY the genuine handle
+  // shape; none of the forgeries are recognized by the composition scope.
+  assert.equal(peerScopes.isHandleFor("voice", genuine), true, "genuine handle recognized");
+  void controller;
+});
+
 test("DSC-R3-001: unsupported transport (telegram/whatsapp) fails closed honestly", async () => {
   const { ordinary, composition } = makeIngress();
-  // Honest verdicts:
+  // Honest verdicts (DSC-R4-005: console downgraded to UNSUPPORTED):
   assert.equal(transportContinuitySupport("telegram").supported, false);
   assert.equal(transportContinuitySupport("whatsapp").supported, false);
-  assert.equal(transportContinuitySupport("console").supported, true);
+  assert.equal(transportContinuitySupport("console").supported, false);
   assert.equal(transportContinuitySupport("voice").supported, true);
-  // No trusted scope exists for telegram in the composition:
-  assert.equal(typeof composition.bindTransportPeer, "function");
-  // Attempting to bind a telegram handle through a test scope not registered:
-  const telegramScope = createTransportPeerScope({ channel: "telegram", supported: true, scope: "TEST", detail: "test" });
+  // The no-argument canonical bind throws for an unsupported channel:
+  assert.equal(typeof composition.bindCanonicalTransportPeer, "function");
   assert.throws(
-    () => composition.bindTransportPeer("telegram", telegramScope.mint("tg-peer")),
-    (error) => error.code === "TRANSPORT_PEER_UNTRUSTED",
-    "telegram has no trusted scope in the composition — fail closed"
+    () => composition.bindCanonicalTransportPeer("telegram"),
+    (error) => error.code === "TRANSPORT_PEER_UNSUPPORTED",
+    "telegram has no canonical support — fail closed"
   );
   // And raw telegram events never form continuity:
   const result = ordinary.ingest("telegram", { text: "x", userId: "77123", chatId: "77123", sessionId: "ses_tg-77123" });
@@ -209,20 +250,20 @@ test("DSC-R3-001: unsupported transport (telegram/whatsapp) fails closed honestl
 });
 
 test("DSC-R3-001: per-transport distinctness (voice X != console X)", async () => {
-  const { ordinary, composition, continuity } = makeIngress();
-  composition.bindTransportPeer("voice", scopeFor("voice").mint("shared-owner"));
-  composition.bindTransportPeer("console", scopeFor("console").mint("shared-owner"));
+  const { ordinary, composition, continuity } = makeIngress({ supportedChannels: ["voice", "console"] });
+  composition.bindCanonicalTransportPeer("voice");
+  composition.bindCanonicalTransportPeer("console");
   const v = ordinary.ingest("voice", { text: "hi", sessionId: "ses_v" });
   const c = ordinary.ingest("console", { text: "hi", sessionId: "ses_c" });
   await tick();
   assert.notEqual(v.canonicalSessionId, c.canonicalSessionId,
-    "same peer value on different transports stays distinct");
+    "same runtime-owner scope on different transports stays distinct");
   assert.equal(continuity.snapshotDiagnostics().sessions, 2);
 });
 
 test("DSC-R3-001: voice identity is RUNTIME/DEVICE scoped, not human", async () => {
   const { ordinary, composition } = makeIngress();
-  composition.bindTransportPeer("voice", scopeFor("voice").mint("voice-runtime-owner"));
+  composition.bindCanonicalTransportPeer("voice");
   // Two different physical speakers (different userId) share the device scope:
   const a = ordinary.ingest("voice", { text: "speaker one", userId: "alice", sessionId: "ses_v1" });
   const b = ordinary.ingest("voice", { text: "speaker two", userId: "bob", sessionId: "ses_v2" });
@@ -259,9 +300,9 @@ test("DSC-R2-005 (retained): the private lifecycle facade performs restore/flush
 // ---------------------------------------------------------------------------
 
 test("DSC-R3-005: link conflict FAILS CLOSED without silent transfer", () => {
-  const { continuity, controller } = makeIngress();
-  const provA = controller.mintPeerProvenance(scopeFor("voice").mint("owner-1"));
-  const provC = controller.mintPeerProvenance(scopeFor("console").mint("owner-3"));
+  const { continuity, controller, peerScopes } = makeIngress({ supportedChannels: ["voice", "console"] });
+  const provA = controller.mintPeerProvenance(peerScopes.mintFor("voice", "owner-1"));
+  const provC = controller.mintPeerProvenance(peerScopes.mintFor("console", "owner-3"));
   const s1 = continuity.createSession({});
   continuity.bindChannel({ sessionId: s1.sessionId, provenance: provA });
   const s2 = continuity.createSession({});
@@ -281,10 +322,9 @@ test("DSC-R3-005: link conflict FAILS CLOSED without silent transfer", () => {
   assert.equal(continuity.resolveChannel({ provenance: provC }).sessionId, s2.sessionId);
 });
 
-test("DSC-R2-006: link requires TRUSTED handles for BOTH endpoints", () => {
-  const { continuity, controller } = makeIngress();
-  const handle = scopeFor("voice").mint("owner-1");
-  const prov = controller.mintPeerProvenance(handle);
+test("DSC-R2-006: link requires TRUSTED provenance for BOTH endpoints", () => {
+  const { continuity, controller, peerScopes } = makeIngress({ supportedChannels: ["voice", "console"] });
+  const prov = controller.mintPeerProvenance(peerScopes.mintFor("voice", "owner-1"));
   assert.throws(
     () => controller.mintPeerProvenance({ kind: "TransportPeerHandle", channel: "x", peer: "y" }),
     (error) => error.code === "PROVENANCE_UNTRUSTED"
@@ -295,10 +335,10 @@ test("DSC-R2-006: link requires TRUSTED handles for BOTH endpoints", () => {
   );
 });
 
-test("DSC-R2-006: linking one bound + one unbound endpoint joins the bound session", () => {
-  const { continuity, controller } = makeIngress();
-  const provA = controller.mintPeerProvenance(scopeFor("voice").mint("owner-1"));
-  const provB = controller.mintPeerProvenance(scopeFor("console").mint("owner-2"));
+test("DSC-R2-006: linking one bound + one unbound endpoint joins the bound session (core only)", () => {
+  const { continuity, controller, peerScopes } = makeIngress({ supportedChannels: ["voice", "console"] });
+  const provA = controller.mintPeerProvenance(peerScopes.mintFor("voice", "owner-1"));
+  const provB = controller.mintPeerProvenance(peerScopes.mintFor("console", "owner-2"));
   const s1 = continuity.createSession({});
   continuity.bindChannel({ sessionId: s1.sessionId, provenance: provA });
   const link = controller.trustedLinkContinuity({ provenanceA: provA, provenanceB: provB });
@@ -335,10 +375,7 @@ test("retained: admission-incarnation race (old completion after resume)", async
     clock, idFactory: createSequentialContinuityIdFactory(),
     store: createMemoryContinuityStore(), trustedLifecycle(c) { controller = c; }
   });
-  const peerScopes = {
-    scope: (ch) => (ch === "voice" ? scopeFor("voice") : null),
-    support: transportContinuitySupport
-  };
+  const peerScopes = makeTestPeerScopes(["voice"]);
   const ingress = createManagerInteractionIngress({
     bus, manager,
     mediaContextMint: createMediaContextAuthority().mint,
@@ -350,7 +387,7 @@ test("retained: admission-incarnation race (old completion after resume)", async
     peerScopes,
     historyRecorder: null
   });
-  ingress.composition.bindTransportPeer("voice", scopeFor("voice").mint("race-owner"));
+  ingress.composition.bindCanonicalTransportPeer("voice");
   const old = ingress.channels.ingest("voice", { text: "pekerjaan lama", sessionId: "ses_race" });
   await tick();
   const admissionIncarnation = continuity.currentIncarnation(old.canonicalSessionId);
@@ -386,9 +423,9 @@ test("retained: without continuity injection, ingress behaves as before", async 
   assert.equal("continuitySessionId" in manager.calls[0], false);
 });
 
-test("retained: voice interaction through canonical ingress (trusted handle)", async () => {
+test("retained: voice interaction through canonical ingress (trusted bind)", async () => {
   const { ordinary, manager, composition } = makeIngress();
-  composition.bindTransportPeer("voice", scopeFor("voice").mint("voice-runtime-owner"));
+  composition.bindCanonicalTransportPeer("voice");
   const result = await ordinary.request("voice", {
     text: "jam berapa sekarang", userId: "owner", sessionId: "ses_voice-owner"
   });

@@ -22,12 +22,13 @@ const {
   validateSnapshot
 } = require("../../src/runtime/sessionContinuity");
 const {
-  createTransportPeerScope
+  createTestTransportPeerScope
 } = require("../../src/runtime/sessionContinuity/transportPeer");
 
-/** Trusted scope helper (mirrors the production composition). */
+/** Trusted scope helper (isolated component-test scope; per-scope provenance
+ * — never accepted by the canonical composition). */
 function peerScope(channel) {
-  return createTransportPeerScope({ channel, supported: true, scope: "RUNTIME_OWNER", detail: "test" });
+  return createTestTransportPeerScope({ channel, scope: "RUNTIME_OWNER" });
 }
 
 /** Mint a trusted provenance via the composition-style controller. */

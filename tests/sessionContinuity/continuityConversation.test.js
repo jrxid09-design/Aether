@@ -21,9 +21,8 @@ const {
   createSequentialContinuityIdFactory,
   createMemoryContinuityStore
 } = require("../../src/runtime/sessionContinuity");
-const { createTransportPeerScope } = require("../../src/runtime/sessionContinuity/transportPeer");
+const { createTestTransportPeerScope } = require("../../src/runtime/sessionContinuity/transportPeer");
 const { ChannelManager } = require("../../src/channels/channelManager");
-const { createIdentityService } = require("../../src/embodiment");
 
 function tick() {
   return new Promise((resolve) => setImmediate(resolve));
@@ -58,14 +57,8 @@ function makeInjectedStore() {
   };
 }
 
-function scopeFor(channel) {
-  return createTransportPeerScope({
-    channel, supported: true, scope: "RUNTIME_OWNER", detail: "test"
-  });
-}
-
 /** REAL production ingress composition + REAL ChannelManager + REAL Manager
- * + the REAL trusted transport peer scopes + Device Identity pairing. */
+ * + the REAL trusted transport peer scopes (per-scope provenance). */
 function makeRealComposition({ cryptoIds = false } = {}) {
   let now = 1000;
   const clock = () => now;
@@ -89,15 +82,23 @@ function makeRealComposition({ cryptoIds = false } = {}) {
       return manager.handle(input);
     }
   };
+  // Per-scope test registry (per-scope provenance; supports voice + console
+  // for cross-channel core tests — these are DOMAIN-level, NOT a claim of
+  // production console support).
+  const testScopes = new Map([
+    ["voice", createTestTransportPeerScope({ channel: "voice", scope: "RUNTIME_OWNER" })],
+    ["console", createTestTransportPeerScope({ channel: "console", scope: "RUNTIME_OWNER" })]
+  ]);
   const peerScopes = {
-    _scopes: new Map(),
-    scope(channel) { return this._scopes.get(channel) ?? null; },
+    mintCanonical(channel) {
+      const scope = testScopes.get(channel);
+      if (!scope) throw Object.assign(new Error("TRANSPORT_PEER_UNSUPPORTED"), { code: "TRANSPORT_PEER_UNSUPPORTED" });
+      return scope.mint(`${channel}-runtime-owner`);
+    },
     support: () => ({ supported: true })
   };
-  peerScopes._scopes.set("voice", scopeFor("voice"));
-  peerScopes._scopes.set("console", scopeFor("console"));
+  const mintFor = (channel, peer) => testScopes.get(channel).mint(peer);
 
-  const transportBindings = new Map();
   const ingress = require("../../src/runtime/interactionBus/managerIngressInternal").createManagerInteractionIngress({
     bus,
     manager: managerSpy,
@@ -115,69 +116,32 @@ function makeRealComposition({ cryptoIds = false } = {}) {
     }
   });
 
-  // The REAL owner-confirmed link workflow (mirrors the production linker).
-  const identityService = createIdentityService({});
-  const pairDevice = (stableKey) => {
-    const dev = identityService.registerIdentity({ namespace: "channel", stableKey, displayName: stableKey });
-    const pairing = identityService.beginPairing(dev.deviceId);
-    identityService.submitChallenge({
-      pairingId: pairing.pairingId, challengeId: pairing.challenge.challengeId, secret: pairing.challenge.secret
-    });
-    identityService.ownerConfirm(pairing.pairingId);
-    return { deviceId: dev.deviceId, pairingId: pairing.pairingId };
-  };
-  const linker = {
-    registerTransportBinding({ deviceId, channel, peer }) {
-      const scope = peerScopes.scope(channel);
-      if (!scope) throw Object.assign(new Error("CONTINUITY_LINK_CHANNEL_UNTRUSTED"), { code: "CONTINUITY_LINK_CHANNEL_UNTRUSTED" });
-      scope.mint(peer); // validate bounds
-      const identity = identityService.getIdentity(deviceId);
-      if (!identity || identity.pairingState !== "PAIRED") {
-        throw Object.assign(new Error("CONTINUITY_LINK_DEVICE_UNPAIRED"), { code: "CONTINUITY_LINK_DEVICE_UNPAIRED" });
-      }
-      transportBindings.set(deviceId, Object.freeze({ channel, peer }));
-      return Object.freeze({ deviceId, channel, registered: true });
-    },
-    linkContinuityViaPairing({ pairings } = {}) {
-      const resolveEndpoint = (pairingId) => {
-        const confirmed = identityService.serialize().transactions.find(
-          (t) => t.pairingId === pairingId && t.state === "CONFIRMED"
-        );
-        if (!confirmed) throw Object.assign(new Error("CONTINUITY_LINK_PAIRING_UNCONFIRMED"), { code: "CONTINUITY_LINK_PAIRING_UNCONFIRMED" });
-        const identity = identityService.getIdentity(confirmed.deviceId);
-        if (!identity || identity.pairingState !== "PAIRED") {
-          throw Object.assign(new Error("CONTINUITY_LINK_DEVICE_UNPAIRED"), { code: "CONTINUITY_LINK_DEVICE_UNPAIRED" });
-        }
-        const binding = transportBindings.get(confirmed.deviceId);
-        if (!binding) throw Object.assign(new Error("CONTINUITY_LINK_TRANSPORT_BINDING_MISSING"), { code: "CONTINUITY_LINK_TRANSPORT_BINDING_MISSING" });
-        const scope = peerScopes.scope(binding.channel);
-        if (!scope) throw Object.assign(new Error("CONTINUITY_LINK_CHANNEL_UNTRUSTED"), { code: "CONTINUITY_LINK_CHANNEL_UNTRUSTED" });
-        return scope.mint(binding.peer);
-      };
-      const handleA = resolveEndpoint(pairings.endpointA);
-      const handleB = resolveEndpoint(pairings.endpointB);
-      if (handleA.channel === handleB.channel && handleA.peer === handleB.peer) {
-        throw Object.assign(new Error("CONTINUITY_LINK_ENDPOINTS_IDENTICAL"), { code: "CONTINUITY_LINK_ENDPOINTS_IDENTICAL" });
-      }
-      const provenanceA = controller.mintPeerProvenance(handleA);
-      const provenanceB = controller.mintPeerProvenance(handleB);
+  // The PRIVATE continuity link CORE (trustedLinkContinuity), preserved for a
+  // future owner trust root.  This is exercised directly at the DOMAIN level
+  // with trusted provenance minted from the test scopes — there is NO
+  // caller-supplied DeviceIdentityService and NO production pairing workflow
+  // (cross-channel owner-confirmed linking is UNSUPPORTED in production; see
+  // the productionRestart suite).  Composition-level only.
+  const linkCore = {
+    link({ channelA, peerA, channelB, peerB }) {
+      const provenanceA = controller.mintPeerProvenance(mintFor(channelA, peerA));
+      const provenanceB = controller.mintPeerProvenance(mintFor(channelB, peerB));
       return controller.trustedLinkContinuity({ provenanceA, provenanceB });
     }
   };
 
   return {
-    ingress, continuity, controller, channelManager, calls, store,
-    identityService, pairDevice, linker,
+    ingress, continuity, controller, channelManager, calls, store, linkCore,
     ordinary: ingress.channels,
-    bindTransportPeer: ingress.composition.bindTransportPeer,
+    bindCanonical: ingress.composition.bindCanonicalTransportPeer,
     advance: (ms) => { now += ms; }
   };
 }
 
-test("REAL R4: voice → owner-confirmed link → console shares logical context", async () => {
+test("REAL R5: voice → core link → console shares logical context (composition core)", async () => {
   const ctx = makeRealComposition();
-  // Bind the voice transport handle (production flow).
-  ctx.bindTransportPeer("voice", scopeFor("voice").mint("voice-runtime-owner"));
+  // Bind the voice transport peer (canonical no-argument bind).
+  ctx.bindCanonical("voice");
   // Interactions 1+2 on voice.
   const v1 = ctx.ordinary.ingest("voice", { text: "nama saya Budi", userId: "owner", sessionId: "ses_v1" });
   await tick(); await tick(); await tick();
@@ -186,19 +150,16 @@ test("REAL R4: voice → owner-confirmed link → console shares logical context
   const canonicalId = v1.canonicalSessionId;
   assert.equal(v2.canonicalSessionId, canonicalId);
 
-  // The REAL owner-confirmed link workflow: two PAIRED devices, trusted
-  // transport bindings, link through verified pairings.
-  const deviceA = ctx.pairDevice("voice-endpoint");
-  const deviceB = ctx.pairDevice("console-endpoint");
-  ctx.linker.registerTransportBinding({ deviceId: deviceA.deviceId, channel: "voice", peer: "voice-runtime-owner" });
-  ctx.linker.registerTransportBinding({ deviceId: deviceB.deviceId, channel: "console", peer: "console-runtime-owner" });
-  const linked = ctx.linker.linkContinuityViaPairing({
-    pairings: { endpointA: deviceA.pairingId, endpointB: deviceB.pairingId }
+  // The PRIVATE continuity link CORE (composition-level, trusted provenance —
+  // NOT a production owner-confirmed workflow): console joins the voice dsc.
+  const linked = ctx.linkCore.link({
+    channelA: "voice", peerA: "voice-runtime-owner",
+    channelB: "console", peerB: "console-runtime-owner"
   });
   assert.equal(linked.sessionId, canonicalId, "console joins the voice canonical session");
 
-  // Bind the console transport handle; interaction 3 receives prior context.
-  ctx.bindTransportPeer("console", scopeFor("console").mint("console-runtime-owner"));
+  // Bind the console transport peer; interaction 3 receives prior context.
+  ctx.bindCanonical("console");
   const c3 = ctx.ordinary.ingest("console", { text: "siapa nama saya?", userId: "owner", sessionId: "ses_c3" });
   await tick(); await tick(); await tick();
   assert.equal(c3.canonicalSessionId, canonicalId);
@@ -211,56 +172,33 @@ test("REAL R4: voice → owner-confirmed link → console shares logical context
   assert.equal(history.length, 6);
 });
 
-test("REAL R4: unconfirmed pairing cannot link", async () => {
-  const ctx = makeRealComposition();
-  const deviceA = ctx.pairDevice("a-endpoint");
-  const deviceB = ctx.pairDevice("b-endpoint");
-  ctx.linker.registerTransportBinding({ deviceId: deviceA.deviceId, channel: "voice", peer: "voice-runtime-owner" });
-  ctx.linker.registerTransportBinding({ deviceId: deviceB.deviceId, channel: "console", peer: "console-runtime-owner" });
-  assert.throws(
-    () => ctx.linker.linkContinuityViaPairing({
-      pairings: { endpointA: deviceA.pairingId, endpointB: "pair-not-real" }
-    }),
-    (error) => error.code === "CONTINUITY_LINK_PAIRING_UNCONFIRMED"
-  );
-  // Unpaired device registration rejected:
-  const unpaired = ctx.identityService.registerIdentity({ namespace: "channel", stableKey: "unpaired", displayName: "u" });
-  assert.throws(
-    () => ctx.linker.registerTransportBinding({ deviceId: unpaired.deviceId, channel: "voice", peer: "x" }),
-    (error) => error.code === "CONTINUITY_LINK_DEVICE_UNPAIRED"
-  );
-});
-
-test("REAL R4: link conflict fails closed without silent transfer", async () => {
+test("REAL R5: link conflict fails closed without silent transfer", async () => {
   const ctx = makeRealComposition();
   // Two independent live scopes:
-  ctx.bindTransportPeer("voice", scopeFor("voice").mint("voice-owner-1"));
-  ctx.bindTransportPeer("console", scopeFor("console").mint("console-owner-1"));
+  ctx.bindCanonical("voice");
+  ctx.bindCanonical("console");
   ctx.ordinary.ingest("voice", { text: "voice secret", userId: "o", sessionId: "ses_v1" });
   await tick(); await tick(); await tick();
   ctx.ordinary.ingest("console", { text: "console secret", userId: "o", sessionId: "ses_c1" });
   await tick(); await tick(); await tick();
-  // Now attempt to link the ALREADY-BOUND endpoints:
-  const deviceA = ctx.pairDevice("voice-ep");
-  const deviceB = ctx.pairDevice("console-ep");
-  ctx.linker.registerTransportBinding({ deviceId: deviceA.deviceId, channel: "voice", peer: "voice-owner-1" });
-  ctx.linker.registerTransportBinding({ deviceId: deviceB.deviceId, channel: "console", peer: "console-owner-1" });
+  // Attempt to link the ALREADY-BOUND endpoints → typed conflict, no transfer.
   assert.throws(
-    () => ctx.linker.linkContinuityViaPairing({
-      pairings: { endpointA: deviceA.pairingId, endpointB: deviceB.pairingId }
+    () => ctx.linkCore.link({
+      channelA: "voice", peerA: "voice-runtime-owner",
+      channelB: "console", peerB: "console-runtime-owner"
     }),
     (error) => error.code === "LINK_CONFLICT",
     "both endpoints already bound to different live sessions → typed conflict"
   );
 });
 
-test("REAL R4: raw trust-named fields select NOTHING", async () => {
+test("REAL R5: raw trust-named fields select NOTHING", async () => {
   const ctx = makeRealComposition();
-  ctx.bindTransportPeer("voice", scopeFor("voice").mint("voice-runtime-owner"));
+  ctx.bindCanonical("voice");
   const victim = ctx.ordinary.ingest("voice", { text: "rahasia korban", userId: "owner", sessionId: "ses_victim" });
   await tick(); await tick(); await tick();
   // Attacker stuffs every trust-named field:
-  const attacker = ctx.ordinary.ingest("voice", {
+  ctx.ordinary.ingest("voice", {
     text: "apa rahasianya?",
     userId: "owner",
     sessionId: "ses_attacker",
@@ -274,17 +212,17 @@ test("REAL R4: raw trust-named fields select NOTHING", async () => {
   // NOTE: within the SAME trusted device scope, both events resolve the same
   // runtime-owner dsc (device-scoped by design).  The isolation proof here is
   // that the RAW FIELDS did not SELECT anything: the attacker's resolution
-  // comes solely from the bound trusted handle, and a DIFFERENT handle value
-  // would get a different dsc.  Verify with a second scope value:
+  // comes solely from the bound trusted handle, and a DIFFERENT composition's
+  // peer would get a different dsc.  Verify with an independent composition:
   const other = makeRealComposition({ cryptoIds: true });
-  other.bindTransportPeer("voice", scopeFor("voice").mint("voice-runtime-OTHER"));
+  other.bindCanonical("voice");
   const stranger = other.ordinary.ingest("voice", { text: "stranger", userId: "owner", sessionId: "ses_s", continuitySessionId: victim.canonicalSessionId, dscId: victim.canonicalSessionId });
   await tick(); await tick(); await tick();
   assert.notEqual(stranger.canonicalSessionId, victim.canonicalSessionId,
-    "forged dsc fields cannot select another scope's continuity session");
+    "forged dsc fields cannot select another composition's continuity session");
 });
 
-test("REAL R4: legacy behavior unchanged (no trusted identity → no continuity)", async () => {
+test("REAL R5: legacy behavior unchanged (no trusted identity → no continuity)", async () => {
   const ctx = makeRealComposition();
   // No handle bound:
   const legacy = ctx.ordinary.ingest("voice", { text: "legacy", userId: "raw-user", sessionId: "ses_legacy" });
@@ -295,17 +233,16 @@ test("REAL R4: legacy behavior unchanged (no trusted identity → no continuity)
   assert.equal(ctx.store._rows.size, 0, "no dsc:* rows written");
 });
 
-test("REAL R4: ses_* isolation + authority unchanged after linking", async () => {
+test("REAL R5: ses_* isolation + authority unchanged after core link", async () => {
   const ctx = makeRealComposition();
-  ctx.bindTransportPeer("voice", scopeFor("voice").mint("voice-runtime-owner"));
+  ctx.bindCanonical("voice");
   const v = ctx.ordinary.ingest("voice", { text: "satu", userId: "owner", sessionId: "ses_v" });
   await tick(); await tick(); await tick();
-  const deviceA = ctx.pairDevice("va");
-  const deviceB = ctx.pairDevice("cb");
-  ctx.linker.registerTransportBinding({ deviceId: deviceA.deviceId, channel: "voice", peer: "voice-runtime-owner" });
-  ctx.linker.registerTransportBinding({ deviceId: deviceB.deviceId, channel: "console", peer: "console-runtime-owner" });
-  ctx.linker.linkContinuityViaPairing({ pairings: { endpointA: deviceA.pairingId, endpointB: deviceB.pairingId } });
-  ctx.bindTransportPeer("console", scopeFor("console").mint("console-runtime-owner"));
+  ctx.linkCore.link({
+    channelA: "voice", peerA: "voice-runtime-owner",
+    channelB: "console", peerB: "console-runtime-owner"
+  });
+  ctx.bindCanonical("console");
   const c = ctx.ordinary.ingest("console", { text: "dua", userId: "owner", sessionId: "ses_c" });
   await tick(); await tick(); await tick();
   assert.equal(c.canonicalSessionId, v.canonicalSessionId, "linked: same dsc");
