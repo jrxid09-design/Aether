@@ -56,7 +56,7 @@ test("default atomic domain constructs a usable isolated Bus and completes A/A i
   for (const value of [domain, domain.media, domain.bus]) for (const forbidden of ["runtimePortReceiver", "pairWithBus", "attachBus", "bindBus", "joinBus", "privatePorts", "mediaPorts", "capabilityPorts"]) assert.equal(surface(value).includes(forbidden), false);
   const authority = createMediaContextAuthority();
   const ingress = createManagerInteractionIngress({ bus: domain.bus, manager: fakeManager(), mediaSubsystem: domain.media, mediaContextMint: authority.mint });
-  const result = await ingress.ingestAttachments("console", { text: "default", sessionId: "ses_r10_default" }, [spec(Buffer.from("DAMAR-R10-DEFAULT"))]);
+  const result = await ingress.channels.ingestAttachments("console", { text: "default", sessionId: "ses_r10_default" }, [spec(Buffer.from("DAMAR-R10-DEFAULT"))]);
   assert.equal(result.accepted, true);
   await delay();
 });
@@ -69,8 +69,8 @@ test("default same-root domains remain isolated without a post-construction join
   await Promise.all([a.media.ready, b.media.ready]);
   const aa = createManagerInteractionIngress({ bus: a.bus, manager: fakeManager(), mediaSubsystem: a.media, mediaContextMint: createMediaContextAuthority().mint });
   const bb = createManagerInteractionIngress({ bus: b.bus, manager: fakeManager(), mediaSubsystem: b.media, mediaContextMint: createMediaContextAuthority().mint });
-  assert.equal((await aa.ingestAttachments("console", { text: "A", sessionId: "ses_r10_a" }, [spec(Buffer.from("A"))])).accepted, true);
-  assert.equal((await bb.ingestAttachments("console", { text: "B", sessionId: "ses_r10_b" }, [spec(Buffer.from("B"))])).accepted, true);
+  assert.equal((await aa.channels.ingestAttachments("console", { text: "A", sessionId: "ses_r10_a" }, [spec(Buffer.from("A"))])).accepted, true);
+  assert.equal((await bb.channels.ingestAttachments("console", { text: "B", sessionId: "ses_r10_b" }, [spec(Buffer.from("B"))])).accepted, true);
   assert.equal(typeof a.media.pairWithBus, "undefined");
   assert.equal(typeof b.media.pairWithBus, "undefined");
 });
@@ -91,7 +91,7 @@ test("accepted active processing gets a scoped lazy reader and exact bytes", asy
     reads += 1; bytes = (await context.mediaContext.attachments[0].read()).bytes;
     return { managerRequestId: "r", outcome: "COMPLETED", lifecycleState: "COMPLETED", detail: "ok" };
   }));
-  const result = await ingress.ingestAttachments("console", { text: "read", sessionId: "ses_lane2" }, [spec(Buffer.from("DAMAR-LANE2-MEDIA-CONTRACT"))]);
+  const result = await ingress.channels.ingestAttachments("console", { text: "read", sessionId: "ses_lane2" }, [spec(Buffer.from("DAMAR-LANE2-MEDIA-CONTRACT"))]);
   assert.equal(result.accepted, true); await delay(); assert.equal(reads, 1); assert.deepEqual(bytes, Buffer.from("DAMAR-LANE2-MEDIA-CONTRACT"));
 });
 
@@ -99,7 +99,7 @@ test("real Manager composition consumes branded lazy mediaContext after test-onl
   const { media } = await fixture(t); const seen = [];
   const harness = await makeManagerHarness({ authenticate: (e) => e && e.sessionId === "ses_contract" ? { principal: "lane2-contract" } : null, mediaProcessor: async ({ mediaContext }) => seen.push((await mediaContext.attachments[0].read()).bytes) });
   const { ingress } = composeIngress(media, harness.manager, undefined, harness.mediaContextMint);
-  const accepted = await ingress.ingestAttachments("console", { text: "media", sessionId: "ses_contract" }, [spec(Buffer.from("DAMAR-LANE2-MEDIA-CONTRACT"))]);
+  const accepted = await ingress.channels.ingestAttachments("console", { text: "media", sessionId: "ses_contract" }, [spec(Buffer.from("DAMAR-LANE2-MEDIA-CONTRACT"))]);
   assert.equal(accepted.accepted, true); await delay(); assert.deepEqual(seen, [Buffer.from("DAMAR-LANE2-MEDIA-CONTRACT")]);
 });
 
@@ -107,7 +107,7 @@ test("lazy hook does not read media unless it requests attachment.read", async (
   const { media } = await fixture(t); let hooks = 0;
   const harness = await makeManagerHarness({ authenticate: () => ({ principal: "lane2-contract" }), mediaProcessor: async () => { hooks += 1; } });
   const { ingress } = composeIngress(media, harness.manager, undefined, harness.mediaContextMint);
-  const accepted = await ingress.ingestAttachments("console", { text: "no-read", sessionId: "ses_contract" }, [spec(Buffer.from("not-read"))]);
+  const accepted = await ingress.channels.ingestAttachments("console", { text: "no-read", sessionId: "ses_contract" }, [spec(Buffer.from("not-read"))]);
   assert.equal(accepted.accepted, true); await delay(); assert.equal(hooks, 1);
 });
 
@@ -122,7 +122,7 @@ test("terminal success revokes reader while durable relation remains", async (t)
   const { root, media } = await fixture(t); let reader;
   const composed = composeIngress(media, fakeManager(async (_input, context) => { reader = context.mediaContext.attachments[0].read; await reader(); return { managerRequestId: "r", outcome: "COMPLETED", lifecycleState: "COMPLETED", detail: "ok" }; }));
   const { ingress } = composed;
-  const accepted = await ingress.ingestAttachments("console", { text: "terminal", sessionId: "ses_terminal" }, [spec(Buffer.from("terminal"))]);
+  const accepted = await ingress.channels.ingestAttachments("console", { text: "terminal", sessionId: "ses_terminal" }, [spec(Buffer.from("terminal"))]);
   assert.equal(accepted.accepted, true); await delay(); await assert.rejects(reader(), (error) => error.code === CODES.FOREIGN_REFERENCE); assert.equal((await fsp.readdir(path.join(root, "relations"))).length, 1);
 });
 
@@ -135,7 +135,7 @@ test("voice attachment crosses actual MediaIngress and terminal handling revokes
     assert.equal(input.payload.authority, undefined);
     return { managerRequestId: "r", outcome: "COMPLETED", lifecycleState: "COMPLETED", detail: "voice-media" };
   }));
-  const accepted = await ingress.ingestAttachments("voice", {
+  const accepted = await ingress.channels.ingestAttachments("voice", {
     text: "describe", sessionId: "ses_voice_media", userId: "claimed-owner",
     metadata: { authority: "ALLOW", trusted: true }
   }, [spec(Buffer.from("voice attachment"), { sourceChannel: "forged" })]);
@@ -160,7 +160,7 @@ test("voice MediaIngress reader reaches realtime multimodal processing then is t
     }
   });
   const { ingress } = composeIngress(media, harness.manager, undefined, harness.mediaContextMint);
-  const accepted = await ingress.ingestAttachments("voice", {
+  const accepted = await ingress.channels.ingestAttachments("voice", {
     text: "understand", sessionId: "ses_voice_realtime", userId: "owner"
   }, [spec(Buffer.from("voice realtime"), { fileName: "note.txt", declaredMimeType: "text/plain" })]);
   assert.equal(accepted.accepted, true);
@@ -173,14 +173,14 @@ for (const terminal of ["throw", "timeout", "cancel"]) test(`${terminal === "tim
   const { media } = await fixture(t); let reader;
   const manager = fakeManager(async (_input, context) => { reader = context.mediaContext.attachments[0].read; if (terminal === "throw") throw new Error("processor failed"); if (terminal === "timeout") await delay(); return { managerRequestId: "r", outcome: terminal === "cancel" ? "CANCELLED" : "COMPLETED", lifecycleState: terminal === "cancel" ? "CANCELLED" : "COMPLETED", detail: terminal }; });
   const { ingress } = composeIngress(media, manager);
-  const result = await ingress.ingestAttachments("console", { text: terminal, sessionId: `ses_${terminal}` }, [spec(Buffer.from(terminal))]);
+  const result = await ingress.channels.ingestAttachments("console", { text: terminal, sessionId: `ses_${terminal}` }, [spec(Buffer.from(terminal))]);
   assert.equal(result.accepted, true); await delay(); await assert.rejects(reader(), (error) => error.code === CODES.FOREIGN_REFERENCE);
 });
 
 test("restart reloads validated durable evidence without reader or Manager dispatch", async (t) => {
   const { root, media } = await fixture(t); let managerCalls = 0;
   const { ingress } = composeIngress(media, fakeManager(async () => { managerCalls += 1; return { managerRequestId: "r", outcome: "COMPLETED", lifecycleState: "COMPLETED", detail: "ok" }; }));
-  const accepted = await ingress.ingestAttachments("console", { text: "restart", sessionId: "ses_restart" }, [spec(Buffer.from("persisted"))]);
+  const accepted = await ingress.channels.ingestAttachments("console", { text: "restart", sessionId: "ses_restart" }, [spec(Buffer.from("persisted"))]);
   assert.equal(accepted.accepted, true); await delay(); const restarted = createMediaSubsystem({ storageRoot: root, testMode: true }); await restarted.ready;
   assert.equal((await fsp.readdir(path.join(root, "relations"))).length, 1); assert.equal(restarted.getDiagnostics().some((d) => d.result === "relation-quarantined"), false); assert.equal(typeof restarted.readAccess, "undefined"); assert.equal(managerCalls, 1);
 });
@@ -195,12 +195,12 @@ test("restart isolates malformed relation and orphan catalog media remains inert
 test("integrity rejects tampered object through legitimate active reader", async (t) => {
   const { root, media } = await fixture(t);
   const { ingress } = composeIngress(media, fakeManager(async (input, context) => { const d = input.payload.attachments[0]; await fsp.writeFile(path.join(root, "objects", `${d.sha256}.blob`), "tampered"); await assert.rejects(context.mediaContext.attachments[0].read(), (error) => error.code === CODES.INTEGRITY_FAILURE); return { managerRequestId: "r", outcome: "COMPLETED", lifecycleState: "COMPLETED", detail: "ok" }; }));
-  const accepted = await ingress.ingestAttachments("console", { text: "integrity", sessionId: "ses_integrity" }, [spec(Buffer.from("original"))]); assert.equal(accepted.accepted, true); await delay();
+  const accepted = await ingress.channels.ingestAttachments("console", { text: "integrity", sessionId: "ses_integrity" }, [spec(Buffer.from("original"))]); assert.equal(accepted.accepted, true); await delay();
 });
 
 test("maxRelations is durable capacity and catalog capacity stays atomic", async (t) => {
   const { root, media } = await fixture(t, { maxRelations: 1, maxBindings: 2 }); const { ingress } = composeIngress(media, fakeManager());
-  const results = await Promise.all([ingress.ingestAttachments("console", { text: "a", sessionId: "ses_a" }, [spec(Buffer.from("a"))]), ingress.ingestAttachments("console", { text: "b", sessionId: "ses_b" }, [spec(Buffer.from("b"))])]);
+  const results = await Promise.all([ingress.channels.ingestAttachments("console", { text: "a", sessionId: "ses_a" }, [spec(Buffer.from("a"))]), ingress.channels.ingestAttachments("console", { text: "b", sessionId: "ses_b" }, [spec(Buffer.from("b"))])]);
   assert.equal(results.filter((x) => x.accepted).length, 1); assert.ok((await fsp.readdir(path.join(root, "relations"))).length <= 1);
   for (let run = 0; run < 100; run += 1) { const local = await fixture(t, { maxCatalogRecords: 1 }); const outcomes = await Promise.allSettled([local.media.ingest(spec(Buffer.from(`a-${run}`))), local.media.ingest(spec(Buffer.from(`b-${run}`)))]); assert.equal(outcomes.filter((x) => x.status === "fulfilled").length, 1); }
 });
@@ -250,7 +250,7 @@ test("R8 mediaContext brands are per-composition and hostile nested entries are 
 test("R8 restart rejects same-size, truncate, extend, and missing persisted objects", async (t) => {
   for (const replacement of [Buffer.from("XXXXXXXXX"), Buffer.from("x"), Buffer.from("extended-object"), null]) {
     const { root, media } = await fixture(t); const composed = composeIngress(media, fakeManager());
-    const accepted = await composed.ingress.ingestAttachments("console", { text: "persist", sessionId: `ses_${crypto.randomBytes(4).toString("hex")}` }, [spec(Buffer.from("original!"))]);
+    const accepted = await composed.ingress.channels.ingestAttachments("console", { text: "persist", sessionId: `ses_${crypto.randomBytes(4).toString("hex")}` }, [spec(Buffer.from("original!"))]);
     assert.equal(accepted.accepted, true); await delay();
     const descriptor = (await fsp.readdir(path.join(root, "catalog"))).map((name) => name.replace(/\.json$/, ""))[0];
     const manifest = JSON.parse(await fsp.readFile(path.join(root, "catalog", `${descriptor}.json`), "utf8")); const object = path.join(root, "objects", manifest.objectName);

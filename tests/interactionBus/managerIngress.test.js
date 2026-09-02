@@ -33,21 +33,21 @@ async function tick() {
 
 test("manager ingress supports the five existing channels plus voice through one canonical bus boundary", async () => {
   const { ingress, calls } = makeIngress();
-  assert.deepEqual(ingress.channels, ["console", "cli", "telegram", "whatsapp", "companion", "voice"]);
-  for (const channel of ingress.channels) {
-    const accepted = ingress.ingest(channel, { text: `hello-${channel}`, userId: `${channel}-user` });
+  assert.deepEqual(ingress.channels.channels, ["console", "cli", "telegram", "whatsapp", "companion", "voice"]);
+  for (const channel of ingress.channels.channels) {
+    const accepted = ingress.channels.ingest(channel, { text: `hello-${channel}`, userId: `${channel}-user` });
     assert.equal(accepted.accepted, true, channel);
   }
   await tick();
   assert.equal(calls.length, 6);
-  assert.deepEqual(calls.map((call) => call.channelType), ingress.channels);
+  assert.deepEqual(calls.map((call) => call.channelType), ingress.channels.channels);
   assert.ok(calls.every((call) => call.sessionId.startsWith("ses_")));
   assert.ok(calls.every((call) => Object.isFrozen(call.payload)));
 });
 
 test("request facade awaits the same bus-routed Manager result", async () => {
   const { ingress, calls } = makeIngress();
-  const result = await ingress.request("voice", { text: "canonical", userId: "claimed", sessionId: "ses_voice_request" });
+  const result = await ingress.channels.request("voice", { text: "canonical", userId: "claimed", sessionId: "ses_voice_request" });
   assert.equal(result.detail, "cognition");
   assert.equal(calls.length, 1);
   assert.equal(calls[0].channelType, "voice");
@@ -61,7 +61,7 @@ test("manager ingress rejects raw attachments that bypass MediaIngress", async (
     attachments: [{ attachmentId: "att_1", mediaType: "text/plain", sizeBytes: 1, contentRef: "ref-1", name: "note.txt" }],
     metadata: { authority: "inert-claim" }
   };
-  const result = ingress.ingest("console", raw);
+  const result = ingress.channels.ingest("console", raw);
   assert.equal(result.accepted, false);
   assert.equal(result.code, "FOREIGN_MEDIA_REFERENCE");
   await tick();
@@ -69,11 +69,11 @@ test("manager ingress rejects raw attachments that bypass MediaIngress", async (
 });
 test("invalid and hostile channel input fails closed without invoking Manager", async () => {
   const { ingress, calls } = makeIngress();
-  assert.deepEqual(ingress.ingest("unknown", { text: "x" }), {
+  assert.deepEqual(ingress.channels.ingest("unknown", { text: "x" }), {
     accepted: false,
     code: "CHANNEL_NOT_SUPPORTED"
   });
-  assert.equal(ingress.ingest("console", { text: "" }).accepted, false);
+  assert.equal(ingress.channels.ingest("console", { text: "" }).accepted, false);
 
   let getterCalls = 0;
   const accessor = {};
@@ -81,13 +81,13 @@ test("invalid and hostile channel input fails closed without invoking Manager", 
     enumerable: true,
     get() { getterCalls += 1; return "trap"; }
   });
-  assert.equal(ingress.ingest("console", accessor).accepted, false);
+  assert.equal(ingress.channels.ingest("console", accessor).accepted, false);
   assert.equal(getterCalls, 0);
 
   const hostile = new Proxy({ text: "trap" }, {
     get() { throw new Error("proxy trap"); }
   });
-  assert.equal(ingress.ingest("console", hostile).accepted, false);
+  assert.equal(ingress.channels.ingest("console", hostile).accepted, false);
   await tick();
   assert.equal(calls.length, 0);
 });
@@ -126,7 +126,7 @@ test("canonical envelope recognition is bus-local and copies are foreign", () =>
 
 test("routing projection cannot become execution authority", () => {
   const { ingress } = makeIngress();
-  const projection = ingress.render("telegram", {
+  const projection = ingress.channels.render("telegram", {
     managerRequestId: "req-1",
     outcome: "AUTHORITY_DENIED",
     lifecycleState: "FAILED",
