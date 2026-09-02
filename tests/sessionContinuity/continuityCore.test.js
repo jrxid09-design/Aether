@@ -21,6 +21,19 @@ const {
   createFileContinuityStore,
   validateSnapshot
 } = require("../../src/runtime/sessionContinuity");
+const {
+  createTransportPeerScope
+} = require("../../src/runtime/sessionContinuity/transportPeer");
+
+/** Trusted scope helper (mirrors the production composition). */
+function peerScope(channel) {
+  return createTransportPeerScope({ channel, supported: true, scope: "RUNTIME_OWNER", detail: "test" });
+}
+
+/** Mint a trusted provenance via the composition-style controller. */
+function provOf(controller, channel, peer) {
+  return controller.mintPeerProvenance(peerScope(channel).mint(peer));
+}
 
 function makeDomain(options = {}) {
   let now = options.now === undefined ? 1000 : options.now;
@@ -39,6 +52,7 @@ function makeDomain(options = {}) {
   return {
     domain,
     controller,
+    provOf: (c, channel, peer) => c.mintPeerProvenance(peerScope(channel).mint(peer)),
     advance: (ms) => { now += ms; },
     setNow: (value) => { now = value; }
   };
@@ -91,7 +105,7 @@ test("DSC-R1-003 (retained): destructive reset private; shutdown preserves state
   const store = createFileContinuityStore(file);
   const t = makeDomain({ store, persistOnMutation: true });
   const created = t.domain.createSession({});
-  t.domain.bindChannel({ sessionId: created.sessionId, provenance: t.controller.mintPeerProvenance("telegram", "u1") });
+  t.domain.bindChannel({ sessionId: created.sessionId, provenance: t.provOf(t.controller, "telegram", "u1") });
   await t.domain.whenPersisted();
   assert.equal("resetDurableState" in t.domain, false);
   const shutdown = await t.domain.shutdown();
@@ -417,8 +431,8 @@ test("DSC-R2-002: Windows-style path normalization is consistent", () => {
 
 test("DSC-R2-006: trustedLinkContinuity joins both endpoints onto one session", () => {
   const t = makeDomain();
-  const provA = t.controller.mintPeerProvenance("telegram", "ses_tg-771");
-  const provB = t.controller.mintPeerProvenance("console", "ses_console-owner");
+  const provA = t.provOf(t.controller, "telegram", "ses_tg-771");
+  const provB = t.provOf(t.controller, "console", "ses_console-owner");
   const a = t.domain.createSession({});
   t.domain.bindChannel({ sessionId: a.sessionId, provenance: provA });
 
@@ -430,8 +444,8 @@ test("DSC-R2-006: trustedLinkContinuity joins both endpoints onto one session", 
   assert.equal(resolutionB.sessionId, link.sessionId);
 
   // Both endpoints distinct (Telegram X != Console X) BEFORE any link.
-  const provTg2 = t.controller.mintPeerProvenance("telegram", "ses_other");
-  const provWa2 = t.controller.mintPeerProvenance("whatsapp", "ses_other");
+  const provTg2 = t.provOf(t.controller, "telegram", "ses_other");
+  const provWa2 = t.provOf(t.controller, "whatsapp", "ses_other");
   assert.equal(t.domain.resolveChannel({ provenance: provTg2 }).resolved, false);
   assert.equal(t.domain.resolveChannel({ provenance: provWa2 }).resolved, false);
   const link2 = t.controller.trustedLinkContinuity({ provenanceA: provTg2, provenanceB: provWa2 });
@@ -444,7 +458,7 @@ test("DSC-R2-006: trustedLinkContinuity joins both endpoints onto one session", 
 
 test("DSC-R2-006: link requires TRUSTED provenance for BOTH endpoints", () => {
   const t = makeDomain();
-  const provA = t.controller.mintPeerProvenance("telegram", "ses_a");
+  const provA = t.provOf(t.controller, "telegram", "ses_a");
   assert.throws(
     () => t.controller.trustedLinkContinuity({ provenanceA: provA, provenanceB: { kind: "PeerProvenance" } }),
     (error) => error.code === "PROVENANCE_UNTRUSTED"
@@ -479,17 +493,28 @@ test("retained: admission capture + stale completion rejection", () => {
   assert.equal(t.domain.getTerminalInteraction("ix_old"), null);
 });
 
-test("retained: peer byte bound enforced as UTF-8 bytes", () => {
+test("retained: peer byte bound enforced as UTF-8 bytes (scope mint)", () => {
   const t = makeDomain();
-  t.controller.mintPeerProvenance("telegram", "a".repeat(128));
-  t.controller.mintPeerProvenance("telegram", "é".repeat(64));
-  t.controller.mintPeerProvenance("telegram", "𝕏".repeat(32));
+  const scope = peerScope("telegram");
+  // The transport peer scope enforces the byte bound at handle mint time.
+  scope.mint("a".repeat(128));
+  scope.mint("é".repeat(64));
+  scope.mint("𝕏".repeat(32));
   for (const over of ["a".repeat(129), "é".repeat(65), "𝕏".repeat(33)]) {
     assert.throws(
-      () => t.controller.mintPeerProvenance("telegram", over),
-      (error) => error.code === "PROVENANCE_PEER_INVALID"
+      () => scope.mint(over),
+      (error) => error.code === "TRANSPORT_PEER_INVALID"
     );
   }
+  // And the persisted-snapshot validator still rejects oversized peers.
+  const bad = validateSnapshot({
+    schemaVersion: 1, savedAt: 1, sessions: [{
+      sessionId: "dsc_x", createdAt: 1, updatedAt: 1, incarnation: 1,
+      resumeMetadata: null, terminalAt: null,
+      channels: [{ channel: "telegram", peer: "é".repeat(65), boundAt: 1, generation: 1 }]
+    }], terminal: {}
+  });
+  assert.equal(bad.corrupt, true);
 });
 
 test("retained: restart restore semantics (RESTORED != RESUMED)", async () => {
@@ -498,7 +523,7 @@ test("retained: restart restore semantics (RESTORED != RESUMED)", async () => {
   const storeA = createFileContinuityStore(file);
   const t = makeDomain({ store: storeA, persistOnMutation: true });
   const created = t.domain.createSession({ resumeMetadata: { topic: "sore" } });
-  t.domain.bindChannel({ sessionId: created.sessionId, provenance: t.controller.mintPeerProvenance("console", "owner") });
+  t.domain.bindChannel({ sessionId: created.sessionId, provenance: t.provOf(t.controller, "console", "owner") });
   await t.domain.whenPersisted();
   await t.domain.shutdown();
   await storeA.finalizeShutdown();
@@ -539,7 +564,7 @@ test("retained: stress — thousands of rapid mutations with slow persistence", 
   };
   const t = makeDomain({ store: slowStore, persistOnMutation: true });
   const session = t.domain.createSession({});
-  const prov = t.controller.mintPeerProvenance("telegram", "stress-u");
+  const prov = t.provOf(t.controller, "telegram", "stress-u");
   const MUTATIONS = 3000;
   for (let i = 0; i < MUTATIONS; i += 1) {
     t.domain.updateResumeMetadata({

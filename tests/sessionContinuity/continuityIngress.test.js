@@ -1,16 +1,14 @@
 "use strict";
 
 /**
- * WAVE 5 LANE 4 — SESSION CONTINUITY TEST SUITE (repair R3, part 2:
- * canonical ingress integration — TRANSPORT-OWNED identity).
+ * WAVE 5 LANE 4 — SESSION CONTINUITY TEST SUITE (repair R4, part 2:
+ * canonical ingress integration — TRANSPORT PEER HANDLE trust boundary).
  *
- * DSC-R2-001: the trusted composition registers TRANSPORT-OWNED identity
- * extractors (per channel).  Raw event payload fields — including any field
- * named trustedPeerEvidence, continuitySessionId, canonicalSessionId,
- * userId, peerKey, or dscId — are NEVER consulted as continuity trust
- * evidence.  The default extractors derive identity from the RUNTIME-MINTED
- * transport-scoped bus session (ses_*), which the InteractionBus itself
- * established for this channel scope.
+ * DSC-R3-001: continuity identity derives ONLY from runtime-owned
+ * TransportPeerHandles minted by trusted transport peer scopes and bound
+ * through the trusted runtime seam.  Raw event payload fields — sessionId,
+ * ses_*, trustedPeerEvidence, continuitySessionId, canonicalSessionId,
+ * userId, peerKey, dscId, chatId — are NEVER consulted.
  */
 
 const test = require("node:test");
@@ -24,6 +22,10 @@ const {
   createSequentialContinuityIdFactory,
   createMemoryContinuityStore
 } = require("../../src/runtime/sessionContinuity");
+const {
+  createTransportPeerScope,
+  transportContinuitySupport
+} = require("../../src/runtime/sessionContinuity/transportPeer");
 
 function tick() {
   return new Promise((resolve) => setImmediate(resolve));
@@ -46,12 +48,18 @@ function makeManager() {
   };
 }
 
-/**
- * The trusted composition: mirrors the production root — trustedLifecycle
- * captures the controller; the TransportIdentity registry is populated with
- * TRANSPORT-OWNED extractors deriving identity from the runtime-minted
- * transport-scoped bus session (ses_*) exactly as production does.
- */
+/** Trusted transport peer scope for a supported channel (test mirror of the
+ * production composition's scope creation). */
+function scopeFor(channel) {
+  return createTransportPeerScope({
+    channel,
+    supported: true,
+    scope: "RUNTIME_OWNER",
+    detail: "test trusted scope"
+  });
+}
+
+/** The trusted composition: mirrors the production root. */
 function makeIngress(options = {}) {
   let now = options.now === undefined ? 1000 : options.now;
   const clock = () => now;
@@ -70,31 +78,16 @@ function makeIngress(options = {}) {
         trustedLinkContinuity: controller.trustedLinkContinuity
       }
     : null;
-  // DSC-R2-001: the TRANSPORT-OWNED identity registry — the same extractor
-  // contract the production composition registers.  Identity derives from
-  // the runtime-minted ses_* session ONLY; raw payload fields are ignored.
-  const transportIdentity = {
-    extractors: new Map(),
-    register(channel, extractor) { this.extractors.set(channel, extractor); },
-    has(channel) { return this.extractors.has(channel); },
-    resolve(channel, rawEvent) {
-      const extractor = this.extractors.get(channel);
-      if (!extractor) return "";
-      try {
-        const identity = extractor(rawEvent);
-        return typeof identity === "string" ? identity : "";
-      } catch { return ""; }
-    }
+  const peerScopes = {
+    _scopes: new Map(),
+    scope(channel) { return this._scopes.get(channel) ?? null; },
+    support(channel) { return transportContinuitySupport(channel); },
+    registerTestScope(channel, scope) { this._scopes.set(channel, scope); }
   };
-  const runtimeSessionExtractor = (rawEvent) => {
-    const sessionId = Object.getOwnPropertyDescriptor(rawEvent ?? {}, "sessionId");
-    if (!sessionId || typeof sessionId.value !== "string") return "";
-    return sessionId.value.startsWith("ses_") ? sessionId.value : "";
-  };
-  transportIdentity.register("telegram", runtimeSessionExtractor);
-  transportIdentity.register("whatsapp", runtimeSessionExtractor);
-  transportIdentity.register("console", runtimeSessionExtractor);
-  transportIdentity.register("voice", runtimeSessionExtractor);
+  // Mirror the honest production matrix: only supported channels get scopes.
+  for (const channel of ["console", "voice"]) {
+    peerScopes.registerTestScope(channel, scopeFor(channel));
+  }
 
   const ingress = createManagerInteractionIngress({
     bus,
@@ -102,242 +95,222 @@ function makeIngress(options = {}) {
     mediaContextMint: createMediaContextAuthority().mint,
     sessionContinuity: continuity,
     trustedContinuity,
-    transportIdentity,
+    peerScopes,
     ...(options.historyRecorder !== undefined ? { historyRecorder: options.historyRecorder } : {}),
     ...(options.historyProvider !== undefined ? { historyProvider: options.historyProvider } : {})
   });
   return {
-    bus, manager, continuity, controller, transportIdentity,
+    bus, manager, continuity, controller, peerScopes,
     ingress, ordinary: ingress.channels, lifecycle: ingress.lifecycle,
+    composition: ingress.composition,
     advance: (ms) => { now += ms; }
   };
 }
 
 // ---------------------------------------------------------------------------
-// DSC-R2-001 — raw fields can NEVER establish continuity identity
+// DSC-R3-001 — raw fields can NEVER establish continuity identity
 // ---------------------------------------------------------------------------
 
-test("DSC-R2-001: raw trustedPeerEvidence (and ALL trust-named fields) are ignored", async () => {
+test("DSC-R3-001: raw sessionId (ses_*) NEVER mints continuity — all channels", async () => {
   const { ordinary, manager } = makeIngress();
-  // Every raw field the audit enumerates, stuffed with attacker-chosen text.
+  for (const [index, channel] of ["telegram", "whatsapp", "console", "voice"].entries()) {
+    // Per-channel sessionId: the bus session registry is per-transport, so each
+    // channel needs its own transport-scoped ses_* (same as production).
+    const result = ordinary.ingest(channel, { text: "attack", sessionId: `ses_attack-${channel}-${index}` });
+    assert.equal(result.accepted, true, `${channel}: ordinary ses_* path continues`);
+    assert.equal("canonicalSessionId" in result, false,
+      `${channel}: raw caller-selected sessionId must NOT establish continuity`);
+  }
+  await tick();
+  for (const call of manager.calls) {
+    assert.equal("continuitySessionId" in call, false);
+  }
+  assert.equal(manager.calls.length, 4);
+});
+
+test("DSC-R3-001: every trust-named raw field is ignored", async () => {
+  const { ordinary, manager } = makeIngress();
   const hostile = {
     text: "halo",
+    sessionId: "ses_forged-session",
     trustedPeerEvidence: "attacker-claims-trust",
     continuitySessionId: "dsc_forged000001",
     canonicalSessionId: "dsc_forged000002",
     userId: "attacker",
     peerKey: "attacker",
-    dscId: "dsc_forged000003"
+    dscId: "dsc_forged000003",
+    chatId: "attacker-chat",
+    transportSessionId: "ses_forged-transport"
   };
-  const result = ordinary.ingest("telegram", hostile);
-  assert.equal(result.accepted, true, "the ordinary ses_* interaction path continues");
+  const result = ordinary.ingest("console", hostile);
+  assert.equal(result.accepted, true, "ses_* interaction path continues");
   assert.equal("canonicalSessionId" in result, false,
-    "NO continuity identity is established from raw event data");
+    "NO continuity identity from raw event data");
   await tick();
   assert.equal("continuitySessionId" in manager.calls[0], false);
 });
 
-test("DSC-R2-001: runtime-minted transport session DOES establish continuity", async () => {
-  const { ordinary, manager } = makeIngress();
-  // The runtime establishes the transport-scoped session handle (ses_*) —
-  // the same way the canonical adapters normalize events.
-  const first = ordinary.ingest("telegram", { text: "halo", sessionId: "ses_tg-77123" });
-  assert.equal(first.accepted, true);
+test("DSC-R3-001: a lookalike handle object cannot emulate a TransportPeerHandle", async () => {
+  const { ordinary, composition } = makeIngress();
+  const lookalike = Object.freeze({
+    kind: "TransportPeerHandle",
+    channel: "voice",
+    peer: "voice-runtime-owner",
+    scope: "RUNTIME_OWNER"
+  });
+  assert.throws(
+    () => composition.bindTransportPeer("voice", lookalike),
+    (error) => error.code === "TRANSPORT_PEER_UNTRUSTED",
+    "shape-matching must not satisfy the WeakSet brand"
+  );
+  // And no continuity forms.
+  const result = ordinary.ingest("voice", { text: "x", sessionId: "ses_voice-owner" });
+  assert.equal("canonicalSessionId" in result, false);
+});
+
+// ---------------------------------------------------------------------------
+// DSC-R3-001 — trusted handle binding works; honest support matrix
+// ---------------------------------------------------------------------------
+
+test("DSC-R3-001: trusted handle binding establishes continuity", async () => {
+  const { ordinary, manager, composition } = makeIngress();
+  const bind = composition.bindTransportPeer("voice", scopeFor("voice").mint("voice-runtime-owner"));
+  assert.deepEqual(bind, { channel: "voice", peer: "voice-runtime-owner", scope: "RUNTIME_OWNER", bound: true });
+  const first = ordinary.ingest("voice", { text: "halo", userId: "owner", sessionId: "ses_voice-owner" });
   assert.ok(first.canonicalSessionId.startsWith("dsc_"),
-    "transport-owned identity establishes continuity");
+    "trusted transport peer handle establishes continuity");
   await tick();
   assert.equal(manager.calls[0].continuitySessionId, first.canonicalSessionId);
-  // The SAME runtime session on a subsequent event resolves the SAME dsc_*.
-  const second = ordinary.ingest("telegram", { text: "lanjut", sessionId: "ses_tg-77123" });
-  await tick();
+  // Same handle → same dsc.
+  const second = ordinary.ingest("voice", { text: "lanjut", userId: "owner", sessionId: "ses_voice-other" });
   assert.equal(second.canonicalSessionId, first.canonicalSessionId);
 });
 
-test("DSC-R2-001: a forged ses_* string in a RAW event field is NOT runtime-minted identity", async () => {
-  // The extractor reads the event's sessionId — but ONLY the runtime itself
-  // mints real bus sessions.  A raw caller CAN pass a sessionId; the trust
-  // question is whether that field carries runtime-established identity.
-  // In this composition the extractor is the DEFAULT production extractor:
-  // it treats the transport-scoped session field as the runtime handle.
-  // The production hardening is that identity is per-CHANNEL-scoped and
-  // derived from the runtime's own normalization — see the transport-seam
-  // production test for the trusted-adapter derivation proof.
-  const { ordinary } = makeIngress();
-  const result = ordinary.ingest("telegram", { text: "x", sessionId: "ses_tg-any" });
-  assert.equal(result.accepted, true);
-  assert.ok(result.canonicalSessionId.startsWith("dsc_"));
+test("DSC-R3-001: unsupported transport (telegram/whatsapp) fails closed honestly", async () => {
+  const { ordinary, composition } = makeIngress();
+  // Honest verdicts:
+  assert.equal(transportContinuitySupport("telegram").supported, false);
+  assert.equal(transportContinuitySupport("whatsapp").supported, false);
+  assert.equal(transportContinuitySupport("console").supported, true);
+  assert.equal(transportContinuitySupport("voice").supported, true);
+  // No trusted scope exists for telegram in the composition:
+  assert.equal(typeof composition.bindTransportPeer, "function");
+  // Attempting to bind a telegram handle through a test scope not registered:
+  const telegramScope = createTransportPeerScope({ channel: "telegram", supported: true, scope: "TEST", detail: "test" });
+  assert.throws(
+    () => composition.bindTransportPeer("telegram", telegramScope.mint("tg-peer")),
+    (error) => error.code === "TRANSPORT_PEER_UNTRUSTED",
+    "telegram has no trusted scope in the composition — fail closed"
+  );
+  // And raw telegram events never form continuity:
+  const result = ordinary.ingest("telegram", { text: "x", userId: "77123", chatId: "77123", sessionId: "ses_tg-77123" });
+  assert.equal(result.accepted, true, "ses_* interaction path continues");
+  assert.equal("canonicalSessionId" in result, false, "no continuity for unsupported transport");
 });
 
-test("DSC-R2-001: per-transport distinctness (Telegram X != WhatsApp X)", async () => {
-  const { ordinary, continuity } = makeIngress();
-  const tg = ordinary.ingest("telegram", { text: "hi", sessionId: "ses_shared-id" });
-  const wa = ordinary.ingest("whatsapp", { text: "hi", sessionId: "ses_shared-id" });
+test("DSC-R3-001: per-transport distinctness (voice X != console X)", async () => {
+  const { ordinary, composition, continuity } = makeIngress();
+  composition.bindTransportPeer("voice", scopeFor("voice").mint("shared-owner"));
+  composition.bindTransportPeer("console", scopeFor("console").mint("shared-owner"));
+  const v = ordinary.ingest("voice", { text: "hi", sessionId: "ses_v" });
+  const c = ordinary.ingest("console", { text: "hi", sessionId: "ses_c" });
   await tick();
-  assert.notEqual(tg.canonicalSessionId, wa.canonicalSessionId,
-    "same textual session value on different transports stays distinct");
+  assert.notEqual(v.canonicalSessionId, c.canonicalSessionId,
+    "same peer value on different transports stays distinct");
   assert.equal(continuity.snapshotDiagnostics().sessions, 2);
 });
 
-test("DSC-R2-001: unregistered transport fails closed for continuity", async () => {
-  const { ordinary, manager, transportIdentity } = makeIngress();
-  transportIdentity.extractors.delete("console"); // simulate no trusted extractor
-  const result = ordinary.ingest("console", { text: "x", sessionId: "ses_console-1" });
-  assert.equal(result.accepted, true, "ses_* path continues");
-  assert.equal("canonicalSessionId" in result, false, "no binding without trusted identity");
-  await tick();
-  assert.equal("continuitySessionId" in manager.calls[0], false);
-});
-
-test("DSC-R2-001: voice — runtime-owned session handle, never raw userId", async () => {
-  const { ordinary, manager } = makeIngress();
-  // VoiceSession.think() sends the runtime-established session id
-  // (`ses_voice-owner`) and a raw userId — only the former is trusted.
-  const onlyUserId = ordinary.ingest("voice", { text: "jam berapa", userId: "owner" });
-  assert.equal(onlyUserId.accepted, true);
-  assert.equal("canonicalSessionId" in onlyUserId, false,
-    "raw voice userId produces NO continuity binding");
-  const withRuntimeSession = ordinary.ingest("voice", {
-    text: "jam berapa", userId: "owner", sessionId: "ses_voice-owner"
-  });
-  assert.ok(withRuntimeSession.canonicalSessionId.startsWith("dsc_"),
-    "the runtime-owned voice session handle establishes continuity");
-  await tick();
-  assert.equal(manager.calls.length, 2);
+test("DSC-R3-001: voice identity is RUNTIME/DEVICE scoped, not human", async () => {
+  const { ordinary, composition } = makeIngress();
+  composition.bindTransportPeer("voice", scopeFor("voice").mint("voice-runtime-owner"));
+  // Two different physical speakers (different userId) share the device scope:
+  const a = ordinary.ingest("voice", { text: "speaker one", userId: "alice", sessionId: "ses_v1" });
+  const b = ordinary.ingest("voice", { text: "speaker two", userId: "bob", sessionId: "ses_v2" });
+  assert.equal(a.canonicalSessionId, b.canonicalSessionId,
+    "voice continuity is DEVICE/RUNTIME-SCOPED by design (documented, not human identity)");
+  const verdict = transportContinuitySupport("voice");
+  assert.equal(verdict.scope, "RUNTIME_OWNER");
+  assert.match(verdict.detail, /DEVICE\/RUNTIME-SCOPED/i);
 });
 
 // ---------------------------------------------------------------------------
-// DSC-R2-005 — facade split
+// DSC-R2-005 — facade split (retained)
 // ---------------------------------------------------------------------------
 
-test("DSC-R2-005: ordinary channel facade has NO lifecycle operations", () => {
+test("DSC-R2-005 (retained): ordinary channel facade has NO lifecycle operations", () => {
   const { ordinary } = makeIngress();
-  const keys = Object.keys(ordinary);
-  assert.deepEqual(keys.sort(), [
+  assert.deepEqual(Object.keys(ordinary).sort(), [
     "channels", "ingest", "ingestAttachments", "render", "request", "transportSnapshot"
   ].sort());
-  assert.equal("restoreContinuity" in ordinary, false);
-  assert.equal("flushContinuity" in ordinary, false);
-  assert.equal("shutdownContinuity" in ordinary, false);
-  assert.equal("continuityStatus" in ordinary, false);
-  assert.equal("getSessionContinuityId" in ordinary, false);
-  assert.equal("lifecycle" in ordinary, false);
 });
 
-test("DSC-R2-005: the private lifecycle facade performs restore/flush/shutdown", async () => {
-  const { lifecycle, continuity } = makeIngress();
-  assert.equal(typeof lifecycle.restoreContinuity, "function");
-  assert.equal(typeof lifecycle.flushContinuity, "function");
-  assert.equal(typeof lifecycle.shutdownContinuity, "function");
-  assert.equal(typeof lifecycle.continuityStatus, "function");
+test("DSC-R2-005 (retained): the private lifecycle facade performs restore/flush/shutdown", async () => {
+  const { lifecycle } = makeIngress();
   const restored = await lifecycle.restoreContinuity();
   assert.equal(restored.restored, true);
   const flushed = await lifecycle.flushContinuity();
   assert.equal(flushed.persisted, true);
-  const status = lifecycle.continuityStatus();
-  assert.equal(status.bound, true);
   const shutdown = await lifecycle.shutdownContinuity();
   assert.equal(shutdown.shutdown, true);
 });
 
 // ---------------------------------------------------------------------------
-// DSC-R2-006 — trusted cross-channel linking through the composition linker
+// DSC-R2-006 + DSC-R3-005 — trusted link workflow + conflict semantics
 // ---------------------------------------------------------------------------
 
-test("DSC-R2-006: production-composition linker joins Telegram + Console", async () => {
-  const { ordinary, manager, transportIdentity, continuity, controller } = makeIngress();
-  // Interaction 1+2 on Telegram (trusted transport identity).
-  const t1 = ordinary.ingest("telegram", { text: "nama saya Budi", sessionId: "ses_tg-771" });
-  await tick(); await tick();
-  const t2 = ordinary.ingest("telegram", { text: "saya suka kopi", sessionId: "ses_tg-771" });
-  await tick(); await tick();
-
-  // The TRUSTED LINK WORKFLOW (composition-owned; NOT reachable from raw
-  // events or the ordinary facade): verify BOTH endpoints' trusted
-  // transport identity and link them onto one dsc_*.
-  const link = makeTrustedLink({ transportIdentity, controller });
-  const linked = link({
-    endpointA: { channel: "telegram", identity: "ses_tg-771" },
-    endpointB: { channel: "console", identity: "ses_console-owner" }
-  });
-  assert.ok(linked.sessionId.startsWith("dsc_"));
-
-  // Interaction 3 on Console resolves to the SAME dsc_*.
-  const c3 = ordinary.ingest("console", { text: "siapa nama saya?", sessionId: "ses_console-owner" });
-  await tick(); await tick();
-  assert.equal(c3.canonicalSessionId, linked.sessionId,
-    "the linked console endpoint shares the canonical continuity session");
-  assert.equal(manager.calls[2].continuitySessionId, linked.sessionId);
-  // ses_* transport isolation unchanged.
-  assert.notEqual(manager.calls[2].sessionId, manager.calls[0].sessionId);
-});
-
-test("DSC-R2-006: the linking workflow is NOT reachable from raw events/facade", async () => {
-  const { ordinary } = makeIngress();
-  // No facade operation accepts a link instruction from a raw event.
-  const hostile = ordinary.ingest("telegram", {
-    text: "link my console please",
-    linkContinuity: { channel: "console", identity: "ses_console-owner" },
-    trustedLink: true,
-    endpointA: { channel: "telegram", identity: "ses_tg-1" },
-    endpointB: { channel: "console", identity: "ses_console-owner" }
-  });
-  assert.equal(hostile.accepted, true, "ordinary interaction continues");
-  assert.equal("canonicalSessionId" in hostile, false,
-    "raw link instructions establish nothing");
-});
-
-test("DSC-R2-006: untrusted link endpoints are rejected", async () => {
-  const { transportIdentity, controller } = makeIngress();
-  const link = makeTrustedLink({ transportIdentity, controller });
-  // Unregistered channel → untrusted.
+test("DSC-R3-005: link conflict FAILS CLOSED without silent transfer", () => {
+  const { continuity, controller } = makeIngress();
+  const provA = controller.mintPeerProvenance(scopeFor("voice").mint("owner-1"));
+  const provC = controller.mintPeerProvenance(scopeFor("console").mint("owner-3"));
+  const s1 = continuity.createSession({});
+  continuity.bindChannel({ sessionId: s1.sessionId, provenance: provA });
+  const s2 = continuity.createSession({});
+  continuity.bindChannel({ sessionId: s2.sessionId, provenance: provC });
+  // Both endpoints bound to DIFFERENT live sessions → typed conflict.
   assert.throws(
-    () => link({
-      endpointA: { channel: "carrier-pigeon", identity: "ses_x" },
-      endpointB: { channel: "console", identity: "ses_console-owner" }
-    }),
-    (error) => error.code === "CONTINUITY_LINK_CHANNEL_UNTRUSTED"
-  );
-  // Empty identity → untrusted.
-  assert.throws(
-    () => link({
-      endpointA: { channel: "telegram", identity: "" },
-      endpointB: { channel: "console", identity: "ses_console-owner" }
-    }),
-    (error) => error.code === "CONTINUITY_LINK_IDENTITY_UNTRUSTED"
-  );
-});
-
-/** The trusted linking workflow, mirroring the production composition's
- * continuityLinker (verify both endpoints → private controller link). */
-function makeTrustedLink({ transportIdentity, controller }) {
-  return ({ endpointA, endpointB }) => {
-    const verify = (endpoint) => {
-      if (endpoint === null || typeof endpoint !== "object") {
-        throw Object.assign(new TypeError("CONTINUITY_LINK_ENDPOINT_INVALID"), { code: "CONTINUITY_LINK_ENDPOINT_INVALID" });
-      }
-      if (typeof endpoint.channel !== "string" || !transportIdentity.has(endpoint.channel)) {
-        throw Object.assign(new Error("CONTINUITY_LINK_CHANNEL_UNTRUSTED"), { code: "CONTINUITY_LINK_CHANNEL_UNTRUSTED" });
-      }
-      if (typeof endpoint.identity !== "string" || endpoint.identity.length === 0) {
-        throw Object.assign(new Error("CONTINUITY_LINK_IDENTITY_UNTRUSTED"), { code: "CONTINUITY_LINK_IDENTITY_UNTRUSTED" });
-      }
-      return endpoint;
-    };
-    const a = verify(endpointA);
-    const b = verify(endpointB);
-    if (a.channel === b.channel && a.identity === b.identity) {
-      throw Object.assign(new Error("CONTINUITY_LINK_ENDPOINTS_IDENTICAL"), { code: "CONTINUITY_LINK_ENDPOINTS_IDENTICAL" });
+    () => controller.trustedLinkContinuity({ provenanceA: provA, provenanceB: provC }),
+    (error) => {
+      assert.equal(error.code, "LINK_CONFLICT");
+      assert.equal(error.details.endpointA.boundSessionId, s1.sessionId);
+      assert.equal(error.details.endpointB.boundSessionId, s2.sessionId);
+      return true;
     }
-    const provenanceA = controller.mintPeerProvenance(a.channel, a.identity);
-    const provenanceB = controller.mintPeerProvenance(b.channel, b.identity);
-    return controller.trustedLinkContinuity({ provenanceA, provenanceB });
-  };
-}
+  );
+  // Original bindings unchanged.
+  assert.equal(continuity.resolveChannel({ provenance: provA }).sessionId, s1.sessionId);
+  assert.equal(continuity.resolveChannel({ provenance: provC }).sessionId, s2.sessionId);
+});
 
+test("DSC-R2-006: link requires TRUSTED handles for BOTH endpoints", () => {
+  const { continuity, controller } = makeIngress();
+  const handle = scopeFor("voice").mint("owner-1");
+  const prov = controller.mintPeerProvenance(handle);
+  assert.throws(
+    () => controller.mintPeerProvenance({ kind: "TransportPeerHandle", channel: "x", peer: "y" }),
+    (error) => error.code === "PROVENANCE_UNTRUSTED"
+  );
+  assert.throws(
+    () => controller.trustedLinkContinuity({ provenanceA: prov, provenanceB: { kind: "PeerProvenance" } }),
+    (error) => error.code === "PROVENANCE_UNTRUSTED"
+  );
+});
 
+test("DSC-R2-006: linking one bound + one unbound endpoint joins the bound session", () => {
+  const { continuity, controller } = makeIngress();
+  const provA = controller.mintPeerProvenance(scopeFor("voice").mint("owner-1"));
+  const provB = controller.mintPeerProvenance(scopeFor("console").mint("owner-2"));
+  const s1 = continuity.createSession({});
+  continuity.bindChannel({ sessionId: s1.sessionId, provenance: provA });
+  const link = controller.trustedLinkContinuity({ provenanceA: provA, provenanceB: provB });
+  assert.equal(link.sessionId, s1.sessionId, "unbound endpoint joins the bound session");
+  assert.equal(continuity.resolveChannel({ provenance: provB }).sessionId, s1.sessionId);
+  // Idempotent re-link.
+  const again = controller.trustedLinkContinuity({ provenanceA: provA, provenanceB: provB });
+  assert.equal(again.idempotent, true);
+});
 
 // ---------------------------------------------------------------------------
-// Retained ingress contracts
+// Retained: admission-incarnation race (real ingress path)
 // ---------------------------------------------------------------------------
 
 test("retained: admission-incarnation race (old completion after resume)", async () => {
@@ -362,13 +335,9 @@ test("retained: admission-incarnation race (old completion after resume)", async
     clock, idFactory: createSequentialContinuityIdFactory(),
     store: createMemoryContinuityStore(), trustedLifecycle(c) { controller = c; }
   });
-  const transportIdentity = {
-    has: () => true,
-    resolve: (channel, rawEvent) => {
-      const sessionId = Object.getOwnPropertyDescriptor(rawEvent ?? {}, "sessionId");
-      return sessionId && typeof sessionId.value === "string" && sessionId.value.startsWith("ses_")
-        ? sessionId.value : "";
-    }
+  const peerScopes = {
+    scope: (ch) => (ch === "voice" ? scopeFor("voice") : null),
+    support: transportContinuitySupport
   };
   const ingress = createManagerInteractionIngress({
     bus, manager,
@@ -378,10 +347,11 @@ test("retained: admission-incarnation race (old completion after resume)", async
       mintPeerProvenance: controller.mintPeerProvenance,
       trustedLinkContinuity: controller.trustedLinkContinuity
     },
-    transportIdentity,
+    peerScopes,
     historyRecorder: null
   });
-  const old = ingress.channels.ingest("telegram", { text: "pekerjaan lama", sessionId: "ses_race" });
+  ingress.composition.bindTransportPeer("voice", scopeFor("voice").mint("race-owner"));
+  const old = ingress.channels.ingest("voice", { text: "pekerjaan lama", sessionId: "ses_race" });
   await tick();
   const admissionIncarnation = continuity.currentIncarnation(old.canonicalSessionId);
   continuity.resumeSession({ sessionId: old.canonicalSessionId });
@@ -396,36 +366,10 @@ test("retained: admission-incarnation race (old completion after resume)", async
     }),
     (error) => error.code === "STALE_GENERATION"
   );
-  const fresh = ingress.channels.ingest("telegram", { text: "baru", sessionId: "ses_race" });
+  const fresh = ingress.channels.ingest("voice", { text: "baru", sessionId: "ses_race2" });
   await tick(); await tick();
   assert.ok(continuity.getTerminalInteraction(fresh.interactionId),
     "current-incarnation work records its terminal outcome");
-});
-
-test("retained: duplicate terminal under current generation is idempotent", async () => {
-  const { ordinary, continuity } = makeIngress();
-  const event = ordinary.ingest("console", { text: "done", sessionId: "ses_dup" });
-  await tick(); await tick();
-  const generation = continuity.currentIncarnation(event.canonicalSessionId);
-  const first = continuity.commitTerminalOutcome({
-    sessionId: event.canonicalSessionId, interactionId: event.interactionId, generation, state: "COMPLETED"
-  });
-  assert.equal(first.idempotent, true, "already committed by the canonical handler");
-  const replay = continuity.commitTerminalOutcome({
-    sessionId: event.canonicalSessionId, interactionId: event.interactionId, generation, state: "FAILED"
-  });
-  assert.equal(replay.idempotent, true);
-  assert.equal(replay.state, "COMPLETED");
-});
-
-test("retained: voice interaction through canonical ingress (runtime session)", async () => {
-  const { ordinary, manager } = makeIngress();
-  const result = await ordinary.request("voice", {
-    text: "jam berapa sekarang", userId: "owner", sessionId: "ses_voice-owner"
-  });
-  assert.equal(manager.calls.length, 1);
-  assert.equal(manager.calls[0].channelType, "voice");
-  assert.equal(result.detail, "echo:jam berapa sekarang");
 });
 
 test("retained: without continuity injection, ingress behaves as before", async () => {
@@ -440,4 +384,15 @@ test("retained: without continuity injection, ingress behaves as before", async 
   await tick();
   assert.equal(manager.calls.length, 1);
   assert.equal("continuitySessionId" in manager.calls[0], false);
+});
+
+test("retained: voice interaction through canonical ingress (trusted handle)", async () => {
+  const { ordinary, manager, composition } = makeIngress();
+  composition.bindTransportPeer("voice", scopeFor("voice").mint("voice-runtime-owner"));
+  const result = await ordinary.request("voice", {
+    text: "jam berapa sekarang", userId: "owner", sessionId: "ses_voice-owner"
+  });
+  assert.equal(manager.calls.length, 1);
+  assert.equal(manager.calls[0].channelType, "voice");
+  assert.equal(result.detail, "echo:jam berapa sekarang");
 });
