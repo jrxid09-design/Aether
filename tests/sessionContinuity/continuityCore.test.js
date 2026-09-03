@@ -23,7 +23,7 @@ const {
 } = require("../../src/runtime/sessionContinuity");
 const {
   createTestTransportPeerScope
-} = require("../../src/runtime/sessionContinuity/transportPeer");
+} = require("../helpers/testTransportPeer");
 
 /** Trusted scope helper (isolated component-test scope; per-scope provenance
  * — never accepted by the canonical composition). */

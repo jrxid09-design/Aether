@@ -22,10 +22,8 @@ const {
   createSequentialContinuityIdFactory,
   createMemoryContinuityStore
 } = require("../../src/runtime/sessionContinuity");
-const {
-  createTestTransportPeerScope,
-  transportContinuitySupport
-} = require("../../src/runtime/sessionContinuity/transportPeer");
+const { createTestTransportPeerScope } = require("../helpers/testTransportPeer");
+const { transportContinuitySupport } = require("../../src/runtime/sessionContinuity/transportPeer");
 
 function tick() {
   return new Promise((resolve) => setImmediate(resolve));

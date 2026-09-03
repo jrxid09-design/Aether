@@ -21,7 +21,7 @@ const {
   createSequentialContinuityIdFactory,
   createMemoryContinuityStore
 } = require("../../src/runtime/sessionContinuity");
-const { createTestTransportPeerScope } = require("../../src/runtime/sessionContinuity/transportPeer");
+const { createTestTransportPeerScope } = require("../helpers/testTransportPeer");
 const { ChannelManager } = require("../../src/channels/channelManager");
 
 function tick() {
