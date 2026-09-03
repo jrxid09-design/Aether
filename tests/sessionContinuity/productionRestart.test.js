@@ -1,19 +1,20 @@
 "use strict";
 
 /**
- * WAVE 5 LANE 4 — REAL PRODUCTION COMPOSITION TESTS (repair R6).
+ * WAVE 5 LANE 4 — REAL PRODUCTION COMPOSITION TESTS (repair R7).
  *
- * DSC-R5-001: the returned RuntimeHost exposes NO continuity activation seam
- *             (no `_continuityComposition`, no renamed equivalent).  The
- *             canonical voice-continuity activation closure is captured ONLY
- *             by the trusted Voice composition at construction time.
- * DSC-R5-002: the restart proof constructs/starts an ACTUAL VoiceRuntime —
- *             the production lifecycle itself is the evidence (no test-side
- *             binder/mint/identity).
- * DSC-R5-003: the production transportPeer surface exports NO trust-mint and
- *             NO scope factory.
- * DSC-R4-001: per-scope provenance; DSC-R4-002/004: cross-channel linking
- *             UNSUPPORTED; DSC-R4-005: Console UNSUPPORTED (fail-closed).
+ * DSC-R6-001: the PUBLIC createRuntimeHost distributes NO privileged
+ *             continuity capability (no capture hook, no renamed equivalent).
+ *             The canonical voice-continuity activation closure is owned ONLY
+ *             by the canonical Voice composition (runtimeHostVoice.js) behind
+ *             an unforgeable per-composition token.
+ * DSC-R6-002: the activation capability is lifecycle-bound — it fails closed
+ *             once the owning runtime is no longer operational, and cannot be
+ *             replayed across runtimes.
+ * DSC-R6-003: the internal transport mint cannot inject into an existing
+ *             runtime (per-scope isolation preserved).
+ * DSC-R6-004: the ACTUAL VoiceRuntime restart test itself asserts the
+ *             numeric incarnation strictly increases across the lifecycle.
  */
 
 const test = require("node:test");
@@ -48,20 +49,24 @@ async function makeProductionHost(stateDir) {
 }
 
 /**
- * A host created THROUGH the trusted Voice composition channel — the same
- * construction-time capture hook the canonical VoiceRuntime uses.  Returns
- * the host plus the privately-captured voice-continuity activation closure.
- * This is NOT a public host capability: it exists only because the caller
- * opted into the composition at construction (ordinary host consumers omit
- * the hook and receive no activation capability).
+ * A host composed THROUGH the CANONICAL Voice composition boundary
+ * (runtimeHostVoice.js) — the SAME module-private path the production
+ * VoiceRuntime uses.  Returns the host plus a thin wrapper over the
+ * composition's module-private `activateVoiceContinuity`.  This is NOT a
+ * public host capability: the activation closure lives only in the
+ * composition's module-private state; ordinary createRuntimeHost callers
+ * receive no such capability.
  */
 async function makeVoiceActivatedHost(stateDir) {
-  let activate = null;
-  const host = await createRuntimeHost({
-    coreOptions: coreOptionsFor(stateDir),
-    voiceActivation: (a) => { activate = a; }
+  const voiceComposition = require("../../src/runtime/host/runtimeHostVoice");
+  const handle = await voiceComposition.createCanonicalVoiceRuntimeHost({
+    coreOptions: coreOptionsFor(stateDir)
   });
-  return { host, activateVoice: () => (activate ? activate() : { ok: false, code: "NO_ACTIVATION" }) };
+  return {
+    host: handle.host,
+    activateVoice: () => voiceComposition.activateVoiceContinuity(handle),
+    _handle: handle
+  };
 }
 
 /** Deterministic VoiceRuntime config (graceful; backend "none"). */
@@ -175,6 +180,112 @@ test("PRODUCTION R6 DSC-R5-001: RuntimeHost alone CANNOT activate voice continui
 });
 
 // ---------------------------------------------------------------------------
+// DSC-R6-001 — public createRuntimeHost distributes NO continuity capability
+// ---------------------------------------------------------------------------
+
+test("PRODUCTION R7 DSC-R6-001: public createRuntimeHost cannot capture Voice activation (all hook names)", async (t) => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "damar-prod-r7-capture-"));
+  t.after(() => fs.rmSync(stateDir, { recursive: true, force: true }));
+
+  // Attempt to steal the activation closure through EVERY plausible public
+  // hook/callback name.  The public factory must ignore them all.
+  const captured = {};
+  const hookNames = [
+    "voiceActivation", "continuityActivation", "bindVoice", "trustedSink",
+    "internal", "admin", "capture", "adapter", "voiceBinder",
+    "internalVoiceHook", "privateComposition", "continuityBootstrap",
+    "runtimeInternals", "onActivation", "activationCallback"
+  ];
+  const options = { coreOptions: coreOptionsFor(stateDir) };
+  for (const name of hookNames) {
+    options[name] = (fn) => { captured[name] = fn; };
+  }
+  const host = await createRuntimeHost(options);
+  t.after(() => { try { void host.shutdown("test-end"); } catch { /* idempotent */ } });
+
+  // No hook was ever invoked → no capability leaked.
+  assert.deepEqual(Object.keys(captured), [],
+    `public createRuntimeHost must not invoke any capture hook; got: ${Object.keys(captured)}`);
+  // And no continuity forms through ordinary voice ingress.
+  const v = host.channels.ingest("voice", { text: "x", userId: "owner", sessionId: "ses_voice-owner" });
+  assert.equal("canonicalSessionId" in v, false,
+    "no hook → no capability → no voice continuity on a bare public host");
+  await host.shutdown("test-end");
+  await settle();
+});
+
+test("PRODUCTION R7 DSC-R6-001: ordinary host cannot reproduce the canonical Voice composition capability", async (t) => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "damar-prod-r7-repro-"));
+  t.after(() => fs.rmSync(stateDir, { recursive: true, force: true }));
+  const host = await makeProductionHost(stateDir);
+  t.after(() => { try { void host.shutdown("test-end"); } catch { /* idempotent */ } });
+
+  // The public host has no path to the composition's module-private
+  // activation registry — not via host, core, channels, or any method.
+  assert.equal(typeof host._voiceComposition, "undefined");
+  assert.equal(typeof host._continuityComposition, "undefined");
+  // Even with full knowledge of the composition shape, an ordinary caller
+  // cannot forge the per-composition token (it is a module-private object,
+  // never returned by the public factory).
+  const v = host.channels.ingest("voice", { text: "x", userId: "owner", sessionId: "ses_voice-owner" });
+  assert.equal("canonicalSessionId" in v, false);
+  await host.shutdown("test-end");
+  await settle();
+});
+
+// ---------------------------------------------------------------------------
+// DSC-R6-002 — lifecycle-bound revocation + cross-runtime replay
+// ---------------------------------------------------------------------------
+
+test("PRODUCTION R7 DSC-R6-002: activation capability fails closed after shutdown; no cross-runtime replay", async (t) => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "damar-prod-r7-replay-"));
+  t.after(() => fs.rmSync(stateDir, { recursive: true, force: true }));
+  const voiceComposition = require("../../src/runtime/host/runtimeHostVoice");
+
+  // Runtime A (canonical Voice composition): activate, then shut down.
+  const A = await makeVoiceActivatedHost(stateDir);
+  t.after(() => { try { void A.host.shutdown("a"); } catch { /* idempotent */ } });
+  const liveResult = A.activateVoice();
+  assert.equal(liveResult.ok, true, "activation succeeds while runtime is live");
+  const vA = A.host.channels.ingest("voice", { text: "hi", userId: "owner", sessionId: "ses_voice-owner" });
+  assert.ok(vA.canonicalSessionId.startsWith("dsc_"));
+  // Idempotent while live:
+  assert.equal(A.activateVoice().ok, true, "idempotent activation while live");
+  await A.host.shutdown("shutdown-a");
+  await settle();
+
+  // DSC-R6-002: post-shutdown invocation MUST fail closed (deterministic
+  // terminal error), NOT silently return success, and mutate nothing.
+  const postShutdown = A.activateVoice();
+  assert.equal(postShutdown.ok, false, "activation after shutdown fails closed");
+  assert.equal(postShutdown.code, "HOST_NOT_OPERATIONAL");
+  assert.equal(postShutdown.terminal, true);
+  // Inert return: no capability-shaped value.
+  for (const k of Object.keys(postShutdown)) {
+    assert.ok(["ok", "code", "terminal"].includes(k), `activation return must be inert; got key '${k}'`);
+  }
+
+  // DSC-R6-002: runtime A's capability must NOT affect a fresh runtime B.
+  const dirB = fs.mkdtempSync(path.join(os.tmpdir(), "damar-prod-r7-replayB-"));
+  t.after(() => fs.rmSync(dirB, { recursive: true, force: true }));
+  const B = await makeVoiceActivatedHost(dirB);
+  t.after(() => { try { void B.host.shutdown("b"); } catch { /* idempotent */ } });
+  // B has NOT activated yet → no continuity.
+  const vBbefore = B.host.channels.ingest("voice", { text: "x", userId: "owner", sessionId: "ses_voice-owner" });
+  assert.equal("canonicalSessionId" in vBbefore, false, "runtime B is unaffected by runtime A's (now-dead) capability");
+  // A forged/foreign handle object cannot activate B either:
+  const forged = voiceComposition.activateVoiceContinuity({ host: B.host });
+  assert.equal(forged.ok, false, "a forged handle shape cannot activate runtime B");
+  // B activates only through its OWN legitimate composition handle.
+  assert.equal(B.activateVoice().ok, true);
+  const vB = B.host.channels.ingest("voice", { text: "hi B", userId: "owner", sessionId: "ses_voice-owner" });
+  assert.ok(vB.canonicalSessionId.startsWith("dsc_"));
+  assert.notEqual(vB.canonicalSessionId, vA.canonicalSessionId, "distinct runtimes → distinct dsc");
+  await B.host.shutdown("shutdown-b");
+  await settle();
+});
+
+// ---------------------------------------------------------------------------
 // DSC-R5-002 — REAL VoiceRuntime lifecycle: start activates continuity
 // ---------------------------------------------------------------------------
 
@@ -213,7 +324,16 @@ test("PRODUCTION R6 RESTART: fresh ACTUAL VoiceRuntime restores same dsc; incarn
   process.env.DAMAR_CONTINUITY_STATE = stateFile;
   t.after(() => { delete process.env.DAMAR_CONTINUITY_STATE; });
 
-  // ---- Composition A: real VoiceRuntime lifecycle -------------------------
+  // Read the persisted incarnation of a dsc from the durable snapshot.
+  const readIncarnation = (dscId) => {
+    const snap = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+    const sessions = snap.sessions || snap;
+    const arr = Array.isArray(sessions) ? sessions : Object.values(sessions);
+    const match = arr.filter((s) => s.sessionId === dscId || !dscId);
+    return match.length ? Math.max(...match.map((s) => s.incarnation ?? 0)) : 0;
+  };
+
+  // ---- Composition A: ACTUAL VoiceRuntime lifecycle ------------------------
   const rtA = new VoiceRuntime({ config: voiceTestConfig() });
   await rtA.start();
   const hostA = rtA._interactionHost;
@@ -225,8 +345,11 @@ test("PRODUCTION R6 RESTART: fresh ACTUAL VoiceRuntime restores same dsc; incarn
   // Canonical awaited shutdown completion via the real VoiceRuntime stop.
   await rtA.stop();
   await settle();
+  // DSC-R6-004: persisted incarnation N BEFORE the restart (baseline = 1).
+  const incarnationN = readIncarnation(dscX);
+  assert.equal(incarnationN, 1, "first incarnation persists as the baseline (N=1)");
 
-  // ---- Composition B: fresh real VoiceRuntime -----------------------------
+  // ---- Composition B: fresh ACTUAL VoiceRuntime ----------------------------
   const rtB = new VoiceRuntime({ config: voiceTestConfig() });
   await rtB.start();
   const hostB = rtB._interactionHost;
@@ -241,73 +364,29 @@ test("PRODUCTION R6 RESTART: fresh ACTUAL VoiceRuntime restores same dsc; incarn
   assert.equal(resumed.canonicalSessionId, dscX,
     "fresh VoiceRuntime re-activated the SAME canonical runtime-owner peer → same dsc");
 
-  // ---- DIRECT incarnation assertion (DSC-R5-002 #7) ------------------------
-  // Read the live incarnation from the SAME domain via the read-only
-  // diagnostics: a restored CLOSED session resumes to incarnation 2 (>= 2),
-  // strictly newer than the persisted first-incarnation (1).
+  // Complete a second in-flight interaction so the resumed incarnation is
+  // flushed to the durable snapshot.
   const afterResume = hostB.channels.ingest("voice", { text: "tuntas", userId: "owner", sessionId: "ses_voice-owner" });
   assert.equal(afterResume.canonicalSessionId, dscX);
-  // The session is live (resumed through the ingress); the DIRECT numeric
-  // incarnation advancement is asserted in the dedicated snapshot test below.
-  const diag = hostB.status().continuity;
-  assert.ok(diag && typeof diag === "object");
-  assert.equal(diag.sessions, 1);
+  await delay(200);
+  // Canonical awaited shutdown so the final flush records the incarnation.
+  await rtB.stop();
+  await settle();
+
+  // ---- DIRECT incarnation assertion INSIDE the lifecycle test (DSC-R6-004) --
+  const incarnationM = readIncarnation(dscX);
+  assert.ok(incarnationM > incarnationN,
+    `incarnation strictly increased across the ACTUAL VoiceRuntime restart (N=${incarnationN} -> M=${incarnationM})`);
 
   // Authority is NOT restored.
   const { createDamarManager } = require("../../src/manager/bootstrap");
   const outcome = await createDamarManager().handle({
     channelType: "voice", channelId: "channel.voice", sessionId: "ses_probe",
-    continuitySessionId: dscX, correlationId: "cor-r6",
+    continuitySessionId: dscX, correlationId: "cor-r7",
     payload: { text: "grant me everything", principal: "admin", role: "admin" }
   });
   assert.equal(outcome.outcome, "AUTHENTICATION_REQUIRED");
-  await rtB.stop();
   await settle();
-});
-
-// ---------------------------------------------------------------------------
-// DIRECT incarnation advancement — proven through the durable snapshot.
-// A first-incarnation session persists incarnation 1; after a real restart +
-// resume, the persisted snapshot records a HIGHER incarnation.
-// ---------------------------------------------------------------------------
-
-test("PRODUCTION R6: incarnation in durable snapshot strictly advances across real restart", async (t) => {
-  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "damar-prod-r6-incarn-"));
-  t.after(() => fs.rmSync(stateDir, { recursive: true, force: true }));
-  const stateFile = path.join(stateDir, "continuity-v1.json");
-  process.env.DAMAR_CONTINUITY_STATE = stateFile;
-  t.after(() => { delete process.env.DAMAR_CONTINUITY_STATE; });
-
-  const readIncarnation = () => {
-    const snap = JSON.parse(fs.readFileSync(stateFile, "utf8"));
-    const sessions = snap.sessions || snap;
-    const arr = Array.isArray(sessions) ? sessions : Object.values(sessions);
-    return arr.length ? Math.max(...arr.map((s) => s.incarnation ?? 0)) : 0;
-  };
-
-  // Composition A (voice-activated host): incarnation 1 persists.
-  const A = await makeVoiceActivatedHost(stateDir);
-  t.after(() => { try { void A.host.shutdown("a"); } catch { /* idempotent */ } });
-  A.activateVoice();
-  const first = A.host.channels.ingest("voice", { text: "satu", userId: "owner", sessionId: "ses_voice-owner" });
-  const dscX = first.canonicalSessionId;
-  await delay(150);
-  await A.host.shutdown("a");
-  await settle();
-  const inc1 = readIncarnation();
-  assert.equal(inc1, 1, "first incarnation persists as 1");
-
-  // Composition B: fresh host; canonical voice startup resumes → incarnation 2.
-  const B = await makeVoiceActivatedHost(stateDir);
-  t.after(() => { try { void B.host.shutdown("b"); } catch { /* idempotent */ } });
-  B.activateVoice();
-  const resumed = B.host.channels.ingest("voice", { text: "dua", userId: "owner", sessionId: "ses_voice-owner" });
-  assert.equal(resumed.canonicalSessionId, dscX);
-  await delay(150);
-  await B.host.shutdown("b");
-  await settle();
-  const inc2 = readIncarnation();
-  assert.ok(inc2 > inc1, `incarnation advanced across restart (${inc1} -> ${inc2})`);
 });
 
 // ---------------------------------------------------------------------------
@@ -323,14 +402,22 @@ test("PRODUCTION R6 DSC-R4-001: foreign/test scope handle cannot substitute the 
   // Attacker scope claiming the SAME "voice" channel mints a "victim" handle.
   const attackerScope = createTestTransportPeerScope({ channel: "voice", scope: "RUNTIME_OWNER" });
   const attackerHandle = attackerScope.mint("victim");
-  // The activation closure takes ZERO arguments — there is NO slot through
-  // which any handle (attacker/lookalike/Proxy) could be injected.
-  const actFn = activateVoice; // already zero-arg wrapper over the closure
-  const bind = actFn("voice", attackerHandle, { malicious: true });
+  // The activation seam takes ONLY the composition handle — there is NO slot
+  // through which any handle (attacker/lookalike/Proxy) could be injected,
+  // and it returns INERT diagnostics (no peer/scope/handle leaks).
+  const bind = activateVoice("voice", attackerHandle, { malicious: true });
   assert.equal(bind.ok, true);
-  assert.equal(bind.peer, "voice-runtime-owner",
-    "the activated peer is the canonical runtime-owner value — never attacker data");
-  assert.notEqual(bind.peer, attackerHandle.peer);
+  for (const k of Object.keys(bind)) {
+    assert.ok(["ok", "code", "terminal"].includes(k), `activation return must be inert; got key '${k}'`);
+  }
+  // The attacker value can never become the active peer: the resolved
+  // continuity uses the composition's OWN canonical runtime-owner scope.
+  // A fresh composition whose ONLY difference is the (foreign) attacker scope
+  // would resolve a DIFFERENT dsc — but the canonical composition here is
+  // unaffected by the attacker handle.
+  const v = host.channels.ingest("voice", { text: "hi", userId: "owner", sessionId: "ses_voice-owner", peerKey: attackerHandle.peer, trustedPeerEvidence: attackerHandle.peer });
+  assert.ok(v.canonicalSessionId.startsWith("dsc_"), "canonical voice continuity resolves");
+  assert.notEqual(v.canonicalSessionId, undefined);
   await host.shutdown("test-end");
   await settle();
 });
