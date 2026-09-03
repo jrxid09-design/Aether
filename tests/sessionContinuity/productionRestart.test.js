@@ -322,6 +322,92 @@ test("PRODUCTION R9 DSC-R8-001: malicious factory cannot capture lifecycle/compo
 });
 
 // ---------------------------------------------------------------------------
+// DSC-R9-001 — VoiceRuntime binding is entirely lexical; no public builder
+// ---------------------------------------------------------------------------
+
+test("PRODUCTION R10 DSC-R9-001: no public buildVoiceRuntimeClass in any production export", () => {
+  const mods = {
+    canonicalComposition: require("../../src/integration/canonicalRuntimeComposition"),
+    runtimeCore: require("../../src/integration/runtimeCore"),
+    runtimeHost: require("../../src/runtime/host/runtimeHost"),
+    voiceRuntime: require("../../src/voice/voiceRuntime")
+  };
+  const FORBIDDEN = [
+    "buildVoiceRuntimeClass", "composeHost", "activateVoice",
+    "buildRuntimeHostInternal", "buildRuntimeCoreInternal",
+    "composeCanonicalVoiceHost", "activateVoiceContinuity",
+    "getBoundVoiceRuntime", "bindVoiceRuntime", "createBoundVoiceRuntime",
+    "registerVoiceRuntimeBuilder", "voiceRuntimeFactory", "internalVoiceBuilder",
+    "trustedVoiceBuilder"
+  ];
+  for (const [label, mod] of Object.entries(mods)) {
+    const keys = [...Object.keys(mod), ...Object.getOwnPropertyNames(mod)];
+    assert.deepEqual(Object.getOwnPropertySymbols(mod), [], `${label} must have no symbols`);
+    for (const name of FORBIDDEN) {
+      assert.equal(keys.includes(name), false, `${label} must not export '${name}'`);
+    }
+  }
+});
+
+test("PRODUCTION R10 DSC-R9-001: canonical VoiceRuntime is a stable value export (no dynamic getter)", () => {
+  const crc = require("../../src/integration/canonicalRuntimeComposition");
+  const descriptor = Object.getOwnPropertyDescriptor(crc, "VoiceRuntime");
+  assert.ok(descriptor, "VoiceRuntime export must exist");
+  assert.equal(typeof descriptor.value, "function", "VoiceRuntime must be a stable VALUE export");
+  assert.equal(descriptor.get, undefined, "VoiceRuntime must NOT be a getter (no dynamic resolution)");
+  assert.equal(descriptor.set, undefined, "VoiceRuntime must have no setter");
+  assert.equal(descriptor.configurable, false, "VoiceRuntime must be non-configurable");
+  assert.equal(typeof crc.VoiceRuntime, "function");
+  assert.equal(crc.VoiceRuntime.name, "VoiceRuntime");
+});
+
+test("PRODUCTION R10 DSC-R9-001: require.cache replacement of voiceRuntime facade captures ZERO privileged functions", () => {
+  const vrPath = require.resolve("../../src/voice/voiceRuntime");
+  const crc = require("../../src/integration/canonicalRuntimeComposition");
+
+  // Attacker replaces the voiceRuntime facade in require.cache BEFORE any
+  // canonical VoiceRuntime access, injecting a fake builder/getter.
+  const captured = {};
+  const cacheEntry = require.cache[vrPath];
+  const originalExports = cacheEntry.exports;
+  cacheEntry.exports = Object.freeze({
+    buildVoiceRuntimeClass: ({ composeHost, activateVoice }) => {
+      captured.composeHost = composeHost;
+      captured.activateVoice = activateVoice;
+      return class FakeVoice {};
+    },
+    get VoiceRuntime() {
+      captured.getterInvoked = true;
+      throw new Error("attacker getter invoked");
+    }
+  });
+
+  try {
+    const V = crc.VoiceRuntime;
+    assert.equal(captured.composeHost, undefined,
+      "attacker must NEVER capture composeHost");
+    assert.equal(captured.activateVoice, undefined,
+      "attacker must NEVER capture activateVoice");
+    assert.equal(captured.getterInvoked, undefined,
+      "attacker getter must NEVER be invoked");
+    assert.equal(typeof V, "function", "canonical VoiceRuntime still resolves as a stable value");
+    assert.equal(V.name, "VoiceRuntime");
+  } finally {
+    // Restore the cache entry so later tests are unaffected.
+    cacheEntry.exports = originalExports;
+  }
+});
+
+test("PRODUCTION R10 DSC-R9-001: facade and canonical VoiceRuntime are identical (single implementation)", () => {
+  const crc = require("../../src/integration/canonicalRuntimeComposition");
+  const facade = require("../../src/voice/voiceRuntime");
+  assert.equal(facade.VoiceRuntime, crc.VoiceRuntime,
+    "voiceRuntime facade must re-export the SAME canonical class (one implementation)");
+  // The facade exposes no second class body / builder:
+  assert.deepEqual(Object.keys(facade), ["VoiceRuntime"]);
+});
+
+// ---------------------------------------------------------------------------
 // DSC-R7-012 — VoiceRuntime instance reflection reveals no primitive
 // ---------------------------------------------------------------------------
 
