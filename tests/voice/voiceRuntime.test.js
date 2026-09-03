@@ -668,6 +668,6 @@ test("actual VoiceRuntime lazily binds canonical RuntimeHost Manager ingress", a
     const result = await rt.handleTranscript("status aman");
     assert.equal(typeof result.answer, "string");
     assert.match(result.answer, /authentication|autentikasi/i);
-    assert.equal(rt._interactionHost.channels, rt.session.interactionIngress);
+    assert.equal(rt.interactionHost.channels, rt.session.interactionIngress);
     await rt.stop();
 });
