@@ -181,6 +181,147 @@ test("PRODUCTION R8 DSC-R7-015: fresh-runtime shortcut is impossible without Voi
 });
 
 // ---------------------------------------------------------------------------
+// DSC-R8-001 — trusted continuity sealed from public dependency injection
+// ---------------------------------------------------------------------------
+
+test("PRODUCTION R9 DSC-R8-001: direct createRuntimeCore ignores caller trustedContinuitySink", async (t) => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "damar-prod-r9-directcore-"));
+  t.after(() => fs.rmSync(stateDir, { recursive: true, force: true }));
+  const { createRuntimeCore } = require("../../src/integration/runtimeCore");
+
+  const captured = [];
+  const core = await createRuntimeCore({
+    mediaStorageRoot: path.join(stateDir, "media-v1"),
+    continuityStoreFile: path.join(stateDir, "continuity-v1.json"),
+    enableManagerIngress: true,
+    trustedContinuitySink: (v) => captured.push(v)
+  });
+  t.after(() => { try { core.shutdown({ reason: "test-end" }); } catch { /* idempotent */ } });
+
+  assert.equal(captured.length, 0,
+    "createRuntimeCore must NOT deliver the privileged composition to a caller-supplied trustedContinuitySink");
+  // The core itself exposes no composition bind seam:
+  assert.equal(typeof core.bindCanonicalTransportPeer, "undefined");
+  const compositionKeys = Object.keys(core).filter((k) =>
+    /composition|bindCanonical|resolveContinuity|continuityLifecycle|trustedContinuity/i.test(k));
+  assert.deepEqual(compositionKeys, [], `core must not expose composition: ${compositionKeys}`);
+  core.shutdown({ reason: "test-end" });
+  await settle();
+});
+
+test("PRODUCTION R9 DSC-R8-001: wrapper/bound/Proxy/decorator coreFactory capture NO trusted state", async (t) => {
+  const { createRuntimeCore } = require("../../src/integration/runtimeCore");
+
+  const makeAttack = () => {
+    const captured = [];
+    const inspect = { keys: new Set(), privilegedKeys: [] };
+    const factory = (options) => {
+      for (const k of Object.keys(options ?? {})) inspect.keys.add(k);
+      for (const k of Object.keys(options ?? {})) {
+        if (/trustedContinuitySink|continuityLifecycle|continuityComposition|bindCanonicalTransportPeer|resolveContinuityId|restoreContinuity|flushContinuity|shutdownContinuity|continuityStatus|activation|token|scope|peerHandle/i.test(k)) {
+          inspect.privilegedKeys.push(k);
+        }
+      }
+      // The wrapper overrides the sink to try to capture the payload:
+      return createRuntimeCore({ ...options, trustedContinuitySink: (v) => captured.push(v) });
+    };
+    return { factory, captured, inspect };
+  };
+
+  const variants = {
+    wrapper: (f) => f,
+    bound: (f) => f.bind(null),
+    proxy: (f) => new Proxy(f, {}),
+    decorator: (f) => (options) => f(options)
+  };
+
+  for (const [label, wrap] of Object.entries(variants)) {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), `damar-prod-r9-${label}-`));
+    t.after(() => fs.rmSync(stateDir, { recursive: true, force: true }));
+    const { factory, captured, inspect } = makeAttack();
+    const host = await createRuntimeHost({
+      coreFactory: wrap(factory),
+      coreOptions: coreOptionsFor(stateDir)
+    });
+    t.after(() => { try { void host.shutdown("test-end"); } catch { /* idempotent */ } });
+
+    assert.equal(captured.length, 0,
+      `${label}: custom factory must capture NO trusted composition payload`);
+    assert.deepEqual(inspect.privilegedKeys, [],
+      `${label}: custom factory must receive NO privileged option keys; got: ${inspect.privilegedKeys}`);
+    // Bare host gains no voice continuity:
+    const v = host.channels.ingest("voice", { text: "attack", userId: "owner", sessionId: "ses_voice-owner" });
+    assert.equal("canonicalSessionId" in v, false,
+      `${label}: bare RuntimeHost must NOT gain voice continuity`);
+    await host.shutdown("test-end");
+    await settle();
+  }
+});
+
+test("PRODUCTION R9 DSC-R8-001: caller coreOptions.trustedContinuitySink is never invoked (any factory)", async (t) => {
+  const { createRuntimeCore } = require("../../src/integration/runtimeCore");
+  for (const useWrapper of [false, true]) {
+    const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), `damar-prod-r9-callersink-${useWrapper}-`));
+    t.after(() => fs.rmSync(stateDir, { recursive: true, force: true }));
+    const captured = [];
+    const opts = {
+      coreOptions: { ...coreOptionsFor(stateDir), trustedContinuitySink: (v) => captured.push(v) }
+    };
+    if (useWrapper) {
+      opts.coreFactory = (options) => createRuntimeCore(options);
+    }
+    const host = await createRuntimeHost(opts);
+    t.after(() => { try { void host.shutdown("test-end"); } catch { /* idempotent */ } });
+    assert.equal(captured.length, 0,
+      `useWrapper=${useWrapper}: caller coreOptions.trustedContinuitySink must never be invoked`);
+    await host.shutdown("test-end");
+    await settle();
+  }
+});
+
+test("PRODUCTION R9 DSC-R8-001: malicious factory cannot capture lifecycle/composition or bind", async (t) => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), "damar-prod-r9-malicious-"));
+  t.after(() => fs.rmSync(stateDir, { recursive: true, force: true }));
+  const { createRuntimeCore } = require("../../src/integration/runtimeCore");
+
+  const captured = [];
+  let bindResult = "not-attempted";
+  const host = await createRuntimeHost({
+    coreFactory: (options) => {
+      // Malicious: tries to grab the payload via its own sink, then bind.
+      return createRuntimeCore({
+        ...options,
+        enableManagerIngress: true,
+        trustedContinuitySink: (payload) => {
+          captured.push(payload);
+          const comp = payload && payload.composition;
+          if (comp && typeof comp.bindCanonicalTransportPeer === "function") {
+            try {
+              comp.bindCanonicalTransportPeer("voice");
+              bindResult = "BOUND-UNEXPECTED";
+            } catch (e) {
+              bindResult = `rejected:${e.code ?? "err"}`;
+            }
+          }
+        }
+      });
+    },
+    coreOptions: coreOptionsFor(stateDir)
+  });
+  t.after(() => { try { void host.shutdown("test-end"); } catch { /* idempotent */ } });
+
+  assert.equal(captured.length, 0,
+    "malicious factory must NOT capture lifecycle/composition payload");
+  assert.equal(bindResult, "not-attempted",
+    "with no captured composition, no bind can even be attempted");
+  const v = host.channels.ingest("voice", { text: "attack", userId: "owner", sessionId: "ses_voice-owner" });
+  assert.equal("canonicalSessionId" in v, false,
+    "no captured composition → no voice continuity bind on a bare host");
+  await host.shutdown("test-end");
+  await settle();
+});
+
+// ---------------------------------------------------------------------------
 // DSC-R7-012 — VoiceRuntime instance reflection reveals no primitive
 // ---------------------------------------------------------------------------
 
