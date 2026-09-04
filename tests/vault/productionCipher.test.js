@@ -140,7 +140,13 @@ test("production cipher: key material via key file works", () => {
     const dir = tmpDir();
     const keyFile = path.join(dir, "master.key");
     fs.writeFileSync(keyFile, freshKey().toString("base64"), { mode: 0o600 });
-    const adapter = createProductionCipherAdapter({ keyFile });
+    // TF-005: on Windows POSIX mode is not ACL protection — the key file is
+    // accepted only via the platform-managed opt-in (same semantics as the
+    // canonical composition and trustFoundationRepair tests).
+    const adapter = createProductionCipherAdapter({
+        keyFile,
+        allowPlatformManagedKeyFile: process.platform === "win32" ? true : undefined
+    });
     const envelope = adapter.encrypt(Buffer.from("file-key-secret", "utf8"));
     assert.deepEqual(adapter.decrypt(envelope), Buffer.from("file-key-secret", "utf8"));
     fs.rmSync(dir, { recursive: true, force: true });
