@@ -38,24 +38,21 @@ async function makeTrust(stateDir, { now = 1000 } = {}) {
     return { store, registry, verifier, bootstrap, clock: (v) => { now = v; } };
 }
 
-async function runBootstrap(t) {
-    const b = await t.bootstrap.begin({ principalId: "owner-ardi" });
-    const privKey = crypto.createPrivateKey(b.privateKeyPem);
+/**
+ * EXTERNAL-mode bootstrap: the caller holds the key; Damar never sees the
+ * private half.  This is the mode that exercises real proof-of-possession.
+ */
+async function runBootstrap(t, { kp = newKey() } = {}) {
+    const publicKeyPem = kp.publicKey.export({ type: "spki", format: "pem" });
+    const b = await t.bootstrap.begin({ principalId: "owner-ardi", mode: "external", publicKeyPem });
     const payload = canonicalChallenge({
         purpose: BOOTSTRAP_PURPOSE,
-        credentialId: b.credentialId,
+        credentialId: b.challenge.credentialId,
         nonce: b.challenge.nonce,
         context: BOOTSTRAP_CONTEXT
     });
-    const sig = crypto.sign(null, payload, privKey);
-    return t.bootstrap.complete({
-        principalId: "owner-ardi",
-        credentialId: b.credentialId,
-        publicKeyPem: b.publicKeyPem,
-        privateKeyPem: b.privateKeyPem,
-        challenge: b.challenge,
-        signature: sig.toString("base64url")
-    });
+    const sig = crypto.sign(null, payload, kp.privateKey);
+    return t.bootstrap.complete({ ceremonyId: b.ceremonyId, signature: sig.toString("base64url") });
 }
 
 test("first bootstrap succeeds and permanently closes the first-Owner path", async () => {
@@ -75,14 +72,13 @@ test("first bootstrap succeeds and permanently closes the first-Owner path", asy
 
 test("wrong proof of possession is rejected and registry stays UNENROLLED", async () => {
     const t = await makeTrust(tmpDir());
-    const b = await t.bootstrap.begin({ principalId: "owner-ardi" });
+    const kp = newKey();
+    const b = await t.bootstrap.begin({
+        principalId: "owner-ardi", mode: "external",
+        publicKeyPem: kp.publicKey.export({ type: "spki", format: "pem" })
+    });
     await assert.rejects(() => t.bootstrap.complete({
-        principalId: "owner-ardi",
-        credentialId: b.credentialId,
-        publicKeyPem: b.publicKeyPem,
-        privateKeyPem: b.privateKeyPem,
-        challenge: b.challenge,
-        signature: "AAAAAAAAAAAAAAAAAAAA"
+        ceremonyId: b.ceremonyId, signature: "AAAAAAAAAAAAAAAAAAAA"
     }), (e) => e.code === "OT_PROOF_INVALID");
     assert.equal(t.registry.getState(), "UNENROLLED");
     assert.equal(t.registry.isBootstrapped(), false);
@@ -90,59 +86,48 @@ test("wrong proof of possession is rejected and registry stays UNENROLLED", asyn
 
 test("a signature from a DIFFERENT key is rejected (proof of possession)", async () => {
     const t = await makeTrust(tmpDir());
-    const b = await t.bootstrap.begin({ principalId: "owner-ardi" });
+    const kp = newKey();
+    const b = await t.bootstrap.begin({
+        principalId: "owner-ardi", mode: "external",
+        publicKeyPem: kp.publicKey.export({ type: "spki", format: "pem" })
+    });
     const attacker = newKey();
     const payload = canonicalChallenge({
         purpose: BOOTSTRAP_PURPOSE,
-        credentialId: b.credentialId,
+        credentialId: b.challenge.credentialId,
         nonce: b.challenge.nonce,
         context: BOOTSTRAP_CONTEXT
     });
     const sig = crypto.sign(null, payload, attacker.privateKey);
     await assert.rejects(() => t.bootstrap.complete({
-        principalId: "owner-ardi",
-        credentialId: b.credentialId,
-        publicKeyPem: b.publicKeyPem,
-        privateKeyPem: b.privateKeyPem,
-        challenge: b.challenge,
-        signature: sig.toString("base64url")
+        ceremonyId: b.ceremonyId, signature: sig.toString("base64url")
     }), (e) => e.code === "OT_PROOF_INVALID");
     assert.equal(t.registry.getState(), "UNENROLLED");
 });
 
 test("concurrent bootstrap attempts have exactly one winner", async () => {
     const t = await makeTrust(tmpDir());
-    const b1 = await t.bootstrap.begin({ principalId: "owner-ardi" });
+    const kp = newKey();
+    const b1 = await t.bootstrap.begin({
+        principalId: "owner-ardi", mode: "external",
+        publicKeyPem: kp.publicKey.export({ type: "spki", format: "pem" })
+    });
     // A second begin while the first is in progress fails closed.
     await assert.rejects(() => t.bootstrap.begin({ principalId: "owner-other" }),
         (e) => e.code === "OT_BOOTSTRAP_IN_PROGRESS");
     // The first completes and wins.
-    const privKey = crypto.createPrivateKey(b1.privateKeyPem);
     const payload = canonicalChallenge({
         purpose: BOOTSTRAP_PURPOSE,
-        credentialId: b1.credentialId,
+        credentialId: b1.challenge.credentialId,
         nonce: b1.challenge.nonce,
         context: BOOTSTRAP_CONTEXT
     });
-    const sig = crypto.sign(null, payload, privKey);
-    const res = await t.bootstrap.complete({
-        principalId: "owner-ardi",
-        credentialId: b1.credentialId,
-        publicKeyPem: b1.publicKeyPem,
-        privateKeyPem: b1.privateKeyPem,
-        challenge: b1.challenge,
-        signature: sig.toString("base64url")
-    });
+    const sig = crypto.sign(null, payload, kp.privateKey);
+    const res = await t.bootstrap.complete({ ceremonyId: b1.ceremonyId, signature: sig.toString("base64url") });
     assert.equal(res.principalId, "owner-ardi");
     // The loser can never win afterward.
-    await assert.rejects(() => t.bootstrap.complete({
-        principalId: "owner-other",
-        credentialId: b1.credentialId,
-        publicKeyPem: b1.publicKeyPem,
-        privateKeyPem: b1.privateKeyPem,
-        challenge: b1.challenge,
-        signature: "AAAA"
-    }), (e) => e.code === "OT_BOOTSTRAP_NOT_STARTED" || e.code === "OT_BOOTSTRAP_CLOSED");
+    await assert.rejects(() => t.bootstrap.complete({ ceremonyId: "cer-forged", signature: "AAAA" }),
+        (e) => e.code === "OT_CEREMONY_UNKNOWN" || e.code === "OT_BOOTSTRAP_CLOSED");
 });
 
 test("bootstrap persists durable state; restart restores Owner + generation", async () => {

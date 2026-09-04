@@ -24,23 +24,14 @@ function pem(kp) {
 async function makeComposed() {
     const comp = await composeOwnerTrustForTest({ stateFile: null });
     const b = await comp.firstOwnerBootstrap.begin({ principalId: "owner-ardi" });
-    const privKey = crypto.createPrivateKey(b.privateKeyPem);
-    const sig = crypto.sign(null, canonicalChallenge({
-        purpose: BOOTSTRAP_PURPOSE, credentialId: b.credentialId,
-        nonce: b.challenge.nonce, context: BOOTSTRAP_CONTEXT
-    }), privKey);
-    await comp.firstOwnerBootstrap.complete({
-        principalId: "owner-ardi", credentialId: b.credentialId,
-        publicKeyPem: b.publicKeyPem, privateKeyPem: b.privateKeyPem,
-        challenge: b.challenge, signature: sig.toString("base64url")
-    });
+    await comp.firstOwnerBootstrap.complete({ ceremonyId: b.ceremonyId });
     // live credential we control
     const kp = crypto.generateKeyPairSync("ed25519");
     await comp.registry.rotateCredential({
         principalId: "owner-ardi",
         newCredential: { credentialId: "cred-live", publicKeyPem: pem(kp) }
     });
-    return { comp, ownerKey: kp };
+    return { comp, ownerKey: kp, testMint: comp.testMint };
 }
 
 function ownerProof({ comp, ownerKey }, purpose = "owner-proof") {
@@ -134,10 +125,10 @@ test("device rotation: rebinding after credential rotation requires a fresh proo
 test("transport binding: transport-owned peer authenticates the bound principal", async () => {
     const ctx = await makeComposed();
     await ctx.comp.principalBindings.bindTransportPeer({
-        proof: ownerProof(ctx), purpose: "owner-proof", transport: "telegram", peer: "12345"
+        proof: ownerProof(ctx), purpose: "owner-proof", provenance: ctx.testMint.telegram("12345")
     });
     const auth = ctx.comp.principalBindings.authenticateTransportPeer({
-        transport: "telegram", peer: "12345"
+        provenance: ctx.testMint.telegram("12345")
     });
     assert.equal(auth.ok, true);
     assert.equal(auth.principalId, "owner-ardi");
@@ -146,8 +137,8 @@ test("transport binding: transport-owned peer authenticates the bound principal"
 test("raw Telegram ID cannot bind itself; raw WhatsApp JID cannot bind itself", async () => {
     const ctx = await makeComposed();
     for (const attempt of [
-        { transport: "telegram", peer: "99999" },
-        { transport: "whatsapp", peer: "62899@s.whatsapp.net" }
+        { provenance: ctx.testMint.telegram("99999") },
+        { provenance: ctx.testMint.whatsapp("62899@s.whatsapp.net") }
     ]) {
         await assert.rejects(() => ctx.comp.principalBindings.bindTransportPeer({
             proof: null, purpose: "owner-proof", ...attempt
@@ -165,7 +156,7 @@ test("conflicting rebind of an active peer to another principal is rejected", as
         credential: { credentialId: "cred-admin", publicKeyPem: pem(kp) }
     });
     await ctx.comp.principalBindings.bindTransportPeer({
-        proof: ownerProof(ctx), purpose: "owner-proof", transport: "telegram", peer: "12345"
+        proof: ownerProof(ctx), purpose: "owner-proof", provenance: ctx.testMint.telegram("12345")
     });
     // admin tries to claim the SAME active peer -> rejected (no silent transfer)
     const ch = ctx.comp.proofVerifier.issueChallenge({ purpose: "admin-proof", credentialId: "cred-admin" });
@@ -174,18 +165,18 @@ test("conflicting rebind of an active peer to another principal is rejected", as
     }), kp.privateKey);
     await assert.rejects(() => ctx.comp.principalBindings.bindTransportPeer({
         proof: { nonce: ch.nonce, signature: adminSig.toString("base64url") },
-        purpose: "admin-proof", transport: "telegram", peer: "12345"
+        purpose: "admin-proof", provenance: ctx.testMint.telegram("12345")
     }), (e) => e.code === "OT_BINDING_CONFLICT");
 });
 
 test("revoked binding: transport still works as transport but principal authentication fails", async () => {
     const ctx = await makeComposed();
     const binding = await ctx.comp.principalBindings.bindTransportPeer({
-        proof: ownerProof(ctx), purpose: "owner-proof", transport: "telegram", peer: "12345"
+        proof: ownerProof(ctx), purpose: "owner-proof", provenance: ctx.testMint.telegram("12345")
     });
     await ctx.comp.registry.revokeBinding({ bindingId: binding.bindingId });
     const auth = ctx.comp.principalBindings.authenticateTransportPeer({
-        transport: "telegram", peer: "12345"
+        provenance: ctx.testMint.telegram("12345")
     });
     assert.equal(auth.ok, false);
     assert.equal(auth.code, "OT_PEER_NOT_BOUND");
@@ -201,12 +192,12 @@ test("channel account reassignment: revoked binding does not transfer trust to a
         credential: { credentialId: "cred-admin", publicKeyPem: pem(kp) }
     });
     const old = await ctx.comp.principalBindings.bindTransportPeer({
-        proof: ownerProof(ctx), purpose: "owner-proof", transport: "telegram", peer: "12345"
+        proof: ownerProof(ctx), purpose: "owner-proof", provenance: ctx.testMint.telegram("12345")
     });
     await ctx.comp.registry.revokeBinding({ bindingId: old.bindingId });
     // A fresh authenticated ceremony CAN rebind the now-free peer.
     const fresh = await ctx.comp.principalBindings.bindTransportPeer({
-        proof: ownerProof(ctx), purpose: "owner-proof", transport: "telegram", peer: "12345"
+        proof: ownerProof(ctx), purpose: "owner-proof", provenance: ctx.testMint.telegram("12345")
     });
     assert.equal(fresh.principalId, "owner-ardi");
     assert.ok(fresh.bindingId !== old.bindingId);
@@ -222,16 +213,7 @@ test("binding restart persistence: bindings survive restore over the same store"
     const c1 = await composeOwnerTrustForTest({ stateFile: path.join(dir, "ot.json") });
     // enroll + bind
     const b = await c1.firstOwnerBootstrap.begin({ principalId: "owner-ardi" });
-    const pk = crypto.createPrivateKey(b.privateKeyPem);
-    const sig = crypto.sign(null, canonicalChallenge({
-        purpose: BOOTSTRAP_PURPOSE, credentialId: b.credentialId,
-        nonce: b.challenge.nonce, context: BOOTSTRAP_CONTEXT
-    }), pk);
-    await c1.firstOwnerBootstrap.complete({
-        principalId: "owner-ardi", credentialId: b.credentialId,
-        publicKeyPem: b.publicKeyPem, privateKeyPem: b.privateKeyPem,
-        challenge: b.challenge, signature: sig.toString("base64url")
-    });
+    await c1.firstOwnerBootstrap.complete({ ceremonyId: b.ceremonyId });
     const kp = crypto.generateKeyPairSync("ed25519");
     await c1.registry.rotateCredential({
         principalId: "owner-ardi",
@@ -243,10 +225,11 @@ test("binding restart persistence: bindings survive restore over the same store"
     }), kp.privateKey);
     await c1.principalBindings.bindTransportPeer({
         proof: { nonce: ch.nonce, signature: s.toString("base64url") },
-        purpose: "owner-proof", transport: "telegram", peer: "12345"
+        purpose: "owner-proof", provenance: c1.testMint.telegram("12345")
     });
     await c1.registry.persist();
-    // restart
+    // restart (release the audit sink lock first — graceful shutdown)
+    c1.close();
     const c2 = await composeOwnerTrustForTest({ stateFile: path.join(dir, "ot.json") });
     const restored = await c2.registry.restore();
     assert.equal(restored.restored, true);

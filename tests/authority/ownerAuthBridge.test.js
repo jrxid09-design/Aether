@@ -22,21 +22,7 @@ const {
 async function makeComposed() {
     const comp = await composeOwnerTrustForTest({ stateFile: null });
     const b = await comp.firstOwnerBootstrap.begin({ principalId: "owner-ardi" });
-    const privKey = crypto.createPrivateKey(b.privateKeyPem);
-    const sig = crypto.sign(null, canonicalChallenge({
-        purpose: BOOTSTRAP_PURPOSE,
-        credentialId: b.credentialId,
-        nonce: b.challenge.nonce,
-        context: BOOTSTRAP_CONTEXT
-    }), privKey);
-    await comp.firstOwnerBootstrap.complete({
-        principalId: "owner-ardi",
-        credentialId: b.credentialId,
-        publicKeyPem: b.publicKeyPem,
-        privateKeyPem: b.privateKeyPem,
-        challenge: b.challenge,
-        signature: sig.toString("base64url")
-    });
+    await comp.firstOwnerBootstrap.complete({ ceremonyId: b.ceremonyId });
     return comp;
 }
 
@@ -141,16 +127,17 @@ test("bridge: canonical action facade authenticates a valid proof and fail-close
     const otc = require("../../src/authority/ownerTrustComposition");
     const comp = await otc.ensureCanonicalComposed();
     if (comp.registry.getState() !== "ACTIVE") {
-        const b = await comp.firstOwnerBootstrap.begin({ principalId: "owner-ardi" });
-        const privKey = crypto.createPrivateKey(b.privateKeyPem);
+        const kp0 = crypto.generateKeyPairSync("ed25519");
+        const b = await comp.firstOwnerBootstrap.begin({
+            principalId: "owner-ardi", mode: "external",
+            publicKeyPem: kp0.publicKey.export({ type: "spki", format: "pem" })
+        });
         const sig = crypto.sign(null, otc.canonicalChallenge({
-            purpose: otc.BOOTSTRAP_PURPOSE, credentialId: b.credentialId,
+            purpose: otc.BOOTSTRAP_PURPOSE, credentialId: b.challenge.credentialId,
             nonce: b.challenge.nonce, context: otc.BOOTSTRAP_CONTEXT
-        }), privKey);
+        }), kp0.privateKey);
         await comp.firstOwnerBootstrap.complete({
-            principalId: "owner-ardi", credentialId: b.credentialId,
-            publicKeyPem: b.publicKeyPem, privateKeyPem: b.privateKeyPem,
-            challenge: b.challenge, signature: sig.toString("base64url")
+            ceremonyId: b.ceremonyId, signature: sig.toString("base64url")
         });
     }
     const kp = crypto.generateKeyPairSync("ed25519");

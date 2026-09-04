@@ -22,22 +22,13 @@ function pem(kp) {
 async function makeComposed() {
     const comp = await composeOwnerTrustForTest({ stateFile: null });
     const b = await comp.firstOwnerBootstrap.begin({ principalId: "owner-ardi" });
-    const privKey = crypto.createPrivateKey(b.privateKeyPem);
-    const sig = crypto.sign(null, canonicalChallenge({
-        purpose: BOOTSTRAP_PURPOSE, credentialId: b.credentialId,
-        nonce: b.challenge.nonce, context: BOOTSTRAP_CONTEXT
-    }), privKey);
-    await comp.firstOwnerBootstrap.complete({
-        principalId: "owner-ardi", credentialId: b.credentialId,
-        publicKeyPem: b.publicKeyPem, privateKeyPem: b.privateKeyPem,
-        challenge: b.challenge, signature: sig.toString("base64url")
-    });
+    await comp.firstOwnerBootstrap.complete({ ceremonyId: b.ceremonyId });
     const kp = crypto.generateKeyPairSync("ed25519");
     await comp.registry.rotateCredential({
         principalId: "owner-ardi",
         newCredential: { credentialId: "cred-live", publicKeyPem: pem(kp) }
     });
-    return { comp, ownerKey: kp };
+    return { comp, ownerKey: kp, testMint: comp.testMint };
 }
 
 function ownerProof({ comp, ownerKey }, purpose = "owner-proof") {
@@ -52,12 +43,12 @@ test("STAGE 8 console: local context is transport-only; Owner proof required to 
     const ctx = await makeComposed();
     const B = ctx.comp.channelBinders;
     // LOCAL != OWNER: no proof -> no binding, no authentication.
-    await assert.rejects(() => B.console.bind({ proof: null, purpose: "owner-proof" }),
+    await assert.rejects(() => B.console.bind({ proof: null, purpose: "owner-proof", provenance: ctx.testMint.console("local") }),
         (e) => e.code === "OT_PROOF_NONCE_INVALID" || e.code === "OT_PROOF_INVALID");
-    assert.equal(B.console.authenticate().ok, false);
+    assert.equal(B.console.authenticate({ provenance: ctx.testMint.console("local") }).ok, false);
     // With proof, the console context binds and authenticates.
-    await B.console.bind({ proof: ownerProof(ctx), purpose: "owner-proof", localContext: "local" });
-    const auth = B.console.authenticate({ localContext: "local" });
+    await B.console.bind({ proof: ownerProof(ctx), purpose: "owner-proof", provenance: ctx.testMint.console("local") });
+    const auth = B.console.authenticate({ provenance: ctx.testMint.console("local") });
     assert.equal(auth.ok, true);
     assert.equal(auth.principalId, "owner-ardi");
 });
@@ -69,27 +60,29 @@ test("STAGE 8 console: no environment variable or shortcut grants owner", async 
     process.env.OWNER = "true";
     process.env.DAMAR_OWNER_TRUSTED = "yes";
     // A fresh registry never authenticates, regardless of environment flags.
-    assert.equal(B.console.authenticate().ok, false);
+    assert.equal(B.console.authenticate({ provenance: ctx.testMint.console("local") }).ok, false);
     for (const k of ["DAMAR_OWNER", "OWNER", "DAMAR_OWNER_TRUSTED"]) delete process.env[k];
 });
 
 test("STAGE 8 console: authentication is temporary and revocation-checked on every call", async () => {
     const ctx = await makeComposed();
     const B = ctx.comp.channelBinders;
-    const binding = await B.console.bind({ proof: ownerProof(ctx), purpose: "owner-proof" });
-    assert.equal(B.console.authenticate().ok, true);
+    const binding = await B.console.bind({ proof: ownerProof(ctx), purpose: "owner-proof", provenance: ctx.testMint.console("local") });
+    assert.equal(B.console.authenticate({ provenance: ctx.testMint.console("local") }).ok, true);
     await ctx.comp.registry.revokeBinding({ bindingId: binding.bindingId });
-    assert.equal(B.console.authenticate().ok, false, "revocation must apply immediately");
+    assert.equal(B.console.authenticate({ provenance: ctx.testMint.console("local") }).ok, false, "revocation must apply immediately");
 });
 
 test("STAGE 9 telegram: transport-owned sender peer authenticates; spoofed IDs fail closed", async () => {
     const ctx = await makeComposed();
     const B = ctx.comp.channelBinders;
-    await B.telegram.bind({ proof: ownerProof(ctx), purpose: "owner-proof", senderPeer: "12345" });
-    assert.equal(B.telegram.authenticate({ senderPeer: "12345" }).principalId, "owner-ardi");
-    assert.equal(B.telegram.authenticate({ senderPeer: "99999" }).code, "OT_PEER_NOT_BOUND");
-    // raw ID in a payload was never evidence: unbound peers simply have no binding
-    assert.equal(B.telegram.authenticate({ senderPeer: "12345 " }).code, "OT_PEER_INVALID");
+    await B.telegram.bind({ proof: ownerProof(ctx), purpose: "owner-proof", provenance: ctx.testMint.telegram("12345") });
+    assert.equal(B.telegram.authenticate({ provenance: ctx.testMint.telegram("12345") }).principalId, "owner-ardi");
+    assert.equal(B.telegram.authenticate({ provenance: ctx.testMint.telegram("99999") }).code, "OT_PEER_NOT_BOUND");
+    // raw ID in a payload was never evidence: a malformed peer key cannot
+    // even be minted by a canonical adapter (fail closed at the mint).
+    assert.throws(() => ctx.testMint.telegram("12345 "),
+        (e) => e.code === "OT_PROVENANCE_CONTEXT_INVALID");
 });
 
 test("STAGE 9 telegram: TOTP absent — telegram ID / phone is never an Owner root", async () => {
@@ -99,43 +92,43 @@ test("STAGE 9 telegram: TOTP absent — telegram ID / phone is never an Owner ro
     const surface = Object.keys(B.telegram);
     assert.ok(!surface.some((k) => k.toLowerCase().includes("totp")));
     // Telegram ID alone can never authenticate.
-    assert.equal(B.telegram.authenticate({ senderPeer: "12345" }).code, "OT_PEER_NOT_BOUND");
+    assert.equal(B.telegram.authenticate({ provenance: ctx.testMint.telegram("12345") }).code, "OT_PEER_NOT_BOUND");
 });
 
 test("STAGE 10 whatsapp: transport-owned JID authenticates; spoofed JIDs fail closed", async () => {
     const ctx = await makeComposed();
     const B = ctx.comp.channelBinders;
-    await B.whatsapp.bind({ proof: ownerProof(ctx), purpose: "owner-proof", jid: "62812@s.whatsapp.net" });
-    assert.equal(B.whatsapp.authenticate({ jid: "62812@s.whatsapp.net" }).principalId, "owner-ardi");
-    assert.equal(B.whatsapp.authenticate({ jid: "62899@s.whatsapp.net" }).code, "OT_PEER_NOT_BOUND");
+    await B.whatsapp.bind({ proof: ownerProof(ctx), purpose: "owner-proof", provenance: ctx.testMint.whatsapp("62812@s.whatsapp.net") });
+    assert.equal(B.whatsapp.authenticate({ provenance: ctx.testMint.whatsapp("62812@s.whatsapp.net") }).principalId, "owner-ardi");
+    assert.equal(B.whatsapp.authenticate({ provenance: ctx.testMint.whatsapp("62899@s.whatsapp.net") }).code, "OT_PEER_NOT_BOUND");
 });
 
 test("STAGE 10 whatsapp: JID alone is never Owner; phone-number claims cannot bind", async () => {
     const ctx = await makeComposed();
     const B = ctx.comp.channelBinders;
-    await assert.rejects(() => B.whatsapp.bind({ proof: null, purpose: "owner-proof", jid: "62812@s.whatsapp.net" }),
+    await assert.rejects(() => B.whatsapp.bind({ proof: null, purpose: "owner-proof", provenance: ctx.testMint.whatsapp("62812@s.whatsapp.net") }),
         (e) => e.code === "OT_PROOF_NONCE_INVALID" || e.code === "OT_PROOF_INVALID");
-    assert.equal(B.whatsapp.authenticate({ jid: "62812@s.whatsapp.net" }).ok, false);
+    assert.equal(B.whatsapp.authenticate({ provenance: ctx.testMint.whatsapp("62812@s.whatsapp.net") }).ok, false);
 });
 
 test("all binders: credential rotation stales existing bindings (PERSISTED TRUST != LIVE AUTH)", async () => {
     const ctx = await makeComposed();
     const B = ctx.comp.channelBinders;
-    await B.console.bind({ proof: ownerProof(ctx), purpose: "owner-proof" });
-    await B.telegram.bind({ proof: ownerProof(ctx), purpose: "owner-proof", senderPeer: "12345" });
-    await B.whatsapp.bind({ proof: ownerProof(ctx), purpose: "owner-proof", jid: "62812@s.whatsapp.net" });
-    assert.equal(B.console.authenticate().ok, true);
-    assert.equal(B.telegram.authenticate({ senderPeer: "12345" }).ok, true);
-    assert.equal(B.whatsapp.authenticate({ jid: "62812@s.whatsapp.net" }).ok, true);
+    await B.console.bind({ proof: ownerProof(ctx), purpose: "owner-proof", provenance: ctx.testMint.console("local") });
+    await B.telegram.bind({ proof: ownerProof(ctx), purpose: "owner-proof", provenance: ctx.testMint.telegram("12345") });
+    await B.whatsapp.bind({ proof: ownerProof(ctx), purpose: "owner-proof", provenance: ctx.testMint.whatsapp("62812@s.whatsapp.net") });
+    assert.equal(B.console.authenticate({ provenance: ctx.testMint.console("local") }).ok, true);
+    assert.equal(B.telegram.authenticate({ provenance: ctx.testMint.telegram("12345") }).ok, true);
+    assert.equal(B.whatsapp.authenticate({ provenance: ctx.testMint.whatsapp("62812@s.whatsapp.net") }).ok, true);
     // Rotate the Owner credential: every prior binding becomes stale.
     const kp2 = crypto.generateKeyPairSync("ed25519");
     await ctx.comp.registry.rotateCredential({
         principalId: "owner-ardi",
         newCredential: { credentialId: "cred-live2", publicKeyPem: pem(kp2) }
     });
-    assert.equal(B.console.authenticate().code, "OT_GENERATION_STALE");
-    assert.equal(B.telegram.authenticate({ senderPeer: "12345" }).code, "OT_GENERATION_STALE");
-    assert.equal(B.whatsapp.authenticate({ jid: "62812@s.whatsapp.net" }).code, "OT_GENERATION_STALE");
+    assert.equal(B.console.authenticate({ provenance: ctx.testMint.console("local") }).code, "OT_GENERATION_STALE");
+    assert.equal(B.telegram.authenticate({ provenance: ctx.testMint.telegram("12345") }).code, "OT_GENERATION_STALE");
+    assert.equal(B.whatsapp.authenticate({ provenance: ctx.testMint.whatsapp("62812@s.whatsapp.net") }).code, "OT_GENERATION_STALE");
     // Rebinding requires a fresh ceremony with the NEW credential.
     ctx.ownerKey.privateKey = kp2.privateKey;
     ctx.comp.proofVerifier; // verifier is bound to the registry, which now knows cred-live2
@@ -145,9 +138,9 @@ test("all binders: credential rotation stales existing bindings (PERSISTED TRUST
     }), kp2.privateKey);
     await B.telegram.bind({
         proof: { nonce: ch.nonce, signature: sig.toString("base64url") },
-        purpose: "owner-proof", senderPeer: "12345"
+        purpose: "owner-proof", provenance: ctx.testMint.telegram("12345")
     });
-    assert.equal(B.telegram.authenticate({ senderPeer: "12345" }).ok, true);
+    assert.equal(B.telegram.authenticate({ provenance: ctx.testMint.telegram("12345") }).ok, true);
 });
 
 test("all binders: ADMIN proof can bind a peer to the admin principal (delegated trust)", async () => {
@@ -164,9 +157,9 @@ test("all binders: ADMIN proof can bind a peer to the admin principal (delegated
     }), kpA.privateKey);
     await B.telegram.bind({
         proof: { nonce: ch.nonce, signature: sig.toString("base64url") },
-        purpose: "admin-proof", senderPeer: "777"
+        purpose: "admin-proof", provenance: ctx.testMint.telegram("777")
     });
-    const auth = B.telegram.authenticate({ senderPeer: "777" });
+    const auth = B.telegram.authenticate({ provenance: ctx.testMint.telegram("777") });
     assert.equal(auth.ok, true);
     assert.equal(auth.principalId, "admin-1");
 });

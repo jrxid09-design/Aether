@@ -21,21 +21,7 @@ const { realClock } = require("../../src/embodiment/core/util");
 async function makeComposed() {
     const comp = await composeOwnerTrustForTest({ stateFile: null });
     const b = await comp.firstOwnerBootstrap.begin({ principalId: "owner-ardi" });
-    const privKey = crypto.createPrivateKey(b.privateKeyPem);
-    const sig = crypto.sign(null, canonicalChallenge({
-        purpose: BOOTSTRAP_PURPOSE,
-        credentialId: b.credentialId,
-        nonce: b.challenge.nonce,
-        context: BOOTSTRAP_CONTEXT
-    }), privKey);
-    await comp.firstOwnerBootstrap.complete({
-        principalId: "owner-ardi",
-        credentialId: b.credentialId,
-        publicKeyPem: b.publicKeyPem,
-        privateKeyPem: b.privateKeyPem,
-        challenge: b.challenge,
-        signature: sig.toString("base64url")
-    });
+    await comp.firstOwnerBootstrap.complete({ ceremonyId: b.ceremonyId });
     return comp;
 }
 

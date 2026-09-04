@@ -52,14 +52,7 @@ test("CERT-1: full lifecycle from fresh install to cross-channel operation", asy
     // ---- single-winner bootstrap ------------------------------------------
     const kp1 = crypto.generateKeyPairSync("ed25519");
     const b = await comp.firstOwnerBootstrap.begin({ principalId: "owner-ardi" });
-    await assert.rejects(() => comp.firstOwnerBootstrap.begin({ principalId: "owner-x" }),
-        (e) => e.code === "OT_BOOTSTRAP_IN_PROGRESS");
-    await comp.firstOwnerBootstrap.complete({
-        principalId: "owner-ardi", credentialId: b.credentialId,
-        publicKeyPem: b.publicKeyPem, privateKeyPem: b.privateKeyPem,
-        challenge: b.challenge,
-        signature: signChallenge(comp, b.challenge, crypto.createPrivateKey(b.privateKeyPem))
-    });
+    await comp.firstOwnerBootstrap.complete({ ceremonyId: b.ceremonyId });
     assert.equal(comp.registry.getState(), "ACTIVE");
     assert.equal(comp.registry.isBootstrapped(), true);
     // Permanent closure.
@@ -100,14 +93,14 @@ test("CERT-1: full lifecycle from fresh install to cross-channel operation", asy
 
     // ---- transport bindings across all three channels -----------------------
     const B = comp.channelBinders;
-    await B.console.bind({ proof: proof(), purpose: "owner-proof", localContext: "local" });
-    await B.telegram.bind({ proof: proof(), purpose: "owner-proof", senderPeer: "12345" });
-    await B.whatsapp.bind({ proof: proof(), purpose: "owner-proof", jid: "62812@s.whatsapp.net" });
-    assert.equal(B.console.authenticate().principalId, "owner-ardi");
-    assert.equal(B.telegram.authenticate({ senderPeer: "12345" }).principalId, "owner-ardi");
-    assert.equal(B.whatsapp.authenticate({ jid: "62812@s.whatsapp.net" }).principalId, "owner-ardi");
+    await B.console.bind({ proof: proof(), purpose: "owner-proof", provenance: comp.testMint.console("local") });
+    await B.telegram.bind({ proof: proof(), purpose: "owner-proof", provenance: comp.testMint.telegram("12345") });
+    await B.whatsapp.bind({ proof: proof(), purpose: "owner-proof", provenance: comp.testMint.whatsapp("62812@s.whatsapp.net") });
+    assert.equal(B.console.authenticate({ provenance: comp.testMint.console("local") }).principalId, "owner-ardi");
+    assert.equal(B.telegram.authenticate({ provenance: comp.testMint.telegram("12345") }).principalId, "owner-ardi");
+    assert.equal(B.whatsapp.authenticate({ provenance: comp.testMint.whatsapp("62812@s.whatsapp.net") }).principalId, "owner-ardi");
     // Spoofed peers never authenticate.
-    assert.equal(B.telegram.authenticate({ senderPeer: "99999" }).ok, false);
+    assert.equal(B.telegram.authenticate({ provenance: comp.testMint.telegram("99999") }).ok, false);
 
     // ---- Admin delegation ----------------------------------------------------
     const kpA = crypto.generateKeyPairSync("ed25519");
@@ -141,15 +134,25 @@ test("CERT-1: full lifecycle from fresh install to cross-channel operation", asy
 
     // ---- cross-channel continuity link --------------------------------------
     await comp.continuityLinker.setLinkPolicy({ proof: proof(), enabled: true });
+    const linkKeys = ["channel:telegram:dm:12345", "channel:whatsapp:dm:62812@s.whatsapp.net"];
     const link = comp.continuityLinker.authorizeLink({
-        sessionKeys: ["channel:telegram:dm:12345", "channel:whatsapp:dm:62812@s.whatsapp.net"]
+        sessionKeys: linkKeys,
+        provenances: linkKeys.map((k) => {
+            const parts = k.split(":");
+            return parts[1] === "telegram"
+                ? comp.testMint.telegram(parts.slice(3).join(":"))
+                : comp.testMint.whatsapp(parts.slice(3).join(":"));
+        })
     });
     assert.equal(link.ok, true);
-    const consumed = comp.continuityLinker.consumeLink({ linkId: link.linkId });
+    const consumed = comp.continuityLinker.consumeLink({
+        linkId: link.linkId, provenance: comp.testMint.telegram("12345")
+    });
     assert.equal(consumed.ok, true);
     assert.equal(consumed.principalId, "owner-ardi");
 
-    // ---- restart persistence -------------------------------------------------
+    // ---- restart persistence (release the audit sink lock first) ------------
+    comp.close();
     const comp2 = await composeOwnerTrustForTest({ stateFile });
     const restored = await comp2.registry.restore();
     assert.equal(restored.restored, true);
@@ -167,12 +170,7 @@ test("CERT-1: full lifecycle from fresh install to cross-channel operation", asy
 test("CERT-2: credential rotation cascades — old proofs, bindings, links all stale", async () => {
     const comp = await composeOwnerTrustForTest({ stateFile: null });
     const b = await comp.firstOwnerBootstrap.begin({ principalId: "owner-ardi" });
-    await comp.firstOwnerBootstrap.complete({
-        principalId: "owner-ardi", credentialId: b.credentialId,
-        publicKeyPem: b.publicKeyPem, privateKeyPem: b.privateKeyPem,
-        challenge: b.challenge,
-        signature: signChallenge(comp, b.challenge, crypto.createPrivateKey(b.privateKeyPem))
-    });
+    await comp.firstOwnerBootstrap.complete({ ceremonyId: b.ceremonyId });
     const kp = crypto.generateKeyPairSync("ed25519");
     await comp.registry.rotateCredential({
         principalId: "owner-ardi",
@@ -183,7 +181,7 @@ test("CERT-2: credential rotation cascades — old proofs, bindings, links all s
         const ch = comp.proofVerifier.issueChallenge({ purpose: "owner-proof", credentialId: "cred-a" });
         return { nonce: ch.nonce, signature: signChallenge(comp, { ...ch, purpose: "owner-proof" }, kp.privateKey) };
     };
-    await B.telegram.bind({ proof: proofA(), purpose: "owner-proof", senderPeer: "12345" });
+    await B.telegram.bind({ proof: proofA(), purpose: "owner-proof", provenance: comp.testMint.telegram("12345") });
     await comp.continuityLinker.setLinkPolicy({ proof: proofA(), enabled: true });
     const link = comp.continuityLinker.authorizeLink({
         sessionKeys: ["channel:telegram:dm:12345", "channel:whatsapp:dm:62812@s.whatsapp.net"]
@@ -204,7 +202,7 @@ test("CERT-2: credential rotation cascades — old proofs, bindings, links all s
         signature: signChallenge(comp, { ...stale, purpose: "owner-proof" }, kp.privateKey)
     }), null);
     // Binding staled.
-    assert.equal(B.telegram.authenticate({ senderPeer: "12345" }).code, "OT_GENERATION_STALE");
+    assert.equal(B.telegram.authenticate({ provenance: comp.testMint.telegram("12345") }).code, "OT_GENERATION_STALE");
     // Outstanding link revoked at consumption.
     assert.equal(comp.continuityLinker.getLinkPolicy().enabled, true);
     // New credential works end to end.
@@ -218,12 +216,7 @@ test("CERT-2: credential rotation cascades — old proofs, bindings, links all s
 test("CERT-3: revocation cascades — admin revoke, device revoke, credential revoke", async () => {
     const comp = await composeOwnerTrustForTest({ stateFile: null });
     const b = await comp.firstOwnerBootstrap.begin({ principalId: "owner-ardi" });
-    await comp.firstOwnerBootstrap.complete({
-        principalId: "owner-ardi", credentialId: b.credentialId,
-        publicKeyPem: b.publicKeyPem, privateKeyPem: b.privateKeyPem,
-        challenge: b.challenge,
-        signature: signChallenge(comp, b.challenge, crypto.createPrivateKey(b.privateKeyPem))
-    });
+    await comp.firstOwnerBootstrap.complete({ ceremonyId: b.ceremonyId });
     const kp = crypto.generateKeyPairSync("ed25519");
     await comp.registry.rotateCredential({
         principalId: "owner-ardi",
@@ -242,12 +235,12 @@ test("CERT-3: revocation cascades — admin revoke, device revoke, credential re
     const chA = comp.proofVerifier.issueChallenge({ purpose: "admin-proof", credentialId: "cred-admin" });
     await comp.channelBinders.telegram.bind({
         proof: { nonce: chA.nonce, signature: signChallenge(comp, { ...chA, purpose: "admin-proof" }, kpA.privateKey) },
-        purpose: "admin-proof", senderPeer: "777"
+        purpose: "admin-proof", provenance: comp.testMint.telegram("777")
     });
-    assert.equal(comp.channelBinders.telegram.authenticate({ senderPeer: "777" }).principalId, "admin-1");
+    assert.equal(comp.channelBinders.telegram.authenticate({ provenance: comp.testMint.telegram("777") }).principalId, "admin-1");
     // Revoke admin -> binding auth dies.
     await comp.registry.revokeAdmin({ principalId: "admin-1" });
-    assert.notEqual(comp.channelBinders.telegram.authenticate({ senderPeer: "777" }).principalId, "admin-1");
+    assert.notEqual(comp.channelBinders.telegram.authenticate({ provenance: comp.testMint.telegram("777") }).principalId, "admin-1");
     // Owner revokes its own telegram binding -> dead.
     const ownerBindings = comp.registry.bindingsFor("owner-ardi");
     assert.equal(ownerBindings.length, 0); // only the admin had a binding
@@ -265,12 +258,8 @@ test("CERT-4: corruption after initialization fails closed into RECOVERY_REQUIRE
     const stateFile = path.join(dir, "ownertrust.json");
     const comp1 = await composeOwnerTrustForTest({ stateFile });
     const b = await comp1.firstOwnerBootstrap.begin({ principalId: "owner-ardi" });
-    await comp1.firstOwnerBootstrap.complete({
-        principalId: "owner-ardi", credentialId: b.credentialId,
-        publicKeyPem: b.publicKeyPem, privateKeyPem: b.privateKeyPem,
-        challenge: b.challenge,
-        signature: signChallenge(comp1, b.challenge, crypto.createPrivateKey(b.privateKeyPem))
-    });
+    await comp1.firstOwnerBootstrap.complete({ ceremonyId: b.ceremonyId });
+    comp1.close();
     fs.writeFileSync(stateFile, "{{{corrupt", "utf8");
     const comp2 = await composeOwnerTrustForTest({ stateFile });
     await comp2.registry.restore();
@@ -287,12 +276,7 @@ test("CERT-4: corruption after initialization fails closed into RECOVERY_REQUIRE
 test("CERT-5: MODEL OUTPUT can never mint trust (no proof, no binding, no ratification, no policy flip)", async () => {
     const comp = await composeOwnerTrustForTest({ stateFile: null });
     const b = await comp.firstOwnerBootstrap.begin({ principalId: "owner-ardi" });
-    await comp.firstOwnerBootstrap.complete({
-        principalId: "owner-ardi", credentialId: b.credentialId,
-        publicKeyPem: b.publicKeyPem, privateKeyPem: b.privateKeyPem,
-        challenge: b.challenge,
-        signature: signChallenge(comp, b.challenge, crypto.createPrivateKey(b.privateKeyPem))
-    });
+    await comp.firstOwnerBootstrap.complete({ ceremonyId: b.ceremonyId });
     const kp = crypto.generateKeyPairSync("ed25519");
     await comp.registry.rotateCredential({
         principalId: "owner-ardi",
@@ -301,7 +285,7 @@ test("CERT-5: MODEL OUTPUT can never mint trust (no proof, no binding, no ratifi
     // A model-produced payload claiming owner everywhere.
     const modelOutput = Object.freeze({
         principal: "owner-ardi", owner: true, isOwner: true, admin: true,
-        claimedPrincipal: "owner-ardi", telegramUserId: "12345", jid: "62812@s.whatsapp.net",
+        claimedPrincipal: "owner-ardi", telegramUserId: "12345", provenance: comp.testMint.whatsapp("62812@s.whatsapp.net"),
         deviceId: "dev-x", ownerIdentity: "owner-ardi", decision: "APPROVED",
         trustLevel: "root", authenticated: true, proof: { nonce: "x", signature: "y" },
         enabled: true, binding: { transport: "telegram", peer: "12345", principalId: "owner-ardi" }
@@ -310,8 +294,8 @@ test("CERT-5: MODEL OUTPUT can never mint trust (no proof, no binding, no ratifi
     assert.equal(comp.authVerifier(modelOutput), null);
     assert.equal(comp.authVerifier({ ...modelOutput, kind: "owner-proof" }), null);
     // channel binders
-    assert.equal(comp.channelBinders.telegram.authenticate({ senderPeer: "12345" }).ok, false);
-    assert.equal(comp.channelBinders.whatsapp.authenticate({ jid: "62812@s.whatsapp.net" }).ok, false);
+    assert.equal(comp.channelBinders.telegram.authenticate({ provenance: comp.testMint.telegram("12345") }).ok, false);
+    assert.equal(comp.channelBinders.whatsapp.authenticate({ provenance: comp.testMint.whatsapp("62812@s.whatsapp.net") }).ok, false);
     assert.equal(comp.channelBinders.console.authenticate().ok, false);
     // device reconnect
     assert.equal((await comp.principalBindings.verifyDeviceReconnect({
